@@ -576,7 +576,9 @@ function router(page = currentPage) {
   console.log('[SparkQ] Router called with page:', page);
   Object.keys(pages).forEach((pageName) => {
     if (pages[pageName]) {
-      pages[pageName].style.display = pageName === page ? 'block' : 'none';
+      const shouldShow = pageName === page;
+      pages[pageName].style.display = shouldShow ? 'block' : 'none';
+      console.log(`[SparkQ] Page ${pageName}: display=${pages[pageName].style.display}`);
     }
   });
 
@@ -598,9 +600,17 @@ function router(page = currentPage) {
       console.log('[SparkQ] Page rendered successfully:', pageKey);
     } catch (err) {
       console.error('[SparkQ] Error rendering page:', pageKey, err);
+      // Fallback: show error in page
+      if (pages[page]) {
+        pages[page].innerHTML = `<div class="card"><p class="error">Error loading ${page}: ${err.message}</p></div>`;
+      }
     }
   } else {
     console.warn('[SparkQ] Page renderer not found:', pageKey, 'Available:', Object.keys(window.Pages || {}));
+    // Fallback: show placeholder
+    if (pages[page]) {
+      pages[page].innerHTML = `<div class="card"><p class="muted">Page module not loaded: ${pageKey}</p><p class="muted">Available: ${Object.keys(window.Pages || {}).join(', ')}</p></div>`;
+    }
   }
 }
 
