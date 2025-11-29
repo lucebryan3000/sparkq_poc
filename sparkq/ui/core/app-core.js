@@ -544,6 +544,17 @@ function cachePages() {
   pages.enqueue = document.getElementById('enqueue-page');
   pages.config = document.getElementById('config-page');
   pages.scripts = document.getElementById('scripts-page');
+
+  // Verify all pages were cached
+  const missing = [];
+  ['dashboard', 'sessions', 'streams', 'tasks', 'enqueue', 'config', 'scripts'].forEach(name => {
+    if (!pages[name]) {
+      missing.push(name);
+    }
+  });
+  if (missing.length > 0) {
+    console.error('[SparkQ] Missing page elements:', missing);
+  }
 }
 
 function setupNavTabs() {
@@ -716,6 +727,17 @@ document.addEventListener('DOMContentLoaded', () => {
   cachePages();
   console.log('[SparkQ] Pages cached:', Object.keys(pages));
   console.log('[SparkQ] Window.Pages:', Object.keys(window.Pages || {}));
+
+  // Export diagnostic object for debugging
+  window.SparkQDebug = {
+    pages,
+    Pages: window.Pages,
+    currentPage,
+    api: window.API?.api,
+    utils: Object.keys(window.Utils || {}),
+  };
+  console.log('[SparkQ] Debug info available as window.SparkQDebug');
+
   setupNavTabs();
   router(currentPage);
   startStatusPolling();
