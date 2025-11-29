@@ -11,6 +11,7 @@ from typing import Optional
 import typer
 
 from .storage import Storage
+from .index import ScriptIndex
 
 app = typer.Typer(
     name="sparkq",
@@ -948,6 +949,56 @@ def purge(
 ):
     """Delete old succeeded/failed tasks."""
     _emit_error("Purge command not implemented yet", "Check sparkq.yml purge settings")
+
+
+# === Scripts Commands ===
+
+scripts_app = typer.Typer(help="Manage and discover scripts")
+
+
+@scripts_app.command("list", help="List all available scripts")
+@cli_handler
+def scripts_list():
+    """Display all discovered scripts with metadata."""
+    script_index = ScriptIndex(config_path="sparkq.yml")
+    script_index.build()
+    scripts = script_index.list_all()
+
+    if not scripts:
+        typer.echo("No scripts found.")
+        return
+
+    typer.echo(f"\nScripts ({len(scripts)} total):\n")
+    for script in scripts:
+        name = script.get("name", "—")
+        desc = script.get("description") or "—"
+        tags = ", ".join(script.get("tags", []))
+        typer.echo(f"  {name:30} {desc:30} {tags}")
+    typer.echo()
+
+
+@scripts_app.command("search", help="Search for scripts by name, description, or tags")
+@cli_handler
+def scripts_search(query: str = typer.Argument(..., help="Search query")):
+    """Search scripts by name, description, or tags."""
+    script_index = ScriptIndex(config_path="sparkq.yml")
+    script_index.build()
+    results = script_index.search(query)
+
+    if not results:
+        typer.echo(f"No scripts found matching '{query}'.")
+        return
+
+    typer.echo(f"\nSearch results for '{query}' ({len(results)} match{'es' if len(results) != 1 else ''}):\n")
+    for script in results:
+        name = script.get("name", "—")
+        desc = script.get("description") or "—"
+        tags = ", ".join(script.get("tags", []))
+        typer.echo(f"  {name:30} {desc:30} {tags}")
+    typer.echo()
+
+
+app.add_typer(scripts_app, name="scripts")
 
 
 if __name__ == "__main__":
