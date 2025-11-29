@@ -1520,7 +1520,13 @@ async function renderSessionsPage() {
           </tbody>
         </table>
       `
-    : `<p class="muted">No sessions found.</p>`;
+    : `
+        <div class="muted" style="padding: 20px; text-align: center; background: rgba(0,0,0,0.05); border-radius: 4px;">
+          <p>No sessions found.</p>
+          <p style="font-size: 13px; margin-top: 8px;">A project must be initialized before creating sessions.</p>
+          <p style="font-size: 13px;">Run <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 2px;">sparkq setup</code> in your terminal to initialize a project.</p>
+        </div>
+      `;
 
   container.innerHTML = `
     <div class="card">
@@ -1549,7 +1555,12 @@ async function handleCreateSession() {
     showSuccess(`Session "${sessionName}" created`);
     renderSessionsPage();
   } catch (err) {
-    handleApiError('create session', err);
+    const detail = err?.message || err || 'Unknown error';
+    if (detail.includes('No project found')) {
+      showError('No project found. Run "sparkq setup" first to initialize a project.');
+    } else {
+      handleApiError('create session', err);
+    }
   }
 }
 
