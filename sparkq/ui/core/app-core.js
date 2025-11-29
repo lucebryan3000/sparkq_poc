@@ -729,7 +729,6 @@ window.Utils = {
   applyTheme,
   toggleTheme,
 };
-window.Pages = {};
 
 // ===== INITIALIZATION =====
 
