@@ -1521,10 +1521,10 @@ async function renderSessionsPage() {
         </table>
       `
     : `
-        <div class="muted" style="padding: 20px; text-align: center; background: rgba(0,0,0,0.05); border-radius: 4px;">
-          <p>No sessions found.</p>
-          <p style="font-size: 13px; margin-top: 8px;">A project must be initialized before creating sessions.</p>
-          <p style="font-size: 13px;">Run <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 2px;">sparkq setup</code> in your terminal to initialize a project.</p>
+        <div style="padding: 20px; text-align: center; background: rgba(0,0,0,0.05); border-radius: 4px;">
+          <p class="muted">No sessions found.</p>
+          <p class="muted" style="font-size: 13px; margin-top: 8px;">A project must be initialized before creating sessions.</p>
+          <button class="button primary" id="setup-project-btn" style="margin-top: 12px;">Initialize Project</button>
         </div>
       `;
 
@@ -1540,8 +1540,98 @@ async function renderSessionsPage() {
 
   const createBtn = container.querySelector('#create-session-btn');
   if (createBtn) {
-    createBtn.addEventListener('click', () => handleCreateSession(container));
+    createBtn.addEventListener('click', () => showProjectSetupModal());
   }
+
+  // If no sessions, also show setup button in empty state
+  const setupBtn = container.querySelector('#setup-project-btn');
+  if (setupBtn) {
+    setupBtn.addEventListener('click', () => showProjectSetupModal());
+  }
+}
+
+async function showProjectSetupModal() {
+  // Check if project exists
+  try {
+    const response = await api('GET', '/api/projects', null, { action: 'check projects' });
+    if (response?.projects && response.projects.length > 0) {
+      // Project exists, show session creation dialog
+      handleCreateSession();
+      return;
+    }
+  } catch (err) {
+    // Project doesn't exist, proceed with setup
+  }
+
+  // Create setup modal
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px;">
+      <h2>Initialize Project</h2>
+      <p class="muted">Before creating sessions, you need to initialize a project.</p>
+      <form id="project-setup-form">
+        <div class="input-group">
+          <label for="setup-project-name">Project Name *</label>
+          <input type="text" id="setup-project-name" placeholder="e.g., my-project" required />
+        </div>
+        <div class="input-group">
+          <label for="setup-repo-path">Repository Path (optional)</label>
+          <input type="text" id="setup-repo-path" placeholder="e.g., /path/to/repo" />
+        </div>
+        <div class="input-group">
+          <label for="setup-prd-path">PRD File Path (optional)</label>
+          <input type="text" id="setup-prd-path" placeholder="e.g., /path/to/prd.md" />
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px;">
+          <button type="button" class="button secondary" id="setup-cancel-btn">Cancel</button>
+          <button type="submit" class="button primary">Create Project</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const form = modal.querySelector('#project-setup-form');
+  const nameInput = modal.querySelector('#setup-project-name');
+  const repoInput = modal.querySelector('#setup-repo-path');
+  const prdInput = modal.querySelector('#setup-prd-path');
+  const cancelBtn = modal.querySelector('#setup-cancel-btn');
+
+  cancelBtn.addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.remove();
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const projectName = nameInput.value.trim();
+    if (!projectName) {
+      showError('Project name is required');
+      return;
+    }
+
+    try {
+      await api(
+        'POST',
+        '/api/projects',
+        {
+          name: projectName,
+          repo_path: repoInput.value.trim() || null,
+          prd_path: prdInput.value.trim() || null,
+        },
+        { action: 'create project' }
+      );
+      showSuccess(`Project "${projectName}" created successfully`);
+      modal.remove();
+      renderSessionsPage();
+    } catch (err) {
+      handleApiError('create project', err);
+    }
+  });
+
+  nameInput.focus();
 }
 
 async function handleCreateSession() {

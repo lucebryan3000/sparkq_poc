@@ -142,6 +142,18 @@ class TaskFailRequest(BaseModel):
     error_type: Optional[str] = None
 
 
+class ProjectCreateRequest(BaseModel):
+    name: str
+    repo_path: Optional[str] = None
+    prd_path: Optional[str] = None
+
+
+class ProjectUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    repo_path: Optional[str] = None
+    prd_path: Optional[str] = None
+
+
 def _serialize_task(task: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize task fields for API responses."""
     serialized = dict(task)
@@ -527,6 +539,85 @@ async def build_script_index():
         return _error_response("Internal server error", 500)
 
     return script_index.list_all()
+
+
+@app.get("/api/projects")
+async def list_projects():
+    """List all projects (currently only one in v1)"""
+    project = storage.get_project()
+    return {"projects": [project] if project else []}
+
+
+@app.get("/api/projects/{project_id}")
+async def get_project(project_id: str):
+    """Get a specific project by ID"""
+    project = storage.get_project()
+    if not project or project.get("id") != project_id:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"project": project}
+
+
+@app.post("/api/projects", status_code=201)
+async def create_project(request: ProjectCreateRequest):
+    """Create a new project (replaces existing in v1)"""
+    if not request.name or not request.name.strip():
+        raise HTTPException(status_code=400, detail="Project name is required")
+
+    # Delete existing project if any (v1: single project only)
+    existing = storage.get_project()
+    if existing:
+        with storage.connection() as conn:
+            conn.execute("DELETE FROM projects")
+
+    project = storage.create_project(
+        request.name.strip(),
+        request.repo_path,
+        request.prd_path,
+    )
+    return {"project": project}
+
+
+@app.put("/api/projects/{project_id}")
+async def update_project(project_id: str, request: ProjectUpdateRequest):
+    """Update project details"""
+    existing = storage.get_project()
+    if not existing or existing.get("id") != project_id:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if request.name is None and request.repo_path is None and request.prd_path is None:
+        raise HTTPException(status_code=400, detail="No fields provided to update project")
+
+    updates = []
+    params = []
+
+    if request.name is not None:
+        if not request.name.strip():
+            raise HTTPException(status_code=400, detail="Project name cannot be empty")
+        updates.append("name = ?")
+        params.append(request.name.strip())
+
+    if request.repo_path is not None:
+        updates.append("repo_path = ?")
+        params.append(request.repo_path)
+
+    if request.prd_path is not None:
+        updates.append("prd_path = ?")
+        params.append(request.prd_path)
+
+    updates.append("updated_at = ?")
+    params.append(now_iso())
+    params.append(project_id)
+
+    with storage.connection() as conn:
+        cursor = conn.execute(
+            f"UPDATE projects SET {', '.join(updates)} WHERE id = ?",
+            tuple(params),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+    updated_project = storage.get_project()
+    return {"project": updated_project}
 
 
 @app.get("/api/config")
