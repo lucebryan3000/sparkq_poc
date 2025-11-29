@@ -64,9 +64,9 @@ python -m sparkq.src.cli tasks --stream [name]
 ```
 sparkq/
 ├── requirements.txt
-├── setup.sh
-├── teardown.sh
-├── sparkq-watcher.sh
+├── requirements-test.txt
+├── pytest.ini
+├── sparkq-watcher.sh      # Stream monitoring (Phase 7)
 ├── src/
 │   ├── __main__.py        # CLI entrypoint
 │   ├── api.py             # FastAPI routes
@@ -79,7 +79,13 @@ sparkq/
 │   ├── index.html
 │   ├── app.js
 │   └── style.css
-└── test_integration.py
+├── data/
+│   └── sparkq.db          # SQLite database (auto-created)
+├── tests/
+│   ├── e2e/
+│   │   └── test_watcher.py
+│   └── unit/
+└── test_integration.py    # Integration test suite
 ```
 
 ## Configuration (`sparkq.yml`)
