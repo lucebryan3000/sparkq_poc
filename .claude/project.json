@@ -1,0 +1,44 @@
+{
+  "name": "sparkqueue",
+  "description": "Distributed task/job queue management system with Python bootstrap deployment",
+  "type": "backend",
+  "primaryLanguage": "python",
+  "pythonVersion": "3.11+",
+  "frameworks": ["python-bootstrap"],
+  "keyFeatures": [
+    "Task queue management",
+    "Job processing",
+    "Distributed task handling",
+    "Bootstrap-based deployment",
+    "Virtual environment management"
+  ],
+  "mainDirs": {
+    "bootstrap": "python-bootstrap",
+    "build": "_build",
+    "logs": "logs",
+    "docs": "docs"
+  },
+  "scripts": {
+    "bootstrap": "./python-bootstrap/bootstrap.sh",
+    "bootstrap-dry-run": "./python-bootstrap/bootstrap.sh --dry-run",
+    "bootstrap-install": "./python-bootstrap/bootstrap.sh --install-only",
+    "stop-process": "./python-bootstrap/stop-env.sh",
+    "kill-process": "./python-bootstrap/kill-python.sh"
+  },
+  "criticalFiles": [
+    "python-bootstrap.config",
+    "python-bootstrap/bootstrap.sh",
+    "python-bootstrap/requirements.txt"
+  ],
+  "keyDependencies": [
+    "pyyaml>=6.0,<7.0"
+  ],
+  "notes": "SparkQueue uses the python-bootstrap system for setup and deployment. All changes must follow the defensive deletion protocol. Run `/investigate <path>` before deleting anything.",
+  "commands": {
+    "dev": "Development setup and bootstrap commands",
+    "test": "Testing and validation",
+    "build": "Build and deployment with bootstrap",
+    "debug": "Debugging Python applications and processes",
+    "investigate": "Defensive dependency checks before deletion"
+  }
+}

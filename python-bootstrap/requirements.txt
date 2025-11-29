@@ -1,0 +1,2 @@
+# Base dependencies (add project-specific deps here or in your project's requirements.txt)
+pyyaml>=6.0,<7.0

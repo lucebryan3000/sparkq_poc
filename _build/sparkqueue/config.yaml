@@ -1,0 +1,40 @@
+# SparkQueue Application Configuration
+# This file configures the SparkQueue task queue system
+
+version: "1.0"
+
+# Application metadata
+app:
+  name: sparkqueue
+  description: Distributed task/job queue management system
+  version: "0.1.0"
+
+# Task queue configuration
+queue:
+  # Queue backend (redis, memory, file)
+  backend: memory
+
+  # Maximum queue size
+  max_size: 10000
+
+  # Task timeout (seconds)
+  task_timeout: 3600
+
+# Worker configuration
+workers:
+  # Number of worker processes
+  num_workers: 2
+
+  # Worker timeout (seconds)
+  worker_timeout: 300
+
+# Logging configuration
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: logs/sparkqueue.log
+
+# Server configuration
+server:
+  host: "127.0.0.1"
+  port: 8000
