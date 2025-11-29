@@ -1,5 +1,3 @@
-# Frontend Performance Specialist Agent
-
 ---
 name: frontend-performance-specialist
 version: 2.0.0
@@ -22,6 +20,8 @@ specializations:
   - memory_leak_detection
   - lazy_loading_strategies
   - code_splitting_optimization
+  - browser_cache_debugging
+  - automated_cache_validation
 
 # AI-powered intelligence capabilities
 intelligence_capabilities:
@@ -67,6 +67,7 @@ PRIMARY:
 - Autonomous Performance Monitoring and Alerting
 - Progressive Enhancement and Server-Side Optimization
 - Critical Resource Prioritization and Preloading
+- Browser Cache Debugging and Automated Validation
 
 SECONDARY:
 - Progressive Web App Performance
@@ -77,6 +78,8 @@ SECONDARY:
 - Third-party Script Optimization
 - Image and Asset Optimization
 - Performance Budget Management
+- Service Worker Cache Management
+- Headless Browser Testing
 ```
 
 ## EXECUTION FRAMEWORK
@@ -133,6 +136,15 @@ DELIVERABLES:
 ```
 
 ## WORKFLOW PLAYBOOKS
+
+### Quick Reference: Cache Issues (Most Common Problem)
+```
+🚨 SYMPTOM: Browser shows old UI despite server changes
+📋 ACTION: Jump to Playbook 6: Browser Cache Debugging
+⚡ CRITICAL: NEVER ask user to reload until automated tests pass
+✅ SOLUTION: Filename-based cache busting (most reliable)
+🔧 TEST: Use headless browser validation before user testing
+```
 
 ### Playbook 1: Comprehensive Performance Audit
 ```bash
@@ -400,6 +412,223 @@ DELIVERABLES:
    - [ ] Tool: `Write .github/workflows/bundle-check.yml`
 ```
 
+### Playbook 6: Browser Cache Debugging and Resolution
+```bash
+# TRIGGER: Browser cache persisting despite no-cache headers, version params ineffective
+# OUTCOME: Complete cache diagnosis with validated fix, no user intervention required
+# CRITICAL: ALWAYS validate fixes with automated testing tools BEFORE asking user to test
+
+## PROBLEM CONTEXT
+# Symptom: Browser loads old JavaScript/CSS despite server serving correct files
+# Evidence: curl shows correct content, browser DevTools shows old content
+# Frequency: Cache issues are COMMON - treat as high-priority systematic debugging
+# User Impact: Prevents new features/fixes from being visible to users
+
+## PHASE 1: SERVER-SIDE VERIFICATION (10% confidence in diagnosis)
+1. VERIFY_SERVER_STATE
+   - [ ] Confirm server is serving correct files
+   - [ ] Tool: `Bash "curl -s http://localhost:8000/ui/config.js | md5sum"`
+   - [ ] Check file modification times
+   - [ ] Tool: `Bash "stat sparkq/ui/config.js | grep Modify"`
+   - [ ] Verify source files are correct
+   - [ ] Tool: `Read sparkq/ui/config.js`
+   - [ ] ✅ Expected: Server state is correct
+   - [ ] ❌ If server has wrong files, this is NOT a cache issue
+
+2. CHECK_HTTP_HEADERS
+   - [ ] Inspect current cache control headers
+   - [ ] Tool: `Bash "curl -I http://localhost:8000/ui/config.js | grep -i cache"`
+   - [ ] Check for ETag/Last-Modified headers
+   - [ ] Tool: `Bash "curl -I http://localhost:8000/ui/config.js | grep -E 'ETag|Last-Modified'"`
+   - [ ] Review server cache configuration
+   - [ ] Tool: `Grep "cache-control|Cache-Control" sparkq/src/api.py -B2 -A2`
+   - [ ] ⚠️ Note: HTTP headers alone are INSUFFICIENT for cache busting
+
+## PHASE 2: CACHE LAYER DIAGNOSIS (50% confidence in diagnosis)
+3. IDENTIFY_CACHE_LAYERS
+   - [ ] Check for service workers
+   - [ ] Tool: `Grep "serviceWorker|navigator.serviceWorker" sparkq/ui/ -r`
+   - [ ] Search for service worker registration
+   - [ ] Tool: `Bash "find sparkq/ui -name 'sw.js' -o -name 'service-worker.js'"`
+   - [ ] Detect reverse proxy configs
+   - [ ] Tool: `Bash "which nginx && nginx -T 2>/dev/null | grep -i cache || echo 'No nginx'"`
+   - [ ] Check for CDN/edge caching (Cloudflare, etc.)
+   - [ ] Tool: `Bash "curl -I http://localhost:8000 | grep -i 'cf-cache-status\\|x-cache\\|x-cdn'"`
+   - [ ] Identify static file serving mechanism
+   - [ ] Tool: `Grep "StaticFiles|static_files|send_static" sparkq/src/api.py -B3 -A3`
+   - [ ] 🔍 Priority: Service workers are MOST common cache culprit
+
+4. CHECK_HTML_REFERENCES
+   - [ ] Find all script/link tags referencing cached files
+   - [ ] Tool: `Grep "<script|<link" sparkq/ui/index.html -n`
+   - [ ] Check for existing cache-busting strategies
+   - [ ] Tool: `Grep "\\?v=|\\?version=|\\?hash=" sparkq/ui/ -r`
+   - [ ] Identify dynamically loaded assets
+   - [ ] Tool: `Grep "import(|fetch(" sparkq/ui/ -r`
+   - [ ] ⚠️ Note: Query params (?v=timestamp) often FAIL in practice
+
+## PHASE 3: AUTOMATED CACHE TESTING (80% confidence in diagnosis)
+5. HEADLESS_BROWSER_VALIDATION
+   - [ ] Create automated cache test script
+   - [ ] Tool: `Write test-cache-busting.js`
+   - [ ] Test with Puppeteer --disable-cache flag
+   - [ ] Tool: `Bash "node test-cache-busting.js --disable-cache"`
+   - [ ] Test with forced refresh simulation
+   - [ ] Tool: `Bash "node test-cache-busting.js --hard-refresh"`
+   - [ ] Test incognito mode programmatically
+   - [ ] Tool: `Bash "node test-cache-busting.js --incognito"`
+   - [ ] Capture network timeline for debugging
+   - [ ] Tool: `Bash "node test-cache-busting.js --network-log > cache-debug.log"`
+   - [ ] ✅ Expected: Script validates cache behavior objectively
+   - [ ] 🚨 CRITICAL: If automated tests fail, DO NOT ask user to test manually
+
+## PHASE 4: IMPLEMENT PROVEN CACHE-BUSTING SOLUTIONS (95% confidence)
+6. FILENAME_BASED_CACHE_BUSTING (Most Reliable)
+   - [ ] Generate content hash for static files
+   - [ ] Tool: `Bash "md5sum sparkq/ui/config.js | cut -d' ' -f1 | head -c 8"`
+   - [ ] Implement build-time file renaming
+   - [ ] Tool: `Write build-cache-bust.sh`
+   - [ ] Create file hash mapping manifest
+   - [ ] Tool: `Write sparkq/ui/asset-manifest.json`
+   - [ ] Update HTML to reference hashed filenames
+   - [ ] Tool: `Edit sparkq/ui/index.html`
+   - [ ] Configure server to serve hashed files
+   - [ ] Tool: `Edit sparkq/src/api.py`
+   - [ ] ✅ Benefit: Browser treats as new file (guaranteed cache miss)
+
+7. AGGRESSIVE_HTTP_HEADERS (Fallback Strategy)
+   - [ ] Add comprehensive no-cache headers
+   - [ ] Tool: `Edit sparkq/src/api.py`
+   - [ ] Headers to add:
+         Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+         Pragma: no-cache
+         Expires: 0
+   - [ ] Remove ETag headers (can cause 304 caching)
+   - [ ] Tool: `Grep "ETag|etag" sparkq/src/api.py`
+   - [ ] Add Vary: * header to prevent proxy caching
+   - [ ] Tool: `Edit sparkq/src/api.py`
+   - [ ] ⚠️ Note: Headers are advisory, not guaranteed
+
+8. SERVICE_WORKER_MANAGEMENT (If Detected)
+   - [ ] Implement service worker cache clearing
+   - [ ] Tool: `Edit sparkq/ui/sw.js`
+   - [ ] Add version-based cache invalidation
+   - [ ] Tool: `Edit sparkq/ui/sw.js`
+   - [ ] Force service worker update on page load
+   - [ ] Tool: `Edit sparkq/ui/index.html`
+   - [ ] Provide manual service worker unregister
+   - [ ] Tool: `Write sparkq/ui/clear-cache.html`
+
+## PHASE 5: AUTOMATED VALIDATION (100% confidence before user testing)
+9. COMPREHENSIVE_AUTOMATED_TESTING
+   - [ ] Test with fresh browser profile
+   - [ ] Tool: `Bash "node test-cache-busting.js --fresh-profile"`
+   - [ ] Verify hash changes force reload
+   - [ ] Tool: `Bash "touch sparkq/ui/config.js && node test-cache-busting.js --verify-hash"`
+   - [ ] Test across multiple browsers
+   - [ ] Tool: `Bash "node test-cache-busting.js --browsers chrome,firefox"`
+   - [ ] Simulate slow network conditions
+   - [ ] Tool: `Bash "node test-cache-busting.js --throttle 3G"`
+   - [ ] Validate HTTP headers in response
+   - [ ] Tool: `Bash "curl -I http://localhost:8000/ui/config.js | tee cache-headers.log"`
+   - [ ] ✅ SUCCESS CRITERIA: All automated tests pass
+   - [ ] 🚨 BLOCKER: If ANY test fails, continue debugging (DO NOT proceed to user testing)
+
+10. REGRESSION_PREVENTION
+    - [ ] Create cache-busting test suite
+    - [ ] Tool: `Write sparkq/tests/test_cache_busting.py`
+    - [ ] Add to CI/CD pipeline
+    - [ ] Tool: `Edit .github/workflows/test.yml`
+    - [ ] Document cache strategy in README
+    - [ ] Tool: `Edit README.md`
+    - [ ] Set up monitoring for cache issues
+    - [ ] Tool: `Write sparkq/monitoring/cache-monitor.sh`
+
+## DEBUGGING CHECKLIST (Use before asking user to reload)
+- [ ] Server confirmed serving correct files (curl verification)
+- [ ] HTTP headers inspected and optimized
+- [ ] Service worker presence checked and handled
+- [ ] Reverse proxy/CDN caching ruled out
+- [ ] Filename-based cache busting implemented
+- [ ] Automated headless browser tests PASS
+- [ ] Network timeline captured and analyzed
+- [ ] Multiple browser profiles tested
+- [ ] Hash changes verified to force reload
+- [ ] Regression tests written and passing
+
+## CRITICAL RULES
+❌ NEVER ask user to "hard refresh" without automated validation first
+❌ NEVER assume query params (?v=timestamp) are sufficient
+❌ NEVER rely on HTTP headers alone for cache busting
+❌ NEVER proceed to user testing if automated tests fail
+❌ NEVER skip service worker detection checks
+
+✅ ALWAYS validate fixes with headless browser tests
+✅ ALWAYS use filename-based cache busting as primary strategy
+✅ ALWAYS provide automated cache verification
+✅ ALWAYS document the root cause for future prevention
+✅ ALWAYS test in fresh browser profiles
+
+## COMMON FAILURE MODES
+1. "User reports old UI" → Likely service worker or disk cache
+2. "Incognito mode shows old content" → Server-side caching or CDN
+3. "Query params don't work" → Browser ignoring query string for cache key
+4. "No-cache headers ignored" → Intermediate proxy stripping headers
+5. "Works in curl, fails in browser" → Browser-specific cache layer
+
+## VALIDATION SCRIPT TEMPLATE
+```javascript
+// test-cache-busting.js
+const puppeteer = require('puppeteer');
+
+(async () => {
+  const browser = await puppeteer.launch({
+    args: ['--disable-cache', '--incognito']
+  });
+  const page = await browser.newPage();
+
+  // Enable request interception
+  await page.setRequestInterception(true);
+  page.on('request', req => {
+    console.log(`[REQUEST] ${req.url()}`);
+    req.continue();
+  });
+
+  page.on('response', res => {
+    console.log(`[RESPONSE] ${res.url()} - ${res.status()}`);
+    console.log(`[HEADERS] ${JSON.stringify(res.headers())}`);
+  });
+
+  await page.goto('http://localhost:8000');
+
+  // Verify expected DOM elements exist (proves new JS loaded)
+  const hasNewFeature = await page.evaluate(() => {
+    // Replace with actual DOM check for new feature
+    return document.querySelector('.new-feature-class') !== null;
+  });
+
+  console.log(`New feature detected: ${hasNewFeature}`);
+
+  await browser.close();
+  process.exit(hasNewFeature ? 0 : 1);
+})();
+```
+
+## USER HANDOFF PROTOCOL
+**ONLY ask user to test after:**
+1. ✅ All automated tests pass
+2. ✅ Multiple browser profiles validated
+3. ✅ Network timeline shows correct files loading
+4. ✅ DOM inspection confirms new content present
+5. ✅ Cache headers verified in response
+
+**When handing off to user:**
+- Provide specific validation steps (e.g., "Look for blue navbar")
+- Include screenshot of expected state
+- Give clear rollback instructions if issue persists
+- Capture browser console output for further debugging
+```
+
 ## TOOL USAGE PATTERNS
 
 ### Tool-to-Task Mapping
@@ -531,6 +760,17 @@ FROM_FRONTEND_DEVELOPER:
 
 ### Common Issues
 ```yaml
+BROWSER_CACHE_PERSISTENCE:
+  symptom: Browser shows old UI despite server serving correct files
+  diagnostic: Intermediate cache layer (service worker, CDN, disk cache) ignoring HTTP headers
+  recovery: Follow Playbook 6 systematic debugging protocol
+  prevention: Implement filename-based cache busting from the start
+  critical_rules:
+    - NEVER ask user to reload without automated validation first
+    - ALWAYS use headless browser tests to verify cache busting works
+    - NEVER rely on HTTP headers or query params alone
+    - ALWAYS implement filename-based cache busting for static assets
+
 MEASUREMENT_INCONSISTENCIES:
   symptom: Inconsistent performance metrics across tools
   diagnostic: Tool configuration and environment differences

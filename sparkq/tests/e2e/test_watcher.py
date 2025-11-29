@@ -10,7 +10,6 @@ WATCHER_SCRIPT = Path(__file__).resolve().parents[2] / "sparkq-watcher.sh"
 
 @pytest.mark.e2e
 @pytest.mark.slow
-@pytest.mark.xfail(reason="sparkq-watcher.sh implementation deferred to Phase 7")
 class TestWatcherBehavior:
     def _lock_path(self, stream_name: str) -> Path:
         return Path(f"/tmp/sparkq-{stream_name}.lock")

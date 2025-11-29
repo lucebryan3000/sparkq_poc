@@ -1,3 +1,7 @@
 # Core runtime dependencies for SparkQueue
 # Delegated to sparkq/requirements.txt to keep a single pinned source of truth.
 -r sparkq/requirements.txt
+
+# Test dependencies (optional)
+# Install with: pip install -r sparkq/requirements-test.txt
+-r sparkq/requirements-test.txt ; python_version >= "3.10"

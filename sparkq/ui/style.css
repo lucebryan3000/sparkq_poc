@@ -614,3 +614,209 @@ a {
     white-space: nowrap;
   }
 }
+
+/* ===== PHASE 15: QUEUE TABS & ENHANCED QUICKADD ===== */
+
+/* Queue Tabs Section */
+.queue-tabs-section {
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.queue-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 0;
+  overflow-x: auto;
+}
+
+.queue-tab {
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 140px;
+  text-align: center;
+}
+
+.queue-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.queue-tab.active {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid #3b82f6;
+  border-bottom: 2px solid #3b82f6;
+  margin-bottom: -2px;
+}
+
+.tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot.active {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.status-dot.planned {
+  background: #71717a;
+}
+
+.tab-progress {
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+.tab-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #71717a;
+  margin-top: 2px;
+}
+
+.new-queue-btn {
+  padding: 12px 20px;
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px dashed #3b82f6;
+  border-radius: 8px 8px 0 0;
+  color: #3b82f6;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+
+.new-queue-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* QuickAdd Mode Toggle */
+.mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.mode-btn {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+
+.mode-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mode-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+/* QuickAdd Tools Button */
+.prompt-input-wrapper {
+  position: relative;
+}
+
+.tools-btn {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #a1a1aa;
+  font-size: 18px;
+  transition: all 0.2s;
+}
+
+.tools-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #52525b;
+}
+
+.tools-popup {
+  position: absolute;
+  right: 0;
+  top: 50px;
+  background: #1a1f2e;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-width: 280px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  padding: 8px 0;
+}
+
+.popup-section {
+  padding: 8px 0;
+}
+
+.popup-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #71717a;
+  padding: 4px 12px;
+  margin-bottom: 4px;
+}
+
+.popup-item {
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.popup-item:hover:not(.disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.popup-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.coming-soon {
+  font-size: 10px;
+  color: #71717a;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  border-radius: 3px;
+}

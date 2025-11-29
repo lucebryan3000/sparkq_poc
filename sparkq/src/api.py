@@ -36,6 +36,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def add_no_cache_headers(request: Request, call_next):
+    """Add no-cache headers to static files to prevent browser caching during development."""
+    response = await call_next(request)
+
+    # Add aggressive no-cache headers to all static UI files
+    if request.url.path.startswith('/ui/'):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        # Remove ETag header if present (prevents 304 Not Modified)
+        if "etag" in response.headers:
+            del response.headers["etag"]
+
+    return response
+
 @app.get("/")
 async def root():
     """Redirect root to UI dashboard."""
@@ -324,6 +340,34 @@ async def list_streams(
     offset: int = Query(0, ge=0),
 ):
     streams = storage.list_streams(session_id=session_id)
+
+    # Enhance with stats
+    for stream in streams:
+        stream_id = stream["id"]
+
+        # Get task counts
+        all_tasks = storage.list_tasks(stream_id=stream_id)
+        total = len(all_tasks)
+        done = len([t for t in all_tasks if t.get("status") == "succeeded"])
+        running = len([t for t in all_tasks if t.get("status") == "running"])
+        queued = len([t for t in all_tasks if t.get("status") == "queued"])
+
+        stream["stats"] = {
+            "total": total,
+            "done": done,
+            "running": running,
+            "queued": queued,
+            "progress": f"{done}/{total}" if total > 0 else "0/0"
+        }
+
+        # Determine status
+        if running > 0:
+            stream["status"] = "active"
+        elif queued > 0:
+            stream["status"] = "planned"
+        else:
+            stream["status"] = "idle"
+
     paginated_streams = streams[offset : offset + limit]
     return {"streams": paginated_streams}
 
@@ -666,3 +710,94 @@ async def get_config():
         "tools": registry.tools or {},
         "task_classes": registry.task_classes or {},
     }
+
+
+@app.get("/api/prompts")
+async def list_prompts():
+    prompts = storage.list_prompts()
+    response_prompts = []
+    for prompt in prompts:
+        prompt_data = {k: v for k, v in prompt.items() if k != "template_text"}
+        response_prompts.append(prompt_data)
+    return {"prompts": response_prompts}
+
+
+@app.get("/api/prompts/{prompt_id}")
+async def get_prompt(prompt_id: str):
+    prompt = storage.get_prompt(prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return {"prompt": prompt}
+
+
+@app.post("/api/prompts", status_code=201)
+async def create_prompt(request: PromptCreateRequest):
+    if not request.command or not request.command.strip():
+        raise HTTPException(status_code=400, detail="Command is required")
+    if not request.label or not request.label.strip():
+        raise HTTPException(status_code=400, detail="Label is required")
+    if not request.template_text or not request.template_text.strip():
+        raise HTTPException(status_code=400, detail="Template text is required")
+
+    command = request.command.strip()
+    label = request.label.strip()
+    template_text = request.template_text.strip()
+    description = request.description.strip() if request.description is not None else None
+
+    try:
+        prompt = storage.create_prompt(command, label, template_text, description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"prompt": prompt}
+
+
+@app.put("/api/prompts/{prompt_id}")
+async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
+    if (
+        request.command is None
+        and request.label is None
+        and request.template_text is None
+        and request.description is None
+    ):
+        raise HTTPException(status_code=400, detail="No fields provided to update prompt")
+
+    command = request.command.strip() if request.command is not None else None
+    if command is not None and not command:
+        raise HTTPException(status_code=400, detail="Command cannot be empty")
+
+    label = request.label.strip() if request.label is not None else None
+    if label is not None and not label:
+        raise HTTPException(status_code=400, detail="Label cannot be empty")
+
+    template_text = request.template_text.strip() if request.template_text is not None else None
+    if template_text is not None and not template_text:
+        raise HTTPException(status_code=400, detail="Template text cannot be empty")
+
+    description = request.description.strip() if request.description is not None else None
+
+    try:
+        prompt = storage.update_prompt(
+            prompt_id,
+            command=command,
+            label=label,
+            template_text=template_text,
+            description=description,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message.lower():
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=400, detail=message) from exc
+
+    return {"prompt": prompt}
+
+
+@app.delete("/api/prompts/{prompt_id}")
+async def delete_prompt(prompt_id: str):
+    try:
+        storage.delete_prompt(prompt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {"message": "Prompt deleted successfully"}

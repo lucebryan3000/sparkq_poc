@@ -17,6 +17,7 @@ build/
 _build/sparkqueue/logs/
 sparkq/logs/
 sparkq/tests/logs/
+sparkq.lock                        # Server lockfile (contains PID)
 
 # Codex generated artifacts (keep README/prompt docs tracked)
 .codex/cache/

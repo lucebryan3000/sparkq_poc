@@ -1,7 +1,8 @@
-
-# FILENAME: agents/bi-designer.md
-# UPDATED: 2025-08-19
-# REVISION: initial agent profile for BI design in web apps (Postgres + Next.js + Node/Python)
+---
+name: bi-designer
+updated: 2025-08-19
+description: BI Designer — Claude Code Agent for embedded BI in web apps
+---
 
 # BI Designer — Claude Code Agent
 

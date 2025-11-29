@@ -1,0 +1,245 @@
+/**
+ * Cache Debugging and Stale Bundle Detection Tests
+ * Validates that we're loading fresh JS bundles, not stale cached versions
+ */
+import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
+import {
+  launchBrowser,
+  navigateWithCacheBust,
+  closeBrowser,
+  getBaseUrl,
+  unregisterServiceWorkers,
+  waitForBundleAndLog,
+  getFunctionSource,
+  checkBundleMarkers,
+  validateDevCacheHeaders,
+  bundlesAreDifferent,
+} from './helpers/index.js';
+
+describe('Cache Debugging and Bundle Validation', () => {
+  let browser;
+  let page;
+
+  beforeAll(async () => {
+    const setup = await launchBrowser();
+    browser = setup.browser;
+    page = setup.page;
+  });
+
+  afterAll(async () => {
+    await closeBrowser(browser);
+  });
+
+  test('should unregister all service workers before tests', async () => {
+    await navigateWithCacheBust(page, getBaseUrl());
+    const swCount = await unregisterServiceWorkers(page);
+
+    // Log for visibility
+    console.log(`✓ Unregistered ${swCount} service worker(s)`);
+
+    // Verify no service workers remain
+    const remainingWorkers = await page.evaluate(async () => {
+      if (!navigator.serviceWorker) return [];
+      const regs = await navigator.serviceWorker.getRegistrations();
+      return regs.map((r) => r.scope);
+    });
+
+    expect(remainingWorkers).toEqual([]);
+  });
+
+  test('should load app-core.js with development-friendly cache headers', async () => {
+    // Navigate with cache bust
+    await navigateWithCacheBust(page, getBaseUrl());
+
+    // Wait for app-core bundle to load
+    const appCoreBundle = await waitForBundleAndLog(page, 'app-core', 15000);
+
+    expect(appCoreBundle.status).toBe(200);
+    expect(appCoreBundle.contentLength).toBeGreaterThan(0);
+
+    // Validate cache headers
+    const cacheValidation = validateDevCacheHeaders(appCoreBundle.headers);
+
+    // In development, we want dev-friendly caching
+    // This test will FAIL if cache headers are too aggressive (e.g., max-age=31536000)
+    if (!cacheValidation.isDevFriendly) {
+      console.error('❌ CACHE HEADER WARNING:');
+      console.error(`   Cache-Control: ${appCoreBundle.headers['cache-control']}`);
+      console.error('   Expected: no-store, no-cache, or max-age < 60');
+      console.error('   This may cause stale bundle issues in development!');
+    }
+
+    // This assertion will catch overly-aggressive caching
+    expect(cacheValidation.isDevFriendly).toBe(true);
+  });
+
+  test('should load fresh bundle content on each cache-bust navigation', async () => {
+    // First load
+    await navigateWithCacheBust(page, getBaseUrl());
+    const bundle1 = await waitForBundleAndLog(page, 'app-core', 15000);
+
+    // Second load with different cache-bust param
+    await page.waitForTimeout(1000);
+    await navigateWithCacheBust(page, getBaseUrl());
+    const bundle2 = await waitForBundleAndLog(page, 'app-core', 15000);
+
+    // Bundles should be identical content (not stale)
+    // but if CDN/proxy ignores query params, we might see issues
+    const areDifferent = bundlesAreDifferent(bundle1.contentPreview, bundle2.contentPreview);
+
+    // Log for visibility
+    console.log(`Bundle comparison: ${areDifferent ? 'DIFFERENT' : 'SAME'}`);
+
+    // In a properly configured dev environment, content should be the SAME
+    // (because we're loading the same current version, not a cached old version)
+    expect(areDifferent).toBe(false);
+  });
+
+  test('should detect expected code markers in app-core.js', async () => {
+    await navigateWithCacheBust(page, getBaseUrl());
+    const appCoreBundle = await waitForBundleAndLog(page, 'app-core', 15000);
+
+    // Define expected markers that should exist in the CURRENT version
+    // Update these when you add new features or modify core functionality
+    const expectedMarkers = [
+      'window.Pages', // Core namespace
+      'function render', // Render functions should exist
+      'APIClient', // API client should be present
+    ];
+
+    const markerResults = checkBundleMarkers(appCoreBundle.contentPreview, expectedMarkers);
+
+    // All expected markers should be present
+    for (const [marker, found] of Object.entries(markerResults)) {
+      if (!found) {
+        console.error(`❌ MISSING MARKER: "${marker}" not found in app-core.js`);
+        console.error('   This may indicate a stale bundle is being served!');
+      }
+      expect(found).toBe(true);
+    }
+  });
+
+  test('should load config.js and verify Config page functionality', async () => {
+    await navigateWithCacheBust(page, getBaseUrl());
+
+    // Wait for config bundle to load
+    const configBundle = await waitForBundleAndLog(page, 'config', 15000);
+    expect(configBundle.status).toBe(200);
+
+    // Navigate to config page
+    await page.click('.nav-tab[data-tab="config"]');
+    await page.waitForTimeout(1000);
+
+    // Verify Pages.Config.render exists and has expected structure
+    const configRenderSource = await getFunctionSource(page, 'Pages.Config.render');
+
+    // Should not be an error message
+    expect(configRenderSource).not.toContain('ERROR:');
+    expect(configRenderSource).toContain('function');
+
+    // Check for expected functionality in render function
+    // Update these markers when you modify the Config page
+    const hasExpectedCode =
+      configRenderSource.includes('container') || configRenderSource.includes('element');
+
+    expect(hasExpectedCode).toBe(true);
+  });
+
+  test('should detect stale bundle if missing new feature markers', async () => {
+    await navigateWithCacheBust(page, getBaseUrl());
+    const configBundle = await waitForBundleAndLog(page, 'config', 15000);
+
+    // Define markers that should exist in the LATEST config.js
+    // When you add new tabs or features to Config page, add markers here
+    const latestFeatureMarkers = [
+      'Pages.Config', // Config namespace should exist
+      // Add more specific markers when new features are added, e.g.:
+      // 'renderProjectTab',
+      // 'renderToolsTab',
+    ];
+
+    const markerResults = checkBundleMarkers(configBundle.contentPreview, latestFeatureMarkers);
+
+    let hasStaleCode = false;
+    for (const [marker, found] of Object.entries(markerResults)) {
+      if (!found) {
+        console.error(`❌ RED FLAG: "${marker}" not found in config.js`);
+        console.error('   This strongly suggests a STALE BUNDLE is being served!');
+        hasStaleCode = true;
+      }
+    }
+
+    // This test FAILS if we're missing expected markers (indicating stale code)
+    expect(hasStaleCode).toBe(false);
+  });
+
+  test('should have all expected bundles loaded', async () => {
+    await navigateWithCacheBust(page, getBaseUrl());
+    await page.waitForTimeout(2000);
+
+    // Check which bundles were loaded
+    const loadedBundles = page._responseLog
+      .filter((r) => r.url.includes('/ui/dist/') && r.url.endsWith('.js'))
+      .map((r) => {
+        const match = r.url.match(/\/([^/]+)\.[\w]+\.js$/);
+        return match ? match[1] : null;
+      })
+      .filter(Boolean);
+
+    console.log('Loaded bundles:', loadedBundles);
+
+    // Expected bundles (based on index.html)
+    const expectedBundles = [
+      'app-core',
+      'ui-utils',
+      'quick-add',
+      'dashboard',
+      'tasks',
+      'enqueue',
+      'sessions',
+      'streams',
+      'config',
+      'scripts',
+    ];
+
+    // All expected bundles should be loaded
+    for (const bundle of expectedBundles) {
+      expect(loadedBundles).toContain(bundle);
+    }
+  });
+
+  test('should not have overly aggressive caching on any bundle', async () => {
+    await navigateWithCacheBust(page, getBaseUrl());
+    await page.waitForTimeout(2000);
+
+    // Check all JS bundles
+    const jsBundles = page._responseLog.filter(
+      (r) => r.url.includes('/ui/dist/') && r.url.endsWith('.js')
+    );
+
+    const cacheIssues = [];
+
+    for (const bundle of jsBundles) {
+      const validation = validateDevCacheHeaders(bundle.headers);
+
+      if (!validation.isDevFriendly) {
+        cacheIssues.push({
+          url: bundle.url,
+          cacheControl: bundle.headers['cache-control'],
+        });
+      }
+    }
+
+    // Report any bundles with aggressive caching
+    if (cacheIssues.length > 0) {
+      console.error('❌ CACHE ISSUES DETECTED:');
+      cacheIssues.forEach((issue) => {
+        console.error(`   ${issue.url}`);
+        console.error(`   Cache-Control: ${issue.cacheControl}`);
+      });
+    }
+
+    // All bundles should have dev-friendly cache headers
+    expect(cacheIssues).toEqual([]);
+  });
+});

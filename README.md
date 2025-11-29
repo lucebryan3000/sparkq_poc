@@ -53,13 +53,13 @@ sparkqueue/
 │   ├── ui/                         # Web dashboard
 │   ├── data/                       # Application data (database)
 │   ├── tests/                      # Test suites
+│   ├── logs/                       # Runtime logs (sparkq.log)
 │   ├── API.md                      # API reference
 │   └── README.md                   # Full SparkQ documentation
 │
 ├── .venv/                          # Python virtual environment (created by bootstrap)
 ├── sparkq.sh                       # CLI wrapper script
 ├── sparkq.yml                      # Configuration (auto-created)
-├── sparkq.log                      # Runtime logs
 │
 ├── python-bootstrap/               # One-time environment bootstrapper
 ├── .claude/                        # Claude Code configuration

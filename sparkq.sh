@@ -25,7 +25,7 @@ Usage: ./sparkq.sh [COMMAND] [OPTIONS]
 
 Server Commands:
   start                  Start server in background
-  restart                Stop, wait 30 seconds, then start (clean restart)
+  restart                Stop, wait 5 seconds, then start (clean restart)
   run [--foreground|--e2e]     Start server (--foreground for interactive, --e2e to run e2e tests)
   stop                   Stop the server
   status                 Check server status
@@ -56,7 +56,7 @@ Options:
 
 Examples:
   ./sparkq.sh start                  # Start server in background
-  ./sparkq.sh restart                # Stop, wait 30s, then start
+  ./sparkq.sh restart                # Stop, wait 5s, then start
   ./sparkq.sh run                    # Start server in foreground
   ./sparkq.sh setup                  # Interactive setup
   ./sparkq.sh session create test    # Create session
@@ -105,8 +105,8 @@ if [[ "${1:-}" == "restart" ]]; then
   echo "Stopping server..."
   set -- stop
   main "$@"
-  echo "Waiting 30 seconds before restart..."
-  sleep 30
+  echo "Waiting 5 seconds before restart..."
+  sleep 5
   echo "Starting server..."
   set -- run --background
   main "$@"

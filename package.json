@@ -1,0 +1,24 @@
+{
+  "name": "sparkqueue",
+  "version": "1.0.0",
+  "description": "SparkQueue - Distributed task queue with Puppeteer E2E tests",
+  "type": "module",
+  "scripts": {
+    "test:browser": "jest --config sparkq/tests/jest.config.js",
+    "test:browser:debug": "PUPPETEER_DEBUG=1 jest --config sparkq/tests/jest.config.js --verbose",
+    "test:browser:headed": "HEADLESS=false jest --config sparkq/tests/jest.config.js",
+    "test:python": "cd sparkq && pytest",
+    "test:python:e2e": "cd sparkq && pytest -m e2e",
+    "test:python:browser": "cd sparkq && pytest tests/browser/",
+    "test:all": "npm run test:python && npm run test:browser"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "jest": "^29.7.0",
+    "jest-html-reporter": "^4.3.0",
+    "puppeteer": "^21.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
