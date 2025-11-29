@@ -2,6 +2,7 @@
 .env
 .venv/
 sparkq/venv/
+.envrc                             # direnv (if used)
 
 # Python cache and build artifacts
 __pycache__/
@@ -19,6 +20,9 @@ sparkq/logs/
 sparkq/tests/logs/
 sparkq.lock                        # Server lockfile (contains PID)
 
+# Node.js - track package-lock for reproducible installs (private repo)
+node_modules/
+
 # Codex generated artifacts (keep README/prompt docs tracked)
 .codex/cache/
 .codex/temp/
@@ -26,3 +30,9 @@ sparkq.lock                        # Server lockfile (contains PID)
 .codex/generated-*/
 .codex/*.tmp
 .codex/*.log
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
