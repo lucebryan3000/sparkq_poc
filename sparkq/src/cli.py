@@ -314,13 +314,15 @@ def status():
         return
 
     try:
-        import requests
+        from urllib.request import urlopen
+        from urllib.error import URLError
+        import socket
 
-        response = requests.get("http://127.0.0.1:5005/health", timeout=2)
-        if response.ok:
-            typer.echo(f"SparkQ server: running (PID {pid}, http://127.0.0.1:5005)")
-            return
-    except Exception:
+        with urlopen("http://127.0.0.1:5005/health", timeout=2) as response:
+            if response.status == 200:
+                typer.echo(f"SparkQ server: running (PID {pid}, http://127.0.0.1:5005)")
+                return
+    except (URLError, socket.timeout, OSError):
         pass
 
     typer.echo(f"SparkQ server: running but API unreachable (PID {pid})")
