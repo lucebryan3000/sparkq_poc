@@ -21,6 +21,11 @@ storage = Storage()
 
 app = FastAPI(title="SparkQ API")
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup"""
+    storage.init_db()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
