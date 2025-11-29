@@ -81,7 +81,7 @@
     container.innerHTML = `
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h2>Streams</h2>
+          <h2>Queues</h2>
           <div style="display: flex; gap: 8px; align-items: center;">
             <span id="refresh-counter" class="muted" style="font-size: 12px;">—</span>
             <button class="button secondary" id="refresh-btn" title="Refresh now" style="padding: 6px 12px; font-size: 16px;">⟳</button>

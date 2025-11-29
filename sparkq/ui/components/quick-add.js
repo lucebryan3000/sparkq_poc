@@ -24,6 +24,10 @@
       this.render();
     }
 
+    setRefreshCallback(callback) {
+      this.refreshCallback = callback;
+    }
+
     render() {
       const container = document.getElementById(this.containerId);
       if (!container) return;
