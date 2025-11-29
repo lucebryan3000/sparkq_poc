@@ -79,7 +79,7 @@ sparkqueue/
 - **FIFO Queues**: Tasks processed in order per stream
 - **Auto-Fail**: Stale tasks auto-fail after 2× timeout
 - **Auto-Purge**: Completed tasks auto-deleted after configurable days
-- **Web UI**: Dashboard at `http://localhost:5005/ui/`
+- **Web UI**: Dashboard at `http://localhost:5005/` (redirects from `/ui/`)
 - **REST API**: Full API with interactive docs at `/docs`
 - **CLI**: Typer-based command-line interface
 - **SQLite WAL**: Efficient concurrent access with WAL mode
@@ -115,6 +115,9 @@ SparkQ server can run in the background without tying up your terminal:
 # Start server in background (recommended - doesn't block terminal)
 ./sparkq.sh --start
 
+# Access dashboard at:
+# http://localhost:5005
+
 # Check if server is running
 ./sparkq.sh status
 
@@ -130,6 +133,7 @@ The background server:
 - Persists the PID in `sparkq.lock` for tracking
 - Can be stopped at any time with `./sparkq.sh --stop`
 - Returns immediately, allowing you to continue using the terminal
+- Dashboard accessible at root URL: `http://localhost:5005/`
 
 ## Troubleshooting
 
