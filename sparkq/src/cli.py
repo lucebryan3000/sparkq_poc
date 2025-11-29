@@ -1,5 +1,8 @@
 """SparkQ CLI Commands"""
 
+import os
+import signal
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -116,16 +119,123 @@ def setup():
     typer.echo("\nRun 'sparkq session create <name>' to start working.")
 
 
+# === Server Commands ===
+
+
+@app.command()
+def run(
+    port: int = typer.Option(8420, help="Server port"),
+    host: str = typer.Option("127.0.0.1", help="Bind host"),
+):
+    """Start SparkQ HTTP server"""
+    from .server import run_server
+
+    try:
+        run_server(port=port, host=host)
+    except Exception as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
+def stop():
+    """Stop the running SparkQ server"""
+    from .server import check_server_running, remove_lockfile
+
+    lockfile_path = Path("sparkq.lock")
+    if not lockfile_path.exists():
+        typer.echo("Error: Server not running", err=True)
+        raise typer.Exit(1)
+
+    pid = check_server_running()
+    if pid is None:
+        typer.echo("Error: Server not running", err=True)
+        raise typer.Exit(1)
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        typer.echo("Error: Server not running", err=True)
+        raise typer.Exit(1)
+
+    wait_event = threading.Event()
+
+    def _is_running(target_pid: int) -> bool:
+        try:
+            os.kill(target_pid, 0)
+            return True
+        except OSError:
+            return False
+
+    elapsed = 0.0
+    while elapsed < 5:
+        if not _is_running(pid):
+            break
+        wait_event.wait(0.1)
+        elapsed += 0.1
+
+    if _is_running(pid):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+    remove_lockfile()
+    typer.echo("SparkQ server stopped")
+
+
 @app.command()
 def status():
-    """Show SparkQ status (server, sessions, streams, queue stats)."""
-    pass
+    """Check if SparkQ server is running"""
+    lockfile_path = Path("sparkq.lock")
+    if not lockfile_path.exists():
+        typer.echo("SparkQ server: not running")
+        return
+
+    try:
+        pid_text = lockfile_path.read_text().strip()
+        pid = int(pid_text)
+    except (OSError, ValueError):
+        typer.echo("SparkQ server: not running")
+        return
+
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        typer.echo("SparkQ server: not running")
+        return
+
+    try:
+        import requests
+
+        response = requests.get("http://127.0.0.1:8420/health", timeout=2)
+        if response.ok:
+            typer.echo(f"SparkQ server: running (PID {pid}, http://127.0.0.1:8420)")
+            return
+    except Exception:
+        pass
+
+    typer.echo(f"SparkQ server: running but API unreachable (PID {pid})")
 
 
 @app.command()
 def reload():
-    """Reload sparkq.yml (tools, script index). No server restart needed."""
-    pass
+    """Reload tool registry from config file"""
+    from yaml import YAMLError
+    from .tools import reload_registry
+
+    config_path = Path("sparkq.yml")
+    if not config_path.exists():
+        typer.echo("Error: sparkq.yml not found", err=True)
+        raise typer.Exit(1)
+
+    try:
+        reload_registry()
+    except YAMLError as exc:
+        typer.echo(f"Error: Failed to parse sparkq.yml ({exc})", err=True)
+        raise typer.Exit(1)
+
+    typer.echo("Tool registry reloaded")
 
 
 # === Session Commands ===
@@ -645,30 +755,6 @@ def requeue(
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(1)
-
-
-# === Server Commands (Stubs for Phase 3) ===
-
-@app.command()
-def run(
-    session: Optional[str] = typer.Option(
-        None, "--session", "-s", help="Start all streams in this session"
-    ),
-):
-    """Start SparkQ server. Interactive mode if no --session specified."""
-    typer.echo("Phase 3: Not implemented yet")
-    raise typer.Exit(1)
-
-
-@app.command()
-def stop(
-    stream: Optional[str] = typer.Option(
-        None, "--stream", "-s", help="Stop only this stream's watcher"
-    ),
-):
-    """Stop SparkQ server (and all watchers, or just specified stream)."""
-    typer.echo("Phase 3: Not implemented yet")
-    raise typer.Exit(1)
 
 
 # === Utility Commands ===
