@@ -68,8 +68,9 @@ EOF
 ensure_venv() {
   if [[ ! -d "$VENV_DIR" ]]; then
     echo -e "${RED}Error: Virtual environment not found at $VENV_DIR${NC}"
-    echo -e "${YELLOW}Run setup from sparkq/ directory first:${NC}"
-    echo "  cd sparkq && ./setup.sh && source venv/bin/activate"
+    echo -e "${YELLOW}Setup required. Run bootstrap first:${NC}"
+    echo "  ./python-bootstrap/bootstrap.sh"
+    echo -e "${YELLOW}For details, see: python-bootstrap/README.md${NC}"
     exit 1
   fi
 }
