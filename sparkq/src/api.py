@@ -185,6 +185,13 @@ def _resolve_timeout(task_class: str, timeout: Optional[int]) -> int:
     return DEFAULT_TASK_TIMEOUTS.get(task_class, 300)
 
 
+@app.get("/")
+async def root():
+    """Redirect root to UI dashboard."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/ui/")
+
+
 @app.get("/health")
 async def health():
     return {
