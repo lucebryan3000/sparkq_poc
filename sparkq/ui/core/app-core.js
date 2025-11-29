@@ -547,8 +547,12 @@ function cachePages() {
 }
 
 function setupNavTabs() {
-  document.querySelectorAll('.nav-tab').forEach((tab) => {
+  const buttons = document.querySelectorAll('.nav-tab');
+  console.log('[SparkQ] Setting up nav tabs, found', buttons.length, 'buttons');
+  buttons.forEach((tab) => {
+    console.log('[SparkQ] Adding click listener to button with data-tab:', tab.dataset.tab);
     tab.addEventListener('click', (event) => {
+      console.log('[SparkQ] Nav button clicked, data-tab:', tab.dataset.tab);
       event.preventDefault();
       const tabName = tab.dataset.tab;
       currentPage = tabName;
@@ -558,6 +562,7 @@ function setupNavTabs() {
 }
 
 function router(page = currentPage) {
+  console.log('[SparkQ] Router called with page:', page);
   Object.keys(pages).forEach((pageName) => {
     if (pages[pageName]) {
       pages[pageName].style.display = pageName === page ? 'block' : 'none';
@@ -574,8 +579,12 @@ function router(page = currentPage) {
 
   // Render page
   const pageKey = page.charAt(0).toUpperCase() + page.slice(1);
+  console.log('[SparkQ] Looking for page renderer:', pageKey, 'exists:', !!window.Pages[pageKey]);
   if (window.Pages[pageKey] && typeof window.Pages[pageKey].render === 'function') {
+    console.log('[SparkQ] Rendering page:', pageKey);
     window.Pages[pageKey].render(pages[page]);
+  } else {
+    console.warn('[SparkQ] Page renderer not found:', pageKey);
   }
 }
 
@@ -700,6 +709,8 @@ window.Pages = {};
 
 document.addEventListener('DOMContentLoaded', () => {
   cachePages();
+  console.log('[SparkQ] Pages cached:', Object.keys(pages));
+  console.log('[SparkQ] Window.Pages:', Object.keys(window.Pages || {}));
   setupNavTabs();
   router(currentPage);
   startStatusPolling();
