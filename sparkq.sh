@@ -24,8 +24,10 @@ ${BLUE}SparkQ CLI Wrapper${NC}
 Usage: ./sparkq.sh [COMMAND] [OPTIONS]
 
 ${BLUE}Server Commands:${NC}
-  run                    Start the HTTP server (port 8420)
+  run [--background]     Start the HTTP server (port 8420)
+  --start                Start server in background (alias for 'run --background')
   stop                   Stop the HTTP server
+  --stop                 Stop the HTTP server (alias for 'stop')
   status                 Check server status
 
 ${BLUE}Database & Config:${NC}
@@ -53,10 +55,12 @@ ${BLUE}Options:${NC}
   -h, --help             Show this help message
 
 ${BLUE}Examples:${NC}
-  ./sparkq.sh run                              # Start server
+  ./sparkq.sh --start                          # Start server in background
+  ./sparkq.sh run --background                 # Start server in background (verbose)
+  ./sparkq.sh run                              # Start server in foreground
   ./sparkq.sh setup                            # Interactive setup
   ./sparkq.sh session create my-session        # Create session
-  ./sparkq.sh stop                             # Stop server
+  ./sparkq.sh --stop                           # Stop server
   ./sparkq.sh status                           # Check status
 
 ${BLUE}Full command help:${NC}
@@ -90,6 +94,15 @@ main() {
 if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]] || [[ $# -eq 0 ]]; then
   show_help
   exit 0
+fi
+
+# Handle convenience aliases
+if [[ "${1:-}" == "--start" ]]; then
+  set -- run --background
+fi
+
+if [[ "${1:-}" == "--stop" ]]; then
+  set -- stop
 fi
 
 main "$@"

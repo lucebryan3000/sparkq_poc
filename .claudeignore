@@ -33,6 +33,7 @@ logs/
 # Project-specific generated files that are temporary
 .claude/commands/-codex_prompt.md
 BOOTSTRAP_WORKING.md
+__omni-dev/
 
 # SQLite database files (can get large)
 *.db

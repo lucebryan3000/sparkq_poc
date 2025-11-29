@@ -28,11 +28,12 @@ This creates `.venv/` with all SparkQ dependencies installed.
 Use the convenience wrapper script:
 
 ```bash
-./sparkq.sh setup            # Initialize database (one-time)
-./sparkq.sh run              # Start server
-./sparkq.sh session create   # Create session
-./sparkq.sh stop             # Stop server
-./sparkq.sh status           # Check status
+./sparkq.sh setup                # Initialize database (one-time)
+./sparkq.sh --start              # Start server in background (recommended)
+./sparkq.sh run                  # Start server in foreground
+./sparkq.sh session create       # Create session
+./sparkq.sh --stop               # Stop server
+./sparkq.sh status               # Check status
 ```
 
 Or activate the venv directly:
@@ -40,7 +41,7 @@ Or activate the venv directly:
 ```bash
 source .venv/bin/activate
 python -m sparkq.src.cli setup
-python -m sparkq.src.cli run
+python -m sparkq.src.cli run --background
 ```
 
 ## Project Structure
@@ -87,8 +88,10 @@ sparkqueue/
 
 ```bash
 # Server management
-./sparkq.sh run                          # Start server
-./sparkq.sh stop                         # Stop server
+./sparkq.sh --start                      # Start server in background (recommended)
+./sparkq.sh run --background             # Start in background (verbose)
+./sparkq.sh run                          # Start server in foreground
+./sparkq.sh --stop                       # Stop server
 ./sparkq.sh status                       # Check if running
 
 # Session & stream management
@@ -103,6 +106,30 @@ python -m sparkq.src.cli claim --stream my-stream
 python -m sparkq.src.cli complete --task-id [id] --summary "Done"
 python -m sparkq.src.cli tasks --stream my-stream
 ```
+
+## Background Service Management
+
+SparkQ server can run in the background without tying up your terminal:
+
+```bash
+# Start server in background (recommended - doesn't block terminal)
+./sparkq.sh --start
+
+# Check if server is running
+./sparkq.sh status
+
+# Stop the background server
+./sparkq.sh --stop
+
+# Alternatively, use verbose form
+./sparkq.sh run --background    # Start with explicit flag
+```
+
+The background server:
+- Runs as a detached daemon process
+- Persists the PID in `sparkq.lock` for tracking
+- Can be stopped at any time with `./sparkq.sh --stop`
+- Returns immediately, allowing you to continue using the terminal
 
 ## Troubleshooting
 

@@ -233,6 +233,7 @@ def setup():
 def run(
     port: int = typer.Option(8420, help="Server port (default 8420)"),
     host: str = typer.Option("127.0.0.1", help="Bind host"),
+    background: bool = typer.Option(False, "--background", help="Run server in background (daemonize)"),
     session: Optional[str] = typer.Option(
         None, "--session", help="Default session for Web UI (optional)"
     ),
@@ -242,7 +243,7 @@ def run(
 
     # session parameter is reserved for future UI defaults
     _ = session
-    run_server(port=port, host=host)
+    run_server(port=port, host=host, background=background)
 
 
 @app.command(help="Stop HTTP server")
