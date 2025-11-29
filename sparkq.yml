@@ -1,0 +1,35 @@
+project:
+  name: sparkq-demo
+  repo_path: /home/luce/apps/sparkqueue
+  prd_path: null
+server:
+  port: 8420
+database:
+  path: sparkq.db
+  mode: wal
+purge:
+  older_than_days: 3
+script_dirs:
+  - scripts
+task_classes:
+  FAST_SCRIPT:
+    timeout: 30
+  MEDIUM_SCRIPT:
+    timeout: 300
+  LLM_LITE:
+    timeout: 300
+  LLM_HEAVY:
+    timeout: 900
+tools:
+  run-bash:
+    description: Execute a bash script
+    task_class: MEDIUM_SCRIPT
+  run-python:
+    description: Execute a python script
+    task_class: MEDIUM_SCRIPT
+  llm-haiku:
+    description: Call Claude Haiku
+    task_class: LLM_LITE
+  llm-sonnet:
+    description: Call Claude Sonnet
+    task_class: LLM_HEAVY

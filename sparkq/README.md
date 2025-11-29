@@ -2,30 +2,45 @@
 Distributed Task Queue for Claude Sessions
 
 ## Quick Start
-1) **Install/Setup** – from `sparkq/`, create a venv and install deps:
+
+### Option A: Using the Virtual Environment (Recommended)
 ```bash
-./setup.sh
-source venv/bin/activate
+# Activate the existing venv from the project root
+source .venv/bin/activate
+
+# Initialize database (one-time)
+python -m sparkq.src.cli setup
+
+# Create a session
+python -m sparkq.src.cli session create my-session
+
+# Start the server (binds to 0.0.0.0:8420)
+python -m sparkq.src.cli run
 ```
-2) **Initialize database** – generate `sparkq.yml`, bootstrap `sparkq.db`, and register your project:
+
+### Option B: Using sparkq Command (requires installation as package)
 ```bash
+source .venv/bin/activate
 sparkq setup
-```
-3) **Create session** – start a named workspace:
-```bash
 sparkq session create my-session
-# Optional: sparkq stream create default --session my-session
-```
-4) **Start server** – launch the API/Web UI (binds to 127.0.0.1:8420):
-```bash
 sparkq run
 ```
-5) **Create task** – enqueue and work a task through the FIFO lifecycle:
+
+### Using SparkQ
+Once the server is running:
 ```bash
-sparkq enqueue --stream [name] --tool [name]
-sparkq peek --stream [name]
-sparkq claim --stream [name]
-sparkq complete --task-id [id] --summary '[result]'
+# Create task
+python -m sparkq.src.cli enqueue --stream [name] --tool [name]
+
+# Check next task
+python -m sparkq.src.cli peek --stream [name]
+
+# Claim and work a task
+python -m sparkq.src.cli claim --stream [name]
+python -m sparkq.src.cli complete --task-id [id] --summary '[result]'
+
+# List tasks
+python -m sparkq.src.cli tasks --stream [name]
 ```
 
 ## Features

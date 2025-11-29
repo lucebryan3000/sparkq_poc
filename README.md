@@ -1,206 +1,240 @@
-# SparkQueue
+# SparkQ
 
-Distributed task/job queue management system with Python bootstrap deployment.
+Distributed task queue for managing work sessions and feature streams. Fast, simple, dev-focused.
 
 ## Quick Start
 
-### Setup (one-time)
+### Step 1: Initial Setup (One-Time)
+
+Set up the Python virtual environment:
+
 ```bash
-./run.sh setup
+# Preview what will happen
+./python-bootstrap/bootstrap.sh --dry-run
+
+# Actually set up
+./python-bootstrap/bootstrap.sh
+
+# Or with auto-approval (useful in CI)
+./python-bootstrap/bootstrap.sh --yes
 ```
 
-### Start the Application
+This creates `.venv/` with all SparkQ dependencies installed. See [python-bootstrap/README.md](python-bootstrap/README.md) for full details.
+
+### Step 2: Running SparkQ
+
+After initial setup, use any of these approaches:
+
+#### Direct Activation
 ```bash
-# Background (default)
-./run.sh start
+# Activate the venv
+source .venv/bin/activate
 
-# Foreground
-./run.sh start --foreground
+# Initialize database (one-time)
+python -m sparkq.src.cli setup
 
-# View status
-./run.sh status
+# Start server
+python -m sparkq.src.cli run
+```
 
-# Stop
-./run.sh stop
+#### Using sparkq.sh Wrapper
+For convenience, use the `sparkq.sh` helper script:
+```bash
+./sparkq.sh setup            # Initialize database (one-time)
+./sparkq.sh run              # Start server
+./sparkq.sh session create   # Create session
+./sparkq.sh stop             # Stop server
+./sparkq.sh status           # Check status
+```
 
-# View logs
-./run.sh logs
+All three approaches (direct activation, wrapper, or direct CLI commands) use the same standardized virtual environment created by bootstrap.
+
+## Using SparkQ
+
+Once the server is running (via direct activation or sparkq.sh):
+
+```bash
+# In another terminal, activate venv
+source .venv/bin/activate
+
+# Create a stream
+python -m sparkq.src.cli stream create my-stream --session my-session
+
+# Enqueue a task
+python -m sparkq.src.cli enqueue --stream my-stream --tool run-bash
+
+# Check next task
+python -m sparkq.src.cli peek --stream my-stream
+
+# Claim and complete a task
+python -m sparkq.src.cli claim --stream my-stream
+python -m sparkq.src.cli complete --task-id [id] --summary "Done"
+
+# List all tasks
+python -m sparkq.src.cli tasks --stream my-stream
 ```
 
 ## Project Structure
 
 ```
 sparkqueue/
-├── run.sh                          # Recommended: Simple app runner
-├── python-bootstrap/               # Bootstrap system (alternative)
-│   ├── bootstrap.sh               # Bootstrap script
-│   ├── stop-env.sh                # Process manager
-│   ├── kill-python.sh             # Quick kill script
-│   ├── requirements.txt           # Base dependencies (pyyaml)
-│   └── python-bootstrap.config    # Bootstrap configuration
+├── sparkq/                         # SparkQ application
+│   ├── src/
+│   │   ├── cli.py                 # CLI command definitions
+│   │   ├── server.py              # FastAPI + Uvicorn server
+│   │   ├── api.py                 # REST API endpoints
+│   │   ├── storage.py             # SQLite persistence layer
+│   │   ├── tools.py               # Tool registry
+│   │   └── index.py               # Script indexing
+│   ├── ui/                        # Web dashboard
+│   ├── requirements.txt           # Dependencies (typer, pydantic, uvicorn, fastapi)
+│   ├── setup.sh                   # Local venv setup for sparkq/
+│   └── README.md                  # SparkQ documentation
 │
-├── _build/sparkqueue/             # Application
-│   ├── sparkqueue.py              # Main entry point
-│   ├── config.yaml                # App configuration
-│   └── logs/                      # Runtime logs
+├── .venv/                         # Project-level Python virtual environment
+├── sparkq.sh                      # Convenient wrapper script
+├── sparkq.db                      # SQLite database (auto-created)
+├── sparkq.yml                     # Configuration file (auto-created by setup)
 │
-├── .venv/                         # Python virtual environment
-├── .env                           # Environment variables (auto-generated)
-├── .gitignore                     # Git ignore rules (auto-generated)
-├── .claudeignore                  # Claude Code ignore rules (auto-generated)
+├── python-bootstrap/              # One-time environment bootstrapper (see README)
+├── _build/                        # Legacy: Old SparkQueue app
 │
 ├── .claude/                       # Claude Code configuration
-│   ├── CLAUDE.md                 # Project guidelines
-│   ├── project.json              # Project metadata
-│   └── commands/                 # Slash command guides
-│
-└── docs/                          # Project documentation
-```
-
-## Environment
-
-- **Python**: 3.13.3 (exceeds 3.11+ requirement)
-- **venv Location**: `./.venv`
-- **Main Dependencies**: PyYAML 6.0.3
-
-## Running the Application
-
-### Using run.sh (Recommended)
-```bash
-./run.sh setup           # One-time setup
-./run.sh start          # Start in background
-./run.sh start --foreground  # Start in foreground
-./run.sh stop           # Stop all processes
-./run.sh status         # Show running processes
-./run.sh logs           # Tail application logs
-```
-
-### Manual Execution
-```bash
-source .venv/bin/activate
-python _build/sparkqueue/sparkqueue.py
-```
-
-### Using python-bootstrap (Alternative)
-```bash
-./python-bootstrap/bootstrap.sh --install-only
-./python-bootstrap/bootstrap.sh --run-cmd "python _build/sparkqueue/sparkqueue.py"
+├── README.md                      # This file
+└── docs/                          # Documentation
 ```
 
 ## Configuration
 
-### Application Config
-Edit `_build/sparkqueue/config.yaml` to configure:
-- Queue backend (memory, redis, etc.)
-- Worker count and timeout
-- Logging level and format
-- Server host and port
+SparkQ configuration lives in `sparkq.yml` (auto-created during setup):
 
-### Bootstrap Config
-Edit `python-bootstrap/python-bootstrap.config` to configure:
-- Python binary path
-- Virtual environment location
-- Dependency files
-- Application startup script
-
-## Development
-
-### See detailed guides in `.claude/commands/`:
-- `/setup` - Environment setup
-- `/dev` - Development workflow
-- `/build` - Build and deployment
-- `/test` - Testing strategies
-- `/debug` - Debugging techniques
-
-### Project Guidelines
-See `.claude/CLAUDE.md` for:
-- Development principles
-- Code standards
-- Bootstrap management
-- Defensive deletion protocol
-
-## Managing Processes
-
-### Using run.sh
-```bash
-./run.sh stop      # Stop all SparkQueue processes
-./run.sh status    # Show running processes
+```yaml
+project:
+  name: my-project
+  repo_path: /path/to/repo
+server:
+  port: 8420
+database:
+  path: sparkq.db
+  mode: wal
+script_dirs:
+  - scripts
+task_classes:
+  FAST_SCRIPT: { timeout: 30 }
+  MEDIUM_SCRIPT: { timeout: 300 }
+  LLM_LITE: { timeout: 300 }
+  LLM_HEAVY: { timeout: 900 }
+tools:
+  run-bash:    { description: Execute a bash script,  task_class: MEDIUM_SCRIPT }
+  run-python:  { description: Execute a python script, task_class: MEDIUM_SCRIPT }
+  llm-haiku:   { description: Call Claude Haiku,       task_class: LLM_LITE }
+  llm-sonnet:  { description: Call Claude Sonnet,      task_class: LLM_HEAVY }
 ```
 
-### Using python-bootstrap tools
+Edit `sparkq.yml` to customize tool metadata or timeouts, then run:
 ```bash
-./python-bootstrap/stop-env.sh  # Interactive process manager
-./python-bootstrap/kill-python.sh  # Quick kill all processes
+python -m sparkq.src.cli reload
 ```
 
-### Manual process management
+## Managing SparkQ Server
+
+### Start/Stop
 ```bash
-pgrep -f sparkqueue          # Find processes
-kill -TERM <PID>             # Graceful shutdown
-kill -9 <PID>                # Force kill
+# Start in background (or use sparkq.sh)
+source .venv/bin/activate && python -m sparkq.src.cli run &
+
+# Check if running
+python -m sparkq.src.cli status
+
+# Stop the server
+python -m sparkq.src.cli stop
 ```
 
-## Logs
-
-Application logs are stored in:
-- **Background runs**: `logs/sparkqueue.log`
-- **Bootstrap runs**: `logs/bootstrap.log`
-
-View logs:
+### View Logs
+The server logs to stdout. When running in background:
 ```bash
-./run.sh logs              # Follow logs with run.sh
-tail -f logs/sparkqueue.log  # Manual follow
-tail -50 logs/sparkqueue.log # Last 50 lines
-grep ERROR logs/*.log      # Search for errors
+tail -f sparkq.log  # Manually captured logs
 ```
+
+### Process Management
+```bash
+# Find running SparkQ processes
+pgrep -f "python.*sparkq"
+
+# Graceful shutdown
+kill -TERM <PID>
+
+# Force kill if needed
+kill -9 <PID>
+```
+
+## Key Features
+
+- **FIFO Queues**: Tasks processed in order per stream
+- **Auto-Fail**: Stale tasks auto-fail after 2× timeout
+- **Auto-Purge**: Completed tasks auto-deleted after configurable days
+- **Web UI**: Dashboard at `http://localhost:8420/ui/`
+- **REST API**: Full API with interactive docs at `/docs`
+- **CLI**: Typer-based command-line interface
+- **SQLite WAL**: Efficient concurrent access with WAL mode
+
+## API Documentation
+
+When the server is running, API docs are available at:
+- **Interactive Swagger UI**: `http://localhost:8420/docs`
+- **ReDoc**: `http://localhost:8420/redoc`
+- **Raw OpenAPI**: `http://localhost:8420/openapi.json`
+
+See [sparkq/API.md](sparkq/API.md) for endpoint details.
 
 ## Troubleshooting
 
-### Application won't start
-1. Check logs: `./run.sh logs`
-2. Verify Python: `.venv/bin/python --version`
-3. Check dependencies: `.venv/bin/pip list`
-4. Verify config: `_build/sparkqueue/config.yaml` exists
-
-### Dependencies missing
+### Port already in use
 ```bash
-./run.sh setup  # Reinstall all dependencies
+# Check what's using port 8420
+lsof -i :8420
+
+# Kill the process
+kill <PID>
 ```
 
-### Python version issues
-- System Python: `/usr/bin/python3` (3.13.3)
-- venv Python: `.venv/bin/python`
-- Check version: `.venv/bin/python --version`
-
-### Can't stop processes
+### Database locked
+SparkQ uses SQLite with WAL mode. If locked:
 ```bash
-./run.sh stop                          # Try run.sh stop
-./python-bootstrap/kill-python.sh      # Try bootstrap kill
-pgrep -f sparkqueue | xargs kill -9    # Force kill all
+rm -f sparkq.db-wal sparkq.db-shm
 ```
+
+### Stream not found when enqueuing
+Make sure the stream exists:
+```bash
+python -m sparkq.src.cli stream list --session my-session
+
+# Create if needed
+python -m sparkq.src.cli stream create my-stream --session my-session
+```
+
+### Tasks stuck in "running" state
+Tasks auto-fail after 2× timeout. You can manually fail them:
+```bash
+python -m sparkq.src.cli fail --task-id [id] --reason "Manual failure"
+```
+
+## Development
+
+See `.claude/` for detailed guides:
+- `.claude/CLAUDE.md` - Project guidelines
+- `.claude/commands/` - Development commands
 
 ## Next Steps
 
-1. **Implement actual queue logic** in `_build/sparkqueue/sparkqueue.py`
-2. **Update configuration** in `_build/sparkqueue/config.yaml`
-3. **Add unit tests** in a `tests/` directory
-4. **Configure logging** as needed in config.yaml
-5. **Set up CI/CD** with bootstrap commands
-
-## Key Files
-
-- `run.sh` - Application runner (recommended)
-- `python-bootstrap/bootstrap.sh` - Alternative runner
-- `_build/sparkqueue/sparkqueue.py` - Application entry point
-- `_build/sparkqueue/config.yaml` - Application configuration
-- `.claude/CLAUDE.md` - Project guidelines
-- `python-bootstrap.config` - Bootstrap configuration
+1. **Set up sessions**: `python -m sparkq.src.cli session create [name]`
+2. **Create streams**: `python -m sparkq.src.cli stream create [name]`
+3. **Configure tools**: Edit `sparkq.yml` to add custom tools/timeouts
+4. **Enqueue tasks**: Start queueing work
+5. **Build workers**: Use CLI or API to claim and complete tasks
 
 ## Support
 
-See `.claude/` for detailed guides on:
-- Setting up the environment
-- Development workflow
-- Building and deploying
-- Testing strategies
-- Debugging techniques
+- Full documentation: See [sparkq/README.md](sparkq/README.md)
+- API reference: See [sparkq/API.md](sparkq/API.md)
+- Guidelines: See `.claude/CLAUDE.md`
