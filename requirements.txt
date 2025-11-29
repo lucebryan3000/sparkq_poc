@@ -1,0 +1,3 @@
+# Core runtime dependencies for SparkQueue
+# Delegated to sparkq/requirements.txt to keep a single pinned source of truth.
+-r sparkq/requirements.txt

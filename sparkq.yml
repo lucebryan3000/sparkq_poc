@@ -1,25 +1,26 @@
 project:
-  name: my-project
-  repo_path: /home/luce/apps/sparkqueue
-  prd_path: _build/FRD/sparkq_frd_v7.5.md
+  name: test-project
+  repo_path: /tmp/test-repo
+  prd_path: null
 server:
-  port: 5005
+  port: 5555
 database:
   path: sparkq/data/sparkq.db
   mode: wal
 purge:
   older_than_days: 3
-script_dirs:
+sparkq_scripts_dir: sparkq/scripts
+project_script_dirs:
 - scripts
 task_classes:
   FAST_SCRIPT:
-    timeout: 60
+    timeout: 120
   MEDIUM_SCRIPT:
-    timeout: 300
+    timeout: 600
   LLM_LITE:
-    timeout: 300
+    timeout: 480
   LLM_HEAVY:
-    timeout: 900
+    timeout: 1200
 tools:
   run-bash:
     description: Execute a bash script

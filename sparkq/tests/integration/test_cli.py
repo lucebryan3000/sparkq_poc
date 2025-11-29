@@ -49,7 +49,7 @@ tools:
 
 @pytest.fixture
 def cli_runner():
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     with runner.isolated_filesystem():
         write_default_config()
         # Create scripts directory with sample scripts

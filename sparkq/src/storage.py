@@ -25,6 +25,10 @@ def gen_task_id() -> str:
     return f"tsk_{uuid.uuid4().hex[:12]}"
 
 
+def gen_prompt_id() -> str:
+    return f"prm_{uuid.uuid4().hex[:12]}"
+
+
 def now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
 
@@ -118,6 +122,26 @@ class Storage:
             """
             )
 
+            # Create prompts table for text expanders (Phase 14A)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS prompts (
+                    id TEXT PRIMARY KEY,
+                    command TEXT NOT NULL UNIQUE,
+                    label TEXT NOT NULL,
+                    template_text TEXT NOT NULL,
+                    description TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+
+            # Create prompt index
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_prompts_command ON prompts(command)"
+            )
+
             # Create indexes
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_tasks_stream_status ON tasks(stream_id, status)"
@@ -140,8 +164,53 @@ class Storage:
                 "CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)"
             )
 
-            # Create default project for single-project mode (Phase 12)
             now = now_iso()
+
+            # Seed default prompts (Phase 14A)
+            cursor.execute("SELECT COUNT(*) FROM prompts")
+            prompt_count = cursor.fetchone()[0]
+            if prompt_count == 0:
+                cursor.execute(
+                    """INSERT INTO prompts (id, command, label, template_text, description, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        gen_prompt_id(),
+                        "code-review",
+                        "Code Review",
+                        "Review the following code for best practices, potential bugs, and security issues. Provide specific recommendations for improvement.\n\n",
+                        "Review code for best practices and bugs",
+                        now,
+                        now,
+                    ),
+                )
+                cursor.execute(
+                    """INSERT INTO prompts (id, command, label, template_text, description, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        gen_prompt_id(),
+                        "write-tests",
+                        "Write Tests",
+                        "Generate comprehensive test cases for the following code. Include unit tests, edge cases, and integration test scenarios using pytest.\n\n",
+                        "Generate comprehensive test cases",
+                        now,
+                        now,
+                    ),
+                )
+                cursor.execute(
+                    """INSERT INTO prompts (id, command, label, template_text, description, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        gen_prompt_id(),
+                        "refactor",
+                        "Refactor Code",
+                        "Refactor the following code to improve performance, readability, and maintainability. Follow SOLID principles and current best practices.\n\n",
+                        "Refactor code for better quality",
+                        now,
+                        now,
+                    ),
+                )
+
+            # Create default project for single-project mode (Phase 12)
             cursor.execute(
                 """INSERT OR IGNORE INTO projects (id, name, repo_path, prd_path, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?)""",
@@ -613,3 +682,115 @@ class Storage:
             return auto_failed
         except Exception:
             return []
+
+    # === Prompt CRUD ===
+    def create_prompt(
+        self, command: str, label: str, template_text: str, description: str = None
+    ) -> dict:
+        import re
+
+        if not re.match(r"^[a-z0-9][a-z0-9-]*$", command):
+            raise ValueError("Command must match pattern ^[a-z0-9][a-z0-9-]*$")
+
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "SELECT 1 FROM prompts WHERE command = ?",
+                (command,),
+            )
+            if cursor.fetchone():
+                raise ValueError(f"Prompt command '{command}' already exists")
+
+            prompt_id = gen_prompt_id()
+            now = now_iso()
+            conn.execute(
+                """INSERT INTO prompts (id, command, label, template_text, description, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (prompt_id, command, label, template_text, description, now, now),
+            )
+
+        return {
+            "id": prompt_id,
+            "command": command,
+            "label": label,
+            "template_text": template_text,
+            "description": description,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    def get_prompt(self, prompt_id: str) -> Optional[dict]:
+        with self.connection() as conn:
+            cursor = conn.execute("SELECT * FROM prompts WHERE id = ?", (prompt_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_prompt_by_command(self, command: str) -> Optional[dict]:
+        with self.connection() as conn:
+            cursor = conn.execute("SELECT * FROM prompts WHERE command = ?", (command,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def list_prompts(self) -> List[dict]:
+        with self.connection() as conn:
+            cursor = conn.execute("SELECT * FROM prompts ORDER BY command ASC")
+            return [dict(row) for row in cursor.fetchall()]
+
+    def update_prompt(
+        self,
+        prompt_id: str,
+        command: str = None,
+        label: str = None,
+        template_text: str = None,
+        description: str = None,
+    ) -> dict:
+        import re
+
+        existing_prompt = self.get_prompt(prompt_id)
+        if not existing_prompt:
+            raise ValueError(f"Prompt {prompt_id} not found")
+
+        updates = []
+        params = []
+
+        with self.connection() as conn:
+            if command is not None:
+                if not re.match(r"^[a-z0-9][a-z0-9-]*$", command):
+                    raise ValueError("Command must match pattern ^[a-z0-9][a-z0-9-]*$")
+
+                cursor = conn.execute(
+                    "SELECT 1 FROM prompts WHERE command = ? AND id != ?",
+                    (command, prompt_id),
+                )
+                if cursor.fetchone():
+                    raise ValueError(f"Prompt command '{command}' already exists")
+
+                updates.append("command = ?")
+                params.append(command)
+
+            if label is not None:
+                updates.append("label = ?")
+                params.append(label)
+
+            if template_text is not None:
+                updates.append("template_text = ?")
+                params.append(template_text)
+
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+
+            now = now_iso()
+            updates.append("updated_at = ?")
+            params.append(now)
+            params.append(prompt_id)
+
+            set_clause = ", ".join(updates)
+            conn.execute(f"UPDATE prompts SET {set_clause} WHERE id = ?", params)
+
+        return self.get_prompt(prompt_id)
+
+    def delete_prompt(self, prompt_id: str) -> None:
+        with self.connection() as conn:
+            cursor = conn.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
+            if cursor.rowcount == 0:
+                raise ValueError(f"Prompt {prompt_id} not found")

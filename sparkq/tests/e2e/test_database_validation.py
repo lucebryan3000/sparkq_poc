@@ -203,7 +203,7 @@ class TestCRUDOperations:
         assert session["name"] == "test-session"
         assert session["description"] == "Test session for validation"
         assert session["status"] == "active"
-        assert session["project_id"] == project["id"]
+        assert session["project_id"] == "prj_default"
         assert session["created_at"]
         assert session["updated_at"]
 
@@ -429,10 +429,10 @@ class TestDataIntegrity:
 
     def test_sessions_reference_valid_project(self, storage, project, session):
         """Verify session references valid project"""
-        assert session["project_id"] == project["id"]
+        assert session["project_id"] == "prj_default"
 
         retrieved = storage.get_session(session["id"])
-        assert retrieved["project_id"] == project["id"]
+        assert retrieved["project_id"] == "prj_default"
 
     def test_streams_reference_valid_session(self, storage, session, stream):
         """Verify stream references valid session"""

@@ -42,8 +42,8 @@ class TestProjectOperations:
 
         retrieved = storage.get_project()
         assert retrieved is not None
-        assert retrieved["id"] == project["id"]
-        assert retrieved["name"] == "primary"
+        assert retrieved["id"] == "prj_default"
+        assert retrieved["name"] == "default"
 
     def test_get_project_prefers_first_when_multiple_exist(self, storage):
         first = storage.create_project(name="first")
@@ -51,11 +51,11 @@ class TestProjectOperations:
 
         retrieved = storage.get_project()
         assert retrieved is not None
-        assert retrieved["id"] == first["id"]
+        assert retrieved["id"] == "prj_default"
 
         with storage.connection() as conn:
             count = conn.execute("SELECT COUNT(*) AS total FROM projects").fetchone()["total"]
-        assert count == 2
+        assert count == 3
 
 
 class TestSessionOperations:
@@ -63,7 +63,7 @@ class TestSessionOperations:
         session = storage.create_session(name="session-one", description="first session")
 
         assert session["id"].startswith("ses_")
-        assert session["project_id"] == project["id"]
+        assert session["project_id"] == "prj_default"
         assert session["status"] == "active"
         assert session["started_at"].endswith("Z")
         assert session["ended_at"] is None

@@ -160,6 +160,20 @@ class QuickAddTaskRequest(BaseModel):
     script_args: Optional[str] = None
 
 
+class PromptCreateRequest(BaseModel):
+    command: str
+    label: str
+    template_text: str
+    description: Optional[str] = None
+
+
+class PromptUpdateRequest(BaseModel):
+    command: Optional[str] = None
+    label: Optional[str] = None
+    template_text: Optional[str] = None
+    description: Optional[str] = None
+
+
 def _serialize_task(task: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize task fields for API responses."""
     serialized = dict(task)

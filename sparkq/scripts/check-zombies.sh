@@ -3,13 +3,43 @@
 ###############################################################################
 # Zombie Process Checker and Killer
 #
-# This script:
-# 1. Finds all zombie processes on the system
-# 2. Lists them with runtime information
-# 3. Prompts user to kill them
-# 4. Shows how long each has been running
+# PURPOSE: Detect and clean up zombie processes created by Codex executions
+# or other background tasks that have terminated but not been reaped.
 #
-# Usage: ./scripts/check-zombies.sh
+# USAGE:
+#   ./scripts/check-zombies.sh              # Interactive - ask before killing
+#   ./scripts/check-zombies.sh -y           # Auto-kill all zombies
+#   ./scripts/check-zombies.sh -w           # Watch mode - monitor every 5s
+#
+# WHAT IS A ZOMBIE?
+# A zombie (defunct) process is a child process that has terminated but its
+# parent hasn't yet waited for it. Happens when parent shell is killed before
+# child processes complete, Codex batch execution is interrupted, or background
+# jobs aren't properly waited for.
+#
+# HOW IT WORKS:
+# 1. Scans for processes with state 'Z' (zombie)
+# 2. Displays each with PID, parent, elapsed time, and command
+# 3. Kills parent process (zombies can't be directly killed)
+# 4. Verifies all zombies are eliminated
+#
+# OUTPUT SHOWS:
+# - PID and Parent PID with parent process name
+# - How long they've been running
+# - Full command that created them
+# - Color-coded for easy scanning
+#
+# WHEN TO USE:
+# - After interrupted Codex batches (Ctrl+C during execution)
+# - Periodic maintenance to clean up stray processes
+# - Before new batches to ensure clean state
+# - In watch mode during development
+#
+# RELATED:
+# - python-bootstrap/stop-env.sh - Interactive process manager for all SparkQ
+# - python-bootstrap/kill-python.sh - Quick kill all SparkQueue Python processes
+#
+# POSIX shell, no external dependencies beyond standard Linux utilities.
 ###############################################################################
 
 set -euo pipefail

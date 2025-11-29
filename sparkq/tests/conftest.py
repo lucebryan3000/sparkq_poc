@@ -1,6 +1,7 @@
 import sys
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -93,12 +94,66 @@ def setup_test_logging(request):
     TEST_LOGS_DIR.mkdir(exist_ok=True)
     cleanup_old_test_logs(keep_last=3)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(ZoneInfo("America/Chicago")).strftime("%m-%d-%Y_%I-%M%p")
     log_dir = TEST_LOGS_DIR / timestamp
     log_dir.mkdir(exist_ok=True)
+
+    # Also create a 'latest' symlink to the current run
+    latest_dir = TEST_LOGS_DIR / "latest"
+    if latest_dir.exists():
+        if latest_dir.is_symlink():
+            latest_dir.unlink()
+        elif latest_dir.is_dir():
+            for file in latest_dir.iterdir():
+                file.unlink()
+            latest_dir.rmdir()
+    latest_dir.symlink_to(timestamp, target_is_directory=True)
 
     log_file = log_dir / "pytest.log"
     request.config.option.log_file = str(log_file)
     request.config.option.log_file_level = "INFO"
 
+    # Configure junit XML to save to this log directory
+    junit_file = log_dir / "junit_report.xml"
+    request.config.option.xmlpath = str(junit_file)
+
     yield log_dir
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Save a human-readable test summary after session ends."""
+    if not TEST_LOGS_DIR.exists():
+        return
+
+    # Find the latest log directory
+    log_dirs = sorted(
+        [d for d in TEST_LOGS_DIR.iterdir() if d.is_dir() and d.name != "latest"],
+        key=lambda x: x.stat().st_mtime,
+        reverse=True,
+    )
+
+    if not log_dirs:
+        return
+
+    log_dir = log_dirs[0]
+    summary_file = log_dir / "test_summary.txt"
+
+    # Get test statistics
+    stats = session.testscollected
+    passed = len([x for x in session.items if hasattr(x, 'rep_call') and x.rep_call.passed])
+
+    with open(summary_file, "w") as f:
+        f.write(f"Test Run Summary\n")
+        f.write(f"{'='*80}\n")
+        f.write(f"Timestamp: {datetime.now(ZoneInfo('America/Chicago')).strftime('%m-%d-%Y %I:%M:%S %p CST')}\n")
+        f.write(f"Total Tests Collected: {stats}\n")
+        f.write(f"Exit Status: {exitstatus}\n")
+        f.write(f"{'='*80}\n\n")
+        f.write(f"Exit codes:\n")
+        f.write(f"  0 = All tests passed\n")
+        f.write(f"  1 = Tests failed\n")
+        f.write(f"  2 = Test execution interrupted\n")
+        f.write(f"  3 = Internal error\n")
+        f.write(f"  4 = Command line usage error\n")
+        f.write(f"  5 = No tests collected\n\n")
+        f.write(f"See junit_report.xml and pytest.log for detailed results.\n")

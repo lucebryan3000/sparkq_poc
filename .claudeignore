@@ -17,6 +17,10 @@ build/
 # Large build and generated content - context compression culprits
 _build/
 .git/
+dist/
+build/
+sparkq/logs/
+sparkq/tests/logs/
 
 # Logs and runtime files
 logs/
@@ -47,6 +51,14 @@ __omni-dev/
 # Node modules if ever added
 node_modules/
 package-lock.json
+
+# Codex integration artifacts (keep docs tracked)
+.codex/cache/
+.codex/temp/
+.codex/generated/
+.codex/generated-*/
+.codex/*.tmp
+.codex/*.log
 
 # OS files
 .DS_Store

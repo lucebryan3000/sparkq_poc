@@ -1,5 +1,27 @@
+# Environments
 .env
 .venv/
+sparkq/venv/
+
+# Python cache and build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Logs and runtime output
 _build/sparkqueue/logs/
 sparkq/logs/
 sparkq/tests/logs/
+
+# Codex generated artifacts (keep README/prompt docs tracked)
+.codex/cache/
+.codex/temp/
+.codex/generated/
+.codex/generated-*/
+.codex/*.tmp
+.codex/*.log

@@ -1,10 +1,13 @@
 """SparkQ CLI Commands"""
 
+import datetime
 import functools
 import os
 import signal
 import sqlite3
+import sys
 import threading
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Optional
 
@@ -141,26 +144,40 @@ def setup():
     repo_path = typer.prompt("Repository path", default=str(Path.cwd()))
     prd_path = typer.prompt("PRD file path (for context, optional)", default="")
 
-    # Script directories
-    typer.echo("\nScript directories to index:")
-    script_dirs = []
+    # SparkQ script directory (internal scripts)
+    sparkq_scripts_dir = typer.prompt("\nSparkQ script directory", default="sparkq/scripts")
+    sparkq_scripts_path = Path(sparkq_scripts_dir)
+    try:
+        sparkq_scripts_path.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        typer.echo(f"Warning: Could not create {sparkq_scripts_dir}: {e}")
+
+    # Project script directories
+    typer.echo("\nProject script directories to index:")
+    project_script_dirs = []
     while True:
-        dir_path = typer.prompt("  Add directory (empty to finish)", default="")
+        dir_path = typer.prompt("  Add directory (empty to finish)", default="scripts" if not project_script_dirs else "")
         if not dir_path:
             break
-        script_dirs.append(dir_path)
+        project_script_dirs.append(dir_path)
 
-    # Task class timeouts
-    typer.echo("\nTask class default timeouts (seconds):")
-    fast_timeout = typer.prompt("  FAST_SCRIPT", default="30", type=int)
-    medium_timeout = typer.prompt("  MEDIUM_SCRIPT", default="300", type=int)
-    llm_lite_timeout = typer.prompt("  LLM_LITE", default="300", type=int)
-    llm_heavy_timeout = typer.prompt("  LLM_HEAVY", default="900", type=int)
+    # Task class timeouts (minutes in UI, seconds in config)
+    typer.echo("\nTask class default timeouts (minutes):")
+    fast_timeout_minutes = typer.prompt("  FAST_SCRIPT", default="1", type=int)
+    medium_timeout_minutes = typer.prompt("  MEDIUM_SCRIPT", default="5", type=int)
+    llm_lite_timeout_minutes = typer.prompt("  LLM_LITE", default="5", type=int)
+    llm_heavy_timeout_minutes = typer.prompt("  LLM_HEAVY", default="15", type=int)
+
+    # Convert minutes to seconds for storage
+    fast_timeout = fast_timeout_minutes * 60
+    medium_timeout = medium_timeout_minutes * 60
+    llm_lite_timeout = llm_lite_timeout_minutes * 60
+    llm_heavy_timeout = llm_heavy_timeout_minutes * 60
 
     # Server port
     server_port = typer.prompt("\nServer port", default="5005", type=int)
 
-    # Build config
+    # Build config with new script directory structure
     config = {
         "project": {
             "name": project_name,
@@ -177,7 +194,8 @@ def setup():
         "purge": {
             "older_than_days": 3,
         },
-        "script_dirs": script_dirs if script_dirs else ["scripts"],
+        "sparkq_scripts_dir": sparkq_scripts_dir,
+        "project_script_dirs": project_script_dirs if project_script_dirs else ["scripts"],
         "task_classes": {
             "FAST_SCRIPT": {"timeout": fast_timeout},
             "MEDIUM_SCRIPT": {"timeout": medium_timeout},
@@ -234,16 +252,74 @@ def run(
     port: int = typer.Option(5005, help="Server port (default 5005)"),
     host: str = typer.Option("127.0.0.1", help="Bind host"),
     background: bool = typer.Option(False, "--background", help="Run server in background (daemonize)"),
+    foreground: bool = typer.Option(False, "--foreground", help="Run server in foreground (default when no flag)"),
     session: Optional[str] = typer.Option(
         None, "--session", help="Default session for Web UI (optional)"
     ),
+    e2e: bool = typer.Option(False, "--e2e", help="Run e2e tests and exit"),
 ):
-    """Start HTTP server."""
+    """Start HTTP server.
+
+    By default, runs in background. Use --foreground for interactive/debugging mode.
+    """
+    if e2e:
+        typer.echo("E2E mode enabled: running tests (pytest -v sparkq/tests/e2e/)")
+        try:
+            import pytest
+        except ImportError:
+            typer.echo(
+                "Error: pytest is required to run e2e tests. Install it with `pip install pytest`.",
+                err=True,
+            )
+            raise typer.Exit(1)
+
+        timestamp = datetime.datetime.now().strftime("%m-%d-%Y_%H-%M")
+        log_dir = Path("sparkq/tests/logs") / timestamp
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            typer.echo(f"Error creating log directory {log_dir}: {exc}", err=True)
+            raise typer.Exit(1)
+
+        log_file = log_dir / "e2e_results.txt"
+
+        # Mirror pytest output to both console and log file.
+        class _Tee:
+            def __init__(self, *streams):
+                self.streams = streams
+
+            def write(self, data):
+                for stream in self.streams:
+                    stream.write(data)
+
+            def flush(self):
+                for stream in self.streams:
+                    stream.flush()
+
+            def isatty(self):
+                return self.streams[0].isatty() if self.streams else False
+
+        try:
+            with open(log_file, "w") as log_handle:
+                tee_out = _Tee(sys.stdout, log_handle)
+                tee_err = _Tee(sys.stderr, log_handle)
+                with redirect_stdout(tee_out), redirect_stderr(tee_err):
+                    result_code = pytest.main(["-v", "sparkq/tests/e2e/"])
+        except Exception as exc:
+            typer.echo(f"Error running e2e tests: {exc}", err=True)
+            raise typer.Exit(1)
+
+        typer.echo(f"E2E test results saved to {log_file}")
+        raise typer.Exit(result_code)
+
     from .server import run_server
 
     # session parameter is reserved for future UI defaults
     _ = session
-    run_server(port=port, host=host, background=background)
+
+    # Resolve background flag: explicit --foreground takes precedence
+    should_background = background if not foreground else False
+    run_server(port=port, host=host, background=should_background)
 
 
 @app.command(help="Stop HTTP server")
