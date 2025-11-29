@@ -307,16 +307,77 @@ def stream_end(
 
 @app.command()
 def enqueue(
-    tool: str = typer.Argument(..., help="Tool name from registry"),
-    payload: str = typer.Argument(..., help="JSON payload for the tool"),
-    stream: str = typer.Option(..., "--stream", "-s", help="Target stream name"),
-    timeout: Optional[int] = typer.Option(
-        None, "--timeout", "-t", help="Timeout override (seconds)"
-    ),
+    stream: str = typer.Option(..., "--stream", "-s", help="Stream name"),
+    tool: str = typer.Option(..., "--tool", "-t", help="Tool name to execute"),
+    task_class: str = typer.Option("MEDIUM_SCRIPT", "--task-class", help="Task class (FAST_SCRIPT, MEDIUM_SCRIPT, LLM_LITE, LLM_HEAVY)"),
+    timeout: Optional[int] = typer.Option(None, "--timeout", help="Override timeout in seconds"),
+    prompt_file: Optional[str] = typer.Option(None, "--prompt-file", "-p", help="Path to prompt file"),
+    metadata: Optional[str] = typer.Option(None, "--metadata", "-m", help="JSON metadata"),
 ):
     """Queue a task for execution."""
-    typer.echo("Phase 2: Not implemented yet")
-    raise typer.Exit(1)
+    import json
+    from pathlib import Path
+    from sparkq.src.tools import get_registry
+
+    try:
+        # Validate stream exists
+        st = storage.get_stream_by_name(stream)
+        if not st:
+            typer.echo(f"Error: Stream '{stream}' not found", err=True)
+            raise typer.Exit(1)
+
+        # Get tool registry
+        registry = get_registry()
+
+        # Validate tool exists
+        if not registry.get_tool(tool):
+            typer.echo(f"Error: Tool '{tool}' not registered", err=True)
+            raise typer.Exit(1)
+
+        # Resolve timeout: override > task_class timeout > default 300
+        resolved_timeout = registry.get_timeout(tool, timeout)
+
+        # Load prompt from file if provided
+        prompt_content = ""
+        if prompt_file:
+            prompt_path = Path(prompt_file)
+            if not prompt_path.exists():
+                typer.echo(f"Error: Prompt file not found: {prompt_file}", err=True)
+                raise typer.Exit(1)
+            prompt_content = prompt_path.read_text()
+
+        # Parse metadata JSON if provided
+        metadata_dict = {}
+        if metadata:
+            try:
+                metadata_dict = json.loads(metadata)
+            except json.JSONDecodeError as e:
+                typer.echo(f"Error: Invalid metadata JSON: {e}", err=True)
+                raise typer.Exit(1)
+
+        # Build payload (combine prompt and metadata)
+        payload_data = {
+            "prompt": prompt_content,
+            "metadata": metadata_dict
+        }
+        payload_str = json.dumps(payload_data)
+
+        # Create task
+        task = storage.create_task(
+            stream_id=st['id'],
+            tool_name=tool,
+            task_class=task_class,
+            payload=payload_str,
+            timeout=resolved_timeout,
+            prompt_path=prompt_file,
+            metadata=metadata
+        )
+
+        typer.echo(f"Task {task['id']} enqueued to stream '{stream}'")
+
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -324,8 +385,37 @@ def peek(
     stream: str = typer.Option(..., "--stream", "-s", help="Stream to peek"),
 ):
     """Check for next queued task without claiming it."""
-    typer.echo("Phase 2: Not implemented yet")
-    raise typer.Exit(1)
+    try:
+        # Find stream by name
+        st = storage.get_stream_by_name(stream)
+        if not st:
+            typer.echo(f"Error: Stream '{stream}' not found", err=True)
+            raise typer.Exit(1)
+
+        # Get oldest queued task
+        task = storage.get_oldest_queued_task(st['id'])
+
+        if not task:
+            typer.echo("No queued tasks")
+            return
+
+        # Output task details
+        typer.echo(f"Task {task['id']}: {task['tool_name']} (task_class: {task['task_class']})")
+        typer.echo(f"Queued: {task['created_at']}")
+
+        # Show prompt if available in payload
+        if task.get('payload'):
+            import json
+            try:
+                payload_data = json.loads(task['payload'])
+                if payload_data.get('prompt'):
+                    typer.echo(f"Prompt: {payload_data['prompt'][:100]}...")
+            except json.JSONDecodeError:
+                pass
+
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -335,8 +425,43 @@ def claim(
     ),
 ):
     """Claim the next queued task. Returns full task + stream instructions."""
-    typer.echo("Phase 2: Not implemented yet")
-    raise typer.Exit(1)
+    try:
+        # Find stream by name
+        st = storage.get_stream_by_name(stream)
+        if not st:
+            typer.echo(f"Error: Stream '{stream}' not found", err=True)
+            raise typer.Exit(1)
+
+        # Get oldest queued task
+        task = storage.get_oldest_queued_task(st['id'])
+
+        if not task:
+            typer.echo(f"No queued tasks in stream '{stream}'")
+            return
+
+        # Claim the task
+        claimed_task = storage.claim_task(task['id'])
+
+        # Output task details with stream instructions
+        typer.echo(f"Task {claimed_task['id']}: {claimed_task['tool_name']}")
+        typer.echo(f"Stream: {st['name']}")
+
+        if st.get('instructions'):
+            typer.echo(f"Instructions: {st['instructions']}")
+
+        # Show prompt if available in payload
+        if claimed_task.get('payload'):
+            import json
+            try:
+                payload_data = json.loads(claimed_task['payload'])
+                if payload_data.get('prompt'):
+                    typer.echo(f"Prompt: {payload_data['prompt']}")
+            except json.JSONDecodeError:
+                pass
+
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -349,8 +474,61 @@ def complete(
     stderr: Optional[str] = typer.Option(None, "--stderr", help="Captured stderr"),
 ):
     """Mark a task as succeeded."""
-    typer.echo("Phase 2: Not implemented yet")
-    raise typer.Exit(1)
+    import json
+    from pathlib import Path
+
+    try:
+        # Get task
+        task = storage.get_task(task_id)
+        if not task:
+            typer.echo(f"Error: Task {task_id} not found", err=True)
+            raise typer.Exit(1)
+
+        # Verify task is claimed (running status)
+        if task['status'] != 'running':
+            typer.echo(f"Error: Task must be claimed first (current status: {task['status']})", err=True)
+            raise typer.Exit(1)
+
+        # Parse result (could be JSON string or file path)
+        result_data = result
+        result_summary = result
+
+        # Check if result is a file path
+        result_path = Path(result)
+        if result_path.exists() and result_path.is_file():
+            result_data = result_path.read_text()
+            # Try to parse as JSON to extract summary
+            try:
+                result_json = json.loads(result_data)
+                if 'summary' in result_json:
+                    result_summary = result_json['summary']
+            except json.JSONDecodeError:
+                result_summary = result_data[:200]  # Use first 200 chars as summary
+        else:
+            # Assume it's a JSON string or plain summary
+            try:
+                result_json = json.loads(result)
+                if 'summary' in result_json:
+                    result_summary = result_json['summary']
+                    result_data = result
+            except json.JSONDecodeError:
+                # Plain text summary
+                result_summary = result
+                result_data = result
+
+        # Validate summary is not empty
+        if not result_summary or not result_summary.strip():
+            typer.echo("Error: Result summary is required", err=True)
+            raise typer.Exit(1)
+
+        # Complete the task
+        storage.complete_task(task_id, result_summary, result_data, stdout, stderr)
+
+        typer.echo(f"Task {task_id} marked as succeeded")
+
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -361,8 +539,26 @@ def fail(
     stderr: Optional[str] = typer.Option(None, "--stderr", help="Captured stderr"),
 ):
     """Mark a task as failed."""
-    typer.echo("Phase 2: Not implemented yet")
-    raise typer.Exit(1)
+    try:
+        # Get task
+        task = storage.get_task(task_id)
+        if not task:
+            typer.echo(f"Error: Task {task_id} not found", err=True)
+            raise typer.Exit(1)
+
+        # Validate error message is not empty
+        if not error or not error.strip():
+            typer.echo("Error: Error message is required", err=True)
+            raise typer.Exit(1)
+
+        # Fail the task (no error_type for now, can be added later)
+        storage.fail_task(task_id, error, error_type=None, stdout=stdout, stderr=stderr)
+
+        typer.echo(f"Task {task_id} marked as failed")
+
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -376,8 +572,43 @@ def tasks(
     stale: bool = typer.Option(False, "--stale", help="Show only stale (past timeout) tasks"),
 ):
     """List tasks with optional filters."""
-    typer.echo("Phase 2: Not implemented yet")
-    raise typer.Exit(1)
+    try:
+        # Resolve stream name to ID if provided
+        stream_id = None
+        if stream:
+            st = storage.get_stream_by_name(stream)
+            if not st:
+                typer.echo(f"Error: Stream '{stream}' not found", err=True)
+                raise typer.Exit(1)
+            stream_id = st['id']
+
+        # Get tasks with filters
+        task_list = storage.list_tasks(stream_id=stream_id, status=status)
+
+        if not task_list:
+            typer.echo("No tasks found")
+            return
+
+        # Display tasks as table
+        typer.echo(f"\nFound {len(task_list)} task(s):\n")
+        typer.echo(f"{'ID':<15} {'Stream':<20} {'Tool':<25} {'Status':<12} {'Created':<20}")
+        typer.echo("-" * 95)
+
+        for t in task_list:
+            # Get stream name for display
+            task_stream = storage.get_stream(t['stream_id'])
+            stream_name = task_stream['name'] if task_stream else t['stream_id']
+
+            # Truncate long tool names
+            tool_display = t['tool_name'][:22] + "..." if len(t['tool_name']) > 25 else t['tool_name']
+
+            typer.echo(f"{t['id']:<15} {stream_name:<20} {tool_display:<25} {t['status']:<12} {t['created_at']:<20}")
+
+        typer.echo()
+
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -394,8 +625,26 @@ def requeue(
     task_id: str = typer.Argument(..., help="Failed task ID to requeue"),
 ):
     """Clone a failed task as a new queued task."""
-    typer.echo("Phase 2: Not implemented yet")
-    raise typer.Exit(1)
+    try:
+        # Get the task
+        task = storage.get_task(task_id)
+        if not task:
+            typer.echo("Error: Task not found", err=True)
+            raise typer.Exit(1)
+
+        # Check task status - can only requeue if claimed, succeeded, or failed
+        if task['status'] == 'queued':
+            typer.echo("Error: Task is already queued", err=True)
+            raise typer.Exit(1)
+
+        # Requeue the task (creates new task with fresh ID)
+        new_task = storage.requeue_task(task_id)
+
+        typer.echo(f"Task {task_id} requeued as {new_task['id']}")
+
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
 
 
 # === Server Commands (Stubs for Phase 3) ===

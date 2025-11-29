@@ -292,19 +292,172 @@ class Storage:
             )
             return cursor.rowcount > 0
 
-    # === Task CRUD (stub for Phase 2) ===
+    # === Task CRUD ===
     def create_task(
-        self, stream_id: str, tool_name: str, task_class: str, payload: str, timeout: int
+        self, stream_id: str, tool_name: str, task_class: str, payload: str, timeout: int,
+        prompt_path: str = None, metadata: str = None
     ) -> dict:
-        # Phase 2: Full implementation
-        # For now, return empty dict to prevent errors
-        return {}
+        task_id = gen_task_id()
+        now = now_iso()
+
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO tasks (id, stream_id, tool_name, task_class, payload, status, timeout, attempts, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (task_id, stream_id, tool_name, task_class, payload, 'queued', timeout, 0, now, now)
+            )
+
+        return {
+            'id': task_id,
+            'stream_id': stream_id,
+            'tool_name': tool_name,
+            'task_class': task_class,
+            'payload': payload,
+            'status': 'queued',
+            'timeout': timeout,
+            'attempts': 0,
+            'result': None,
+            'error': None,
+            'stdout': None,
+            'stderr': None,
+            'created_at': now,
+            'updated_at': now,
+            'started_at': None,
+            'finished_at': None
+        }
 
     def get_task(self, task_id: str) -> Optional[dict]:
-        # Phase 2: Full implementation
-        return None
+        with self.connection() as conn:
+            cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
-    def list_tasks(self, stream_id: str = None, status: str = None) -> List[dict]:
-        # Phase 2: Full implementation
-        # Return empty list so CLI commands don't error
-        return []
+    def list_tasks(self, stream_id: str = None, status: str = None, limit: int = None) -> List[dict]:
+        with self.connection() as conn:
+            query = "SELECT * FROM tasks WHERE 1=1"
+            params = []
+
+            if stream_id:
+                query += " AND stream_id = ?"
+                params.append(stream_id)
+
+            if status:
+                query += " AND status = ?"
+                params.append(status)
+
+            query += " ORDER BY created_at DESC"
+
+            if limit:
+                query += " LIMIT ?"
+                params.append(limit)
+
+            cursor = conn.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_oldest_queued_task(self, stream_id: str) -> Optional[dict]:
+        """Get oldest queued task for a stream (FIFO ordering)"""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM tasks WHERE stream_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1",
+                (stream_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def claim_task(self, task_id: str) -> dict:
+        """Claim a task by setting status to 'running' and started_at timestamp"""
+        now = now_iso()
+        with self.connection() as conn:
+            # Update status to running
+            cursor = conn.execute(
+                """UPDATE tasks SET status = 'running', started_at = ?, updated_at = ?, attempts = attempts + 1
+                   WHERE id = ?""",
+                (now, now, task_id)
+            )
+
+            if cursor.rowcount == 0:
+                raise ValueError(f"Task {task_id} not found")
+
+            # Fetch and return the updated task
+            cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def complete_task(self, task_id: str, result_summary: str, result_data: str = None,
+                     stdout: str = None, stderr: str = None) -> dict:
+        """Mark task as succeeded with result data"""
+        now = now_iso()
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """UPDATE tasks SET status = 'succeeded', result = ?, stdout = ?, stderr = ?,
+                   finished_at = ?, updated_at = ? WHERE id = ?""",
+                (result_data or result_summary, stdout, stderr, now, now, task_id)
+            )
+
+            if cursor.rowcount == 0:
+                raise ValueError(f"Task {task_id} not found")
+
+            # Fetch and return the updated task
+            cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def fail_task(self, task_id: str, error_message: str, error_type: str = None,
+                  stdout: str = None, stderr: str = None) -> dict:
+        """Mark task as failed with error information"""
+        now = now_iso()
+        error_data = error_message if not error_type else f"{error_type}: {error_message}"
+
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """UPDATE tasks SET status = 'failed', error = ?, stdout = ?, stderr = ?,
+                   finished_at = ?, updated_at = ? WHERE id = ?""",
+                (error_data, stdout, stderr, now, now, task_id)
+            )
+
+            if cursor.rowcount == 0:
+                raise ValueError(f"Task {task_id} not found")
+
+            # Fetch and return the updated task
+            cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def requeue_task(self, task_id: str) -> dict:
+        """Reset a failed task to queued status (clone as new task with new ID)"""
+        # Get the original task
+        original_task = self.get_task(task_id)
+        if not original_task:
+            raise ValueError(f"Task {task_id} not found")
+
+        # Create a new task with same parameters but fresh state
+        new_task_id = gen_task_id()
+        now = now_iso()
+
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO tasks (id, stream_id, tool_name, task_class, payload, status, timeout, attempts, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (new_task_id, original_task['stream_id'], original_task['tool_name'],
+                 original_task['task_class'], original_task['payload'], 'queued',
+                 original_task['timeout'], 0, now, now)
+            )
+
+            # Fetch and return the new task
+            cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (new_task_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def purge_old_tasks(self, older_than_days: int = 3) -> int:
+        """Delete old succeeded/failed tasks older than specified days"""
+        from datetime import datetime, timedelta
+
+        cutoff_date = (datetime.utcnow() - timedelta(days=older_than_days)).isoformat() + "Z"
+
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """DELETE FROM tasks WHERE status IN ('succeeded', 'failed')
+                   AND finished_at < ?""",
+                (cutoff_date,)
+            )
+            return cursor.rowcount

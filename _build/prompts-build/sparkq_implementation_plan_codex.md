@@ -54,29 +54,59 @@
 
 ## Part 2: Execution Strategy
 
-### Codex Parallel Execution Pattern
+### Full Orchestration Pattern (Sonnet → Codex → Haiku)
 
-Since Codex is separate from Claude:
-1. **Sonnet generates prompts** for all Codex tasks in a phase
-2. **Launch Codex commands in parallel** (multiple bash commands)
-3. **Haiku validates** all outputs in parallel
-4. **Sonnet integrates** if needed
+For each phase batch:
 
-**Example - Phase 1.2 (Storage Layer):**
-```bash
-# Sonnet generates 6 prompts, then launches all in parallel:
+**Step 1: Sonnet (Prompt Generation)**
+- Reads phase requirements from FRD + phase prompt file
+- Generates complete Codex prompts with all specifications
+- Estimates Codex complexity and parallel batch groups
+- Cost: 1-3K tokens per batch
 
-# Parallel batch (6 terminals or background jobs):
-codex exec --full-auto "Create models.py..." &
-codex exec --full-auto "Create storage.py foundation..." &
-codex exec --full-auto "Add Project CRUD..." &
-codex exec --full-auto "Add Session CRUD..." &
-codex exec --full-auto "Add Stream CRUD..." &
-codex exec --full-auto "Add Task CRUD stubs..." &
-wait
+**Step 2: Codex (Code Generation - Parallel)**
+- Executes all independent tasks simultaneously (0 Claude cost)
+- Runs 6-8 `codex exec --full-auto` commands in parallel
+- Fast execution (30-90s per command)
+- Cost: $0 (separate subscription)
 
-# Then Haiku validates all 2 files in parallel
+**Step 3: Haiku (Validation)**
+- Validates syntax: `python -m py_compile [files]`
+- Checks imports and dependencies
+- Quick spot checks on structure
+- Cost: 1-3K tokens per batch
+
+**Step 4: Sonnet (Integration)**
+- If needed: combines or reviews outputs
+- Updates dependencies between files
+- Cost: 0-2K tokens (only if needed)
+
+**Example - Phase 2.1 (Tool Registry + Task CRUD):**
+
 ```
+SONNET GENERATES (1K tokens):
+  Task 1: "Create tools.py with ToolRegistry class..."
+  Task 2: "Add Task CRUD methods to storage.py..."
+
+CODEX EXECUTES (parallel, $0 cost):
+  Terminal 1: codex exec --full-auto "[Task 1 prompt]"
+  Terminal 2: codex exec --full-auto "[Task 2 prompt]"
+
+HAIKU VALIDATES (1K tokens):
+  python -m py_compile sparkq/src/tools.py
+  python -m py_compile sparkq/src/storage.py
+```
+
+### Why This Pattern Works
+
+1. **Sonnet** is expensive but fast at reasoning (use sparingly for prompts)
+2. **Codex** is free but dumb (needs detailed specs, no reasoning)
+3. **Haiku** is cheap for quick syntax checks
+4. **Parallel Codex** = maximum throughput with zero Claude cost
+
+Cost comparison:
+- Old: All Sonnet (~$3+ per phase) = expensive
+- New: Minimal Sonnet + Full Codex (~$0.05 per phase) = 98% savings
 
 ---
 

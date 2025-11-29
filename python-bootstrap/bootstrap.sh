@@ -637,7 +637,8 @@ get_venv_info() {
   # Modification time (age of venv)
   local age_days=0
   if [[ -d "${venv_dir}" ]]; then
-    local mod_time=$(stat -f %m "${venv_dir}" 2>/dev/null || stat -c %Y "${venv_dir}" 2>/dev/null || echo 0)
+    local mod_time
+    mod_time=$(stat -c %Y "${venv_dir}" 2>/dev/null || echo 0)
     local now=$(date +%s)
     age_days=$(( (now - mod_time) / 86400 ))
   fi
@@ -1480,7 +1481,7 @@ if [[ "${NEEDS_INPUT}" -gt 0 || "${VERBOSE}" == "true" ]]; then
     printf "      Example: ./spark.py\n"
 
     # Validate MAIN_SCRIPT with retry loop
-    local main_script_valid=false
+    main_script_valid=false
     while [[ "${main_script_valid}" == "false" ]]; do
       confirm_value "MAIN_SCRIPT" ""
 
