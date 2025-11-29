@@ -5,7 +5,7 @@ project:
 server:
   port: 8420
 database:
-  path: sparkq.db
+  path: sparkq/data/sparkq.db
   mode: wal
 purge:
   older_than_days: 3

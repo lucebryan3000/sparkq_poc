@@ -20,7 +20,7 @@ app = typer.Typer(
 )
 
 # Reuse a single storage instance for all commands
-storage = Storage("sparkq.db")
+storage = Storage("sparkq/data/sparkq.db")
 
 def _requests_exceptions():
     try:
@@ -156,7 +156,7 @@ def setup():
             "port": server_port,
         },
         "database": {
-            "path": "sparkq.db",
+            "path": "sparkq/data/sparkq.db",
             "mode": "wal",
         },
         "purge": {

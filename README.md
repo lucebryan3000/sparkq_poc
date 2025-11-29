@@ -87,13 +87,14 @@ sparkqueue/
 │   │   ├── tools.py               # Tool registry
 │   │   └── index.py               # Script indexing
 │   ├── ui/                        # Web dashboard
+│   ├── data/                      # Application data directory
+│   │   └── sparkq.db              # SQLite database (auto-created at runtime)
 │   ├── requirements.txt           # Dependencies (typer, pydantic, uvicorn, fastapi)
 │   ├── setup.sh                   # Local venv setup for sparkq/
 │   └── README.md                  # SparkQ documentation
 │
 ├── .venv/                         # Project-level Python virtual environment
 ├── sparkq.sh                      # Convenient wrapper script
-├── sparkq.db                      # SQLite database (auto-created)
 ├── sparkq.yml                     # Configuration file (auto-created by setup)
 │
 ├── python-bootstrap/              # One-time environment bootstrapper (see README)

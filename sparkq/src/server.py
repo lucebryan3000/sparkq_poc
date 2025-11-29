@@ -170,7 +170,7 @@ def run_server(port: int = PORT, host: str = HOST):
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    storage = Storage("sparkq.db")
+    storage = Storage("sparkq/data/sparkq.db")
     start_auto_purge(storage)
     start_auto_fail(storage, check_interval=30)
 

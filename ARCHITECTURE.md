@@ -15,13 +15,13 @@ sparkqueue/
 │   │   ├── tools.py          # Tool registry and management
 │   │   └── index.py          # Script indexing
 │   ├── ui/                   # Web dashboard (frontend assets)
+│   ├── data/                 # Application data directory
+│   │   └── sparkq.db         # SQLite database (created at runtime)
 │   ├── requirements.txt       # Python dependencies
 │   └── README.md             # SparkQ documentation
 │
 ├── .venv/                    # Python virtual environment (created by bootstrap)
-├── sparkq.db                 # SQLite database (created at runtime)
 ├── sparkq.yml                # Configuration file (created at runtime)
-├── sparkq.log                # Application logs
 ├── sparkq.sh                 # Convenience wrapper script for CLI
 │
 ├── python-bootstrap/         # One-time environment bootstrapper (see README)

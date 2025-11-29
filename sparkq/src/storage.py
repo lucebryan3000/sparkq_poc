@@ -30,7 +30,7 @@ def now_iso() -> str:
 
 
 class Storage:
-    def __init__(self, db_path: str = "sparkq.db"):
+    def __init__(self, db_path: str = "sparkq/data/sparkq.db"):
         self.db_path = db_path
 
     @contextmanager
