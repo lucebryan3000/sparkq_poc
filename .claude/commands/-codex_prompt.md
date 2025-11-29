@@ -1,27 +1,159 @@
-# Codex Prompt Generator
+# Codex Prompt Generator (/-codex_prompt)
 
-Generate optimized Codex execution prompts from implementation specs using the **Complete Orchestration Pattern** from `.claude/playbooks/codex-optimization.md`.
+**PURPOSE**: Automatically refactor ANY implementation plan into a Codex-optimized execution spec using the **Complete Orchestration Pattern** from `.claude/playbooks/codex-optimization.md` (Section 2.5).
 
-## Quick Reference
+**CRITICAL**: This command is NOT optional guidance. When invoked, you MUST:
+1. ✅ Read the playbook (Section 2.5: Complete Orchestration Pattern)
+2. ✅ Analyze the phase/spec provided
+3. ✅ Refactor into Complete Orchestration format
+4. ✅ Replace/overwrite the planning document with execution spec
+5. ✅ Output ready-to-execute Codex prompts
 
-**See the playbook for:**
-- Full workflow and decision tree (Section 3)
-- Model assignment matrix (Section 2)
-- Batch design patterns (Section 13)
-- Complete prompt template (Section 12)
-- Real-world examples (Section 8.5)
+**CONSISTENCY REQUIREMENT**: No interpretation, no "wild west" variability. Execute this pattern identically every time.
 
-## Your Task
+---
 
-Given either a file path or direct specification:
+## Mandatory Execution Steps
 
-1. **Analyze** the requirements
-2. **Classify** each task: Codex (code gen) | Sonnet (logic) | Haiku (validation)
-3. **Design batches** following playbook patterns
-4. **Generate prompts** ready to copy-paste
-5. **Estimate tokens** and parallel execution gains
+When user invokes: `/-codex_prompt refactor @<file_path>`
 
-## Model Assignment (From Playbook Section 2)
+### Step 1: READ THE PLAYBOOK (Section 2.5)
+- Read: `/home/luce/apps/sparkqueue/.claude/playbooks/codex-optimization.md`
+- Focus: Section 2.5 "The Complete Orchestration Pattern (SparkQ Implementation)"
+- Extract: The 3-step workflow (Sonnet → Codex → Haiku)
+- Extract: Token cost structure and execution model
+
+### Step 2: ANALYZE THE PHASE
+- Read: The file provided (@file_path)
+- Identify: ALL tasks that need to be done
+- Classify each task:
+  - **Codex**: Pure code generation from spec (no decisions needed)
+  - **Sonnet**: Reasoning, orchestration, prompt generation
+  - **Haiku**: Syntax validation, placeholder detection
+  - **Manual**: Git operations, file review (not automated)
+
+### Step 3: ANALYZE DEPENDENCIES (Playbook Section 3.3.1)
+- For each task, determine:
+  - **HARD dependency**: Task X MUST complete before task Y starts
+  - **SOFT dependency**: Task X SHOULD complete before Y, but can work independently
+  - **NONE**: Tasks are independent
+- Create dependency matrix
+- Group into batches:
+  - Sequential batches (dependencies require ordering)
+  - Parallel batches (independent tasks can run simultaneously)
+- Target: >70% parallelization
+
+### Step 4: DESIGN EXECUTION SPEC
+Output must follow this exact structure:
+```markdown
+# [Phase Name] - Complete Orchestration Execution Spec
+
+> **Status**: Ready for execution (not planning)
+> **Total Token Budget**: XK tokens (YK Sonnet + ZK Haiku + $0 Codex)
+> **Execution Model**: Sonnet → Codex (parallel) → Haiku (validation)
+> **Wall-clock time**: X minutes
+> **Parallelization ratio**: X%
+
+## Task Analysis
+
+[List all tasks identified]
+
+## Dependency Analysis
+
+[Dependency matrix showing which tasks block which]
+
+## Execution Batches
+
+Batch 1 (Sequential): [Description]
+├─ [Task 1]
+└─ [Task 2]
+
+Batch 2 (Parallel after 1): [Description]
+├─ [Task 3]
+├─ [Task 4]
+└─ [Task 5]
+
+[etc]
+
+## Step 1: Sonnet Prompt Generation
+
+[Detailed prompts for Sonnet to generate Codex prompts]
+
+## Step 2: Codex Execution
+
+Batch 1:
+\`\`\`bash
+codex exec --full-auto -C /home/luce/apps/sparkqueue "[Prompt 1]"
+\`\`\`
+
+Batch 2 (Parallel):
+\`\`\`bash
+codex exec --full-auto -C /home/luce/apps/sparkqueue "[Prompt 2]" &
+codex exec --full-auto -C /home/luce/apps/sparkqueue "[Prompt 3]" &
+wait
+\`\`\`
+
+## Step 3: Haiku Validation
+
+[Validation checkpoints and Haiku prompts]
+
+## Token Breakdown
+
+[Table showing token costs per step]
+
+## Execution Timeline
+
+[Timing breakdown showing wall-clock time]
+```
+
+### Step 5: REPLACE THE PLANNING DOCUMENT
+- Delete or archive the original planning document
+- Create new execution spec file with suffix `-EXECUTION-SPEC.md`
+- Output the spec in full
+- State clearly: "Ready for execution" (not planning)
+
+### Step 6: DELIVER READY-TO-EXECUTE PROMPTS
+- All Codex prompts must be copy-paste ready
+- Include exact file paths
+- Include exact specifications
+- Include validation commands
+- No vague instructions
+
+---
+
+## Non-Negotiable Requirements
+
+When you invoke `/-codex_prompt`:
+
+❌ DO NOT:
+- Ask for clarification or more details
+- Suggest alternatives or variations
+- Question the approach
+- Treat it as "optional guidance"
+- Generate planning documents
+- Return vague recommendations
+
+✅ DO:
+- Read the playbook immediately
+- Apply it systematically
+- Generate detailed execution spec
+- Include ready-to-copy Codex prompts
+- State token costs and timeline
+- Deliver in <10 minutes
+
+---
+
+Given `/-codex_prompt refactor @<file_path>`:
+
+1. Read the playbook (Section 2.5)
+2. Analyze the file provided
+3. Refactor into Complete Orchestration format
+4. Output execution spec ready to execute
+5. Deliver in <10 minutes (no planning, no questions)
+
+---
+
+## Reference: Model Assignment (Playbook Section 2)
 
 | Task Type | Model | Reason |
 |-----------|-------|--------|
@@ -29,69 +161,50 @@ Given either a file path or direct specification:
 | Prompt generation, orchestration | Sonnet | Reasoning, architecture |
 | Syntax validation, placeholders | Haiku | Simple checks |
 
-## Batch Design (From Playbook Section 3.3)
-
-- **Sequential batches:** Tasks with dependencies
-- **Parallel batches:** Independent tasks in same group
-- **Validation:** After each batch completes (Haiku)
-- **Target:** >70% parallelization
-
-## Codex Prompt Format (From Playbook Section 3.4)
+## Reference: Codex Prompt Format (Playbook Section 3.4)
 
 ```bash
 codex exec --full-auto -C /home/luce/apps/sparkqueue "
 Context: [Phase] - [Description]
-Reference: [FRD section if applicable]
 
 Task: [Specific code generation task]
 
 File to create/modify: [exact relative path]
 
 Requirements:
-- [Specific requirements]
+- [Requirement 1]
+- [Requirement 2]
 
 Specification:
-[Complete spec or code template]
+[Complete spec from original]
 
 Validation:
 - [How to verify correctness]
 "
 ```
 
-## Output Structure
+---
 
-1. **Task Analysis**
-   - Total tasks identified
-   - Model assignments (X Codex, Y Sonnet, Z Haiku)
-   - Batch structure with dependencies
+## Checklist for You (Before Invoking)
 
-2. **Batch Execution**
-   - One prompt per task
-   - Sequential/parallel grouping
-   - Wall-clock time estimates
+- [ ] You have a planning document or phase spec to refactor
+- [ ] You want an EXECUTION spec (not more planning)
+- [ ] You want ready-to-copy Codex prompts
+- [ ] You're ready for the playbook's Complete Orchestration Pattern to be applied
+- [ ] You understand: This will replace vague planning with concrete execution
 
-3. **Validation Plan**
-   - Haiku validation commands
-   - Success criteria
+---
 
-4. **Token Estimate**
-   - Sonnet (prompt gen): X tokens
-   - Codex execution: $0
-   - Actual vs playbook benchmarks
+## After Running /-codex_prompt
 
-## Examples from Playbook
+You will receive:
+- ✅ Execution spec (not planning document)
+- ✅ Task analysis with dependencies
+- ✅ Batch design (sequential + parallel)
+- ✅ Ready-to-copy Codex prompts (copy-paste to terminal)
+- ✅ Token costs and wall-clock timeline
+- ✅ Haiku validation checkpoints
 
-See Section 8.5 (Phase 1 Real Results):
-- Phase 1: 5-8K tokens actual vs 23K estimate (78% savings)
-- 30-45 min wall-clock with 6-8 parallel processes
-- 100% first-try success rate with detailed Sonnet prompts
+---
 
-## Key Principles
-
-✅ Maximize Codex (code generation = $0)
-✅ Reserve Sonnet for reasoning/architecture
-✅ Batch independent tasks for parallelization
-✅ Include exact specs in prompts
-✅ Validate after each batch
-
-Now analyze the user's input and generate optimized Codex execution structure.
+**This is how /-codex_prompt MUST work: Consistently, completely, following the playbook every time. No exceptions, no "wild west" variability.**
