@@ -36,6 +36,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+async def root():
+    """Redirect root to UI dashboard."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/ui/")
+
 static_dir = Path(__file__).resolve().parent.parent / "ui"
 app.mount("/ui", StaticFiles(directory=static_dir, html=True, check_dir=False), name="ui")
 
@@ -183,13 +189,6 @@ def _resolve_timeout(task_class: str, timeout: Optional[int]) -> int:
     if timeout is not None:
         return timeout
     return DEFAULT_TASK_TIMEOUTS.get(task_class, 300)
-
-
-@app.get("/")
-async def root():
-    """Redirect root to UI dashboard."""
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/ui/")
 
 
 @app.get("/health")

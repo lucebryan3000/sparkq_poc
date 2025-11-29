@@ -537,13 +537,13 @@ function toggleTheme() {
 // ===== MAIN APP =====
 
 function cachePages() {
-  pages.dashboard = document.getElementById('page-dashboard');
-  pages.sessions = document.getElementById('page-sessions');
-  pages.streams = document.getElementById('page-streams');
-  pages.tasks = document.getElementById('page-tasks');
-  pages.enqueue = document.getElementById('page-enqueue');
-  pages.config = document.getElementById('page-config');
-  pages.scripts = document.getElementById('page-scripts');
+  pages.dashboard = document.getElementById('dashboard-page');
+  pages.sessions = document.getElementById('sessions-page');
+  pages.streams = document.getElementById('streams-page');
+  pages.tasks = document.getElementById('tasks-page');
+  pages.enqueue = document.getElementById('enqueue-page');
+  pages.config = document.getElementById('config-page');
+  pages.scripts = document.getElementById('scripts-page');
 }
 
 function setupNavTabs() {
