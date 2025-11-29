@@ -1,9 +1,13 @@
 'use strict';
 
+// ===== STATE & GLOBALS =====
+
 const API_BASE = `${window.location.protocol}//${window.location.host}`;
 const REFRESH_MS = 10000;
 
 const pages = {};
+const Pages = {};
+
 let currentPage = 'dashboard';
 let dashboardTimer;
 let statusTimer;
@@ -15,179 +19,14 @@ const taskFilters = {
 let scriptIndexCache = [];
 let scriptIndexLoaded = false;
 let scriptIndexPromise = null;
+let pendingScriptSelection = null;
+let taskPaginationState = {
+  offset: 0,
+  limit: 50,
+  total: 0,
+};
 
-document.addEventListener('DOMContentLoaded', () => {
-  cachePages();
-  setupNavTabs();
-  injectStaleStyles();
-  loadScriptIndex().catch(() => {});
-  window.addEventListener('hashchange', router);
-  router();
-  startStatusPolling();
-  startDashboardPolling();
-});
-
-function cachePages() {
-  pages.dashboard = document.getElementById('dashboard-page');
-  pages.sessions = document.getElementById('sessions-page');
-  pages.streams = document.getElementById('streams-page');
-  pages.tasks = document.getElementById('tasks-page');
-  pages.enqueue = document.getElementById('enqueue-page');
-  pages.config = document.getElementById('config-page');
-  pages.scripts = document.getElementById('scripts-page');
-}
-
-function setupNavTabs() {
-  document.querySelectorAll('.nav-tab').forEach((tab) => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.page;
-      window.location.hash = `#${target}`;
-    });
-  });
-}
-
-function router() {
-  const target = (window.location.hash || '#dashboard').replace('#', '') || 'dashboard';
-  const page = pages[target] ? target : 'dashboard';
-  currentPage = page;
-
-  Object.entries(pages).forEach(([name, el]) => {
-    if (!el) {
-      return;
-    }
-    el.classList.toggle('active', name === page);
-  });
-
-  document.querySelectorAll('.nav-tab').forEach((tab) => {
-    tab.classList.toggle('active', tab.dataset.page === page);
-  });
-
-  if (page === 'dashboard') {
-    loadDashboard();
-  } else if (page === 'tasks') {
-    renderTasksPage();
-  } else if (page === 'enqueue' && typeof renderEnqueuePage === 'function') {
-    renderEnqueuePage();
-  } else if (page === 'sessions' && typeof renderSessionsPage === 'function') {
-    renderSessionsPage();
-  } else if (page === 'streams' && typeof renderStreamsPage === 'function') {
-    renderStreamsPage();
-  } else if (page === 'config' && typeof renderConfigPage === 'function') {
-    renderConfigPage();
-  } else if (page === 'scripts' && typeof renderScriptsPage === 'function') {
-    renderScriptsPage();
-  }
-}
-
-function startStatusPolling() {
-  if (statusTimer) {
-    clearInterval(statusTimer);
-  }
-  refreshStatus();
-  statusTimer = setInterval(refreshStatus, REFRESH_MS);
-}
-
-function startDashboardPolling() {
-  if (dashboardTimer) {
-    clearInterval(dashboardTimer);
-  }
-  dashboardTimer = setInterval(() => {
-    if (currentPage === 'dashboard') {
-      loadDashboard();
-    }
-  }, REFRESH_MS);
-}
-
-async function refreshStatus() {
-  try {
-    const health = await api('GET', '/health', null, { action: 'refresh status' });
-    const status = normalizeStatus(health);
-    setStatusIndicator(status, health);
-  } catch (err) {
-    setStatusIndicator('error');
-    if (!statusErrorNotified) {
-      showError(`Failed to refresh status: ${err.message || err}`, err);
-      statusErrorNotified = true;
-    }
-  }
-}
-
-async function loadDashboard() {
-  const container = pages.dashboard;
-  if (!container) {
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="card">
-      <div class="muted"><span class="loading"></span> Loading dashboard…</div>
-    </div>
-  `;
-
-  let health = null;
-  let stats = null;
-
-  try {
-    health = await api('GET', '/health', null, { action: 'load health status' });
-  } catch (err) {
-    showError(`Failed to load health status: ${err.message || err}`, err);
-  }
-
-  try {
-    stats = await api('GET', '/stats', null, { action: 'load dashboard stats' });
-  } catch (err) {
-    showError(`Failed to load dashboard stats: ${err.message || err}`, err);
-  }
-
-  if (health) {
-    setStatusIndicator(normalizeStatus(health), health);
-    statusErrorNotified = false;
-  }
-
-  renderDashboard(container, health, stats);
-}
-
-function renderDashboard(container, health, stats) {
-  const status = normalizeStatus(health);
-  const statusLabel = formatStatusLabel(status);
-  const uptime = formatValue(health?.uptime);
-  const version = formatValue(health?.version, '—');
-
-  const sessionCount = pickStat(stats, ['sessions', 'session_count', 'sessionCount']);
-  const streamCount = pickStat(stats, ['streams', 'stream_count', 'streamCount']);
-  const queuedTasks = pickStat(stats, ['queued_tasks', 'queued', 'queuedTasks']);
-  const runningTasks = pickStat(stats, ['running_tasks', 'running', 'runningTasks']);
-
-  container.innerHTML = `
-    <div class="grid grid-2">
-      <div class="card">
-        <h2>Server Health</h2>
-        <p class="muted">Status</p>
-        <div class="stat-value">${statusLabel}</div>
-        <p class="muted">Uptime: ${uptime}</p>
-        <p class="muted">Version: ${version}</p>
-      </div>
-      <div class="card">
-        <h2>Overview</h2>
-        <div class="grid grid-2">
-          ${statCard('Sessions', sessionCount)}
-          ${statCard('Streams', streamCount)}
-          ${statCard('Queued Tasks', queuedTasks)}
-          ${statCard('Running Tasks', runningTasks)}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function statCard(label, value) {
-  return `
-    <div class="stat-card">
-      <div class="stat-label">${label}</div>
-      <div class="stat-value">${formatNumber(value)}</div>
-    </div>
-  `;
-}
+// ===== API CLIENT =====
 
 async function api(method, path, body = null, { action } = {}) {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
@@ -236,25 +75,7 @@ async function safeJson(response) {
   }
 }
 
-function setStatusIndicator(state, health = {}) {
-  const statusEl = document.getElementById('status');
-  if (!statusEl) {
-    return;
-  }
-
-  statusEl.classList.remove('status-running', 'status-idle', 'status-error');
-  if (state === 'running' || state === 'ok' || state === 'healthy') {
-    statusEl.classList.add('status-running');
-  } else if (state === 'idle') {
-    statusEl.classList.add('status-idle');
-  } else {
-    statusEl.classList.add('status-error');
-  }
-
-  const label = formatStatusLabel(state);
-  const detail = health?.message || '';
-  statusEl.title = detail ? `${label} — ${detail}` : label;
-}
+// ===== UTILITIES =====
 
 function normalizeStatus(health) {
   if (!health) {
@@ -314,6 +135,99 @@ function formatValue(value, fallback = 'Unknown') {
     return fallback;
   }
   return value;
+}
+
+function getTaskTimeout(task) {
+  const timeout = Number(task?.timeout);
+  if (Number.isFinite(timeout) && timeout > 0) {
+    return timeout;
+  }
+  return 3600;
+}
+
+function getTaskTimeStatus(task) {
+  const claimedAt = task?.claimed_at;
+  const nowMs = Date.now();
+  let elapsed = 0;
+
+  if (claimedAt) {
+    const claimedMs = Date.parse(claimedAt);
+    if (!Number.isNaN(claimedMs)) {
+      elapsed = Math.max(0, Math.floor((nowMs - claimedMs) / 1000));
+    }
+  }
+
+  const timeout = getTaskTimeout(task);
+  const remaining = timeout - elapsed;
+  const isStale = remaining <= 0;
+  const isWarned = Boolean(task?.stale_warned_at);
+
+  return { elapsed, remaining, isStale, isWarned };
+}
+
+function buildTimeoutStatus(timeStatus) {
+  const remainingLabel = Math.round(timeStatus.remaining);
+
+  if (timeStatus.isStale) {
+    return {
+      badge: '<span class="timeout-badge timeout-badge-error">TIMEOUT - Will be auto-failed</span>',
+      warning: 'This task has exceeded its timeout and will be automatically failed.',
+    };
+  }
+
+  if (timeStatus.isWarned) {
+    return {
+      badge: '<span class="timeout-badge timeout-badge-warning">WARNING - Approaching timeout</span>',
+      warning: `Task approaching timeout. ${Math.max(remainingLabel, 0)}s remaining`,
+    };
+  }
+
+  if (timeStatus.remaining < 300) {
+    return {
+      badge: `<span class="timeout-badge timeout-badge-critical">CRITICAL - ${Math.max(remainingLabel, 0)}s remaining</span>`,
+      warning: '',
+    };
+  }
+
+  return {
+    badge: `<span class="timeout-badge timeout-badge-ok">OK - ${Math.max(remainingLabel, 0)}s remaining</span>`,
+    warning: '',
+  };
+}
+
+function normalizeScriptIndex(response) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+  if (Array.isArray(response?.scripts)) {
+    return response.scripts;
+  }
+  if (Array.isArray(response?.index)) {
+    return response.index;
+  }
+  return [];
+}
+
+// ===== COMPONENTS =====
+
+function setStatusIndicator(state, health = {}) {
+  const statusEl = document.getElementById('status');
+  if (!statusEl) {
+    return;
+  }
+
+  statusEl.classList.remove('status-running', 'status-idle', 'status-error');
+  if (state === 'running' || state === 'ok' || state === 'healthy') {
+    statusEl.classList.add('status-running');
+  } else if (state === 'idle') {
+    statusEl.classList.add('status-idle');
+  } else {
+    statusEl.classList.add('status-error');
+  }
+
+  const label = formatStatusLabel(state);
+  const detail = health?.message || '';
+  statusEl.title = detail ? `${label} — ${detail}` : label;
 }
 
 function showAlert(message, type = 'info', duration = 5000) {
@@ -399,6 +313,16 @@ function showError(message, error = null) {
 
 function showSuccess(message) {
   return showAlert(message, 'success');
+}
+
+// Copy-to-clipboard utility (Phase 10)
+async function copyToClipboard(text, feedbackMs = 1500) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showSuccess('Copied to clipboard', feedbackMs);
+  } catch (err) {
+    showError('Copy failed', err);
+  }
 }
 
 function handleApiError(action, err) {
@@ -581,33 +505,111 @@ function injectEnqueueStyles() {
   document.head.appendChild(style);
 }
 
-function getTaskTimeout(task) {
-  const timeout = Number(task?.timeout);
-  if (Number.isFinite(timeout) && timeout > 0) {
-    return timeout;
-  }
-  return 3600;
+// Theme toggle utilities (Phase 10)
+function initTheme() {
+  const stored = localStorage.getItem('theme');
+  const preference = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  const theme = stored || preference;
+  applyTheme(theme);
 }
 
-function getTaskTimeStatus(task) {
-  const claimedAt = task?.claimed_at;
-  const nowMs = Date.now();
-  let elapsed = 0;
+function applyTheme(theme) {
+  const doc = document.documentElement;
+  if (theme === 'dark') {
+    doc.setAttribute('data-theme', 'dark');
+  } else {
+    doc.removeAttribute('data-theme');
+  }
+  localStorage.setItem('theme', theme);
+}
 
-  if (claimedAt) {
-    const claimedMs = Date.parse(claimedAt);
-    if (!Number.isNaN(claimedMs)) {
-      elapsed = Math.max(0, Math.floor((nowMs - claimedMs) / 1000));
-    }
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  showSuccess(`Theme changed to ${next} mode`);
+}
+
+// ===== PAGES =====
+
+function statCard(label, value) {
+  return `
+    <div class="stat-card">
+      <div class="stat-label">${label}</div>
+      <div class="stat-value">${formatNumber(value)}</div>
+    </div>
+  `;
+}
+
+async function loadDashboard() {
+  const container = pages.dashboard;
+  if (!container) {
+    return;
   }
 
-  const timeout = getTaskTimeout(task);
-  const remaining = timeout - elapsed;
-  const isStale = remaining <= 0;
-  const isWarned = Boolean(task?.stale_warned_at);
+  container.innerHTML = `
+    <div class="card">
+      <div class="muted"><span class="loading"></span> Loading dashboard…</div>
+    </div>
+  `;
 
-  return { elapsed, remaining, isStale, isWarned };
+  let health = null;
+  let stats = null;
+
+  try {
+    health = await api('GET', '/health', null, { action: 'load health status' });
+  } catch (err) {
+    showError(`Failed to load health status: ${err.message || err}`, err);
+  }
+
+  try {
+    stats = await api('GET', '/stats', null, { action: 'load dashboard stats' });
+  } catch (err) {
+    showError(`Failed to load dashboard stats: ${err.message || err}`, err);
+  }
+
+  if (health) {
+    setStatusIndicator(normalizeStatus(health), health);
+    statusErrorNotified = false;
+  }
+
+  renderDashboard(container, health, stats);
 }
+
+function renderDashboard(container, health, stats) {
+  const status = normalizeStatus(health);
+  const statusLabel = formatStatusLabel(status);
+  const uptime = formatValue(health?.uptime);
+  const version = formatValue(health?.version, '—');
+
+  const sessionCount = pickStat(stats, ['sessions', 'session_count', 'sessionCount']);
+  const streamCount = pickStat(stats, ['streams', 'stream_count', 'streamCount']);
+  const queuedTasks = pickStat(stats, ['queued_tasks', 'queued', 'queuedTasks']);
+  const runningTasks = pickStat(stats, ['running_tasks', 'running', 'runningTasks']);
+
+  container.innerHTML = `
+    <div class="grid grid-2">
+      <div class="card">
+        <h2>Server Health</h2>
+        <p class="muted">Status</p>
+        <div class="stat-value">${statusLabel}</div>
+        <p class="muted">Uptime: ${uptime}</p>
+        <p class="muted">Version: ${version}</p>
+      </div>
+      <div class="card">
+        <h2>Overview</h2>
+        <div class="grid grid-2">
+          ${statCard('Sessions', sessionCount)}
+          ${statCard('Streams', streamCount)}
+          ${statCard('Queued Tasks', queuedTasks)}
+          ${statCard('Running Tasks', runningTasks)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+Pages.Dashboard = { render: loadDashboard };
 
 async function renderTasksPage() {
   const container = pages.tasks;
@@ -638,9 +640,12 @@ async function renderTasksPage() {
     if (taskFilters.status) {
       query.push(`status=${encodeURIComponent(taskFilters.status)}`);
     }
+    query.push(`offset=${taskPaginationState.offset}`);
+    query.push(`limit=${taskPaginationState.limit}`);
     const path = `/api/tasks${query.length ? `?${query.join('&')}` : ''}`;
     const response = await api('GET', path, null, { action: 'load tasks' });
     tasks = response?.tasks || [];
+    taskPaginationState.total = response?.total || tasks.length;
   } catch (err) {
     container.innerHTML = `
       <div class="card">
@@ -689,6 +694,7 @@ async function renderTasksPage() {
 
       return `
         <tr class="task-row ${rowClass}" data-task-id="${task.id}">
+          <td style="width: 30px;"><input type="checkbox" class="task-checkbox" data-task-id="${task.id}" /></td>
           <td>${task.id}</td>
           <td>${streamName}</td>
           <td>${task.tool_name}</td>
@@ -704,6 +710,7 @@ async function renderTasksPage() {
         <table class="table">
           <thead>
             <tr>
+              <th style="width: 30px;"><input type="checkbox" id="select-all-tasks" title="Select all tasks" /></th>
               <th>ID</th>
               <th>Stream</th>
               <th>Tool</th>
@@ -717,6 +724,11 @@ async function renderTasksPage() {
         </table>
       `
     : `<p class="muted">No tasks found.</p>`;
+
+  const showingEnd = taskPaginationState.offset + tasks.length;
+  const paginationInfo = tasks.length > 0 ? `<p class="muted" style="margin-top: 12px; font-size: 13px;">Found ${taskPaginationState.total} tasks (showing ${taskPaginationState.offset + 1}-${showingEnd})</p>` : '';
+  const hasMore = showingEnd < taskPaginationState.total;
+  const loadMoreBtnHtml = hasMore ? `<button class="button" id="load-more-tasks-btn" style="margin-top: 12px;">Load More</button>` : '';
 
   container.innerHTML = `
     <div class="card">
@@ -736,6 +748,8 @@ async function renderTasksPage() {
         </div>
       </div>
       ${table}
+      ${paginationInfo}
+      ${loadMoreBtnHtml}
     </div>
   `;
 
@@ -754,18 +768,136 @@ async function renderTasksPage() {
     statusSelect.value = taskFilters.status;
     statusSelect.addEventListener('change', () => {
       taskFilters.status = statusSelect.value;
+      taskPaginationState.offset = 0;
       renderTasksPage();
     });
   }
 
-  container.querySelectorAll('.task-row').forEach((row) => {
+  const loadMoreBtn = container.querySelector('#load-more-tasks-btn');
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', () => {
+      taskPaginationState.offset += taskPaginationState.limit;
+      renderTasksPage();
+    });
+  }
+
+  // Batch operations state (Phase 10)
+  const selectedTasks = new Set();
+
+  const selectAllCheckbox = container.querySelector('#select-all-tasks');
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', (e) => {
+      document.querySelectorAll('.task-checkbox').forEach((cb) => {
+        cb.checked = e.target.checked;
+        if (e.target.checked) {
+          selectedTasks.add(cb.dataset.taskId);
+        } else {
+          selectedTasks.delete(cb.dataset.taskId);
+        }
+      });
+      updateBulkActionsUI();
+    });
+  }
+
+  document.querySelectorAll('.task-checkbox').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        selectedTasks.add(cb.dataset.taskId);
+      } else {
+        selectedTasks.delete(cb.dataset.taskId);
+      }
+      updateBulkActionsUI();
+    });
+
+    cb.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+  });
+
+  const taskRows = container.querySelectorAll('.task-row');
+  taskRows.forEach((row) => {
     row.addEventListener('click', () => {
-      const taskId = row.dataset.taskId;
-      if (taskId) {
-        renderTaskDetailModal(taskId);
+      const checkbox = row.querySelector('.task-checkbox');
+      if (checkbox && !checkbox.disabled) {
+        checkbox.checked = !checkbox.checked;
+        if (checkbox.checked) {
+          selectedTasks.add(checkbox.dataset.taskId);
+        } else {
+          selectedTasks.delete(checkbox.dataset.taskId);
+        }
+        updateBulkActionsUI();
       }
     });
   });
+
+  function updateBulkActionsUI() {
+    let bulkActionsDiv = container.querySelector('.bulk-actions');
+    if (selectedTasks.size > 0) {
+      if (!bulkActionsDiv) {
+        bulkActionsDiv = document.createElement('div');
+        bulkActionsDiv.className = 'bulk-actions';
+        bulkActionsDiv.style.cssText = 'display: flex; gap: 10px; margin-bottom: 12px; align-items: center;';
+        container.querySelector('.card').insertBefore(bulkActionsDiv, container.querySelector('.card').firstChild.nextSibling?.nextSibling);
+      }
+      bulkActionsDiv.innerHTML = `
+        <span class="muted">${selectedTasks.size} selected</span>
+        <button class="button" id="bulk-fail-btn" type="button">Fail Selected</button>
+        <button class="button" id="bulk-requeue-btn" type="button">Requeue Selected</button>
+      `;
+      bulkActionsDiv.style.display = 'flex';
+
+      document.getElementById('bulk-fail-btn')?.addEventListener('click', () => bulkFail());
+      document.getElementById('bulk-requeue-btn')?.addEventListener('click', () => bulkRequeue());
+    } else if (bulkActionsDiv) {
+      bulkActionsDiv.style.display = 'none';
+    }
+  }
+
+  async function bulkFail() {
+    const confirmed = confirm(`Fail ${selectedTasks.size} selected task(s)?`);
+    if (!confirmed) return;
+
+    try {
+      let failed = 0;
+      for (const taskId of selectedTasks) {
+        try {
+          await api('POST', `/api/tasks/${taskId}/fail`, { reason: 'Bulk fail via UI' }, { action: 'fail task' });
+          failed++;
+        } catch (err) {
+          console.error(`Failed to fail task ${taskId}:`, err);
+        }
+      }
+      showSuccess(`Failed ${failed}/${selectedTasks.size} task(s)`);
+      selectedTasks.clear();
+      renderTasksPage();
+    } catch (err) {
+      handleApiError('bulk fail tasks', err);
+    }
+  }
+
+  async function bulkRequeue() {
+    const confirmed = confirm(`Requeue ${selectedTasks.size} selected task(s)?`);
+    if (!confirmed) return;
+
+    try {
+      let requeued = 0;
+      for (const taskId of selectedTasks) {
+        try {
+          await api('POST', `/api/tasks/${taskId}/requeue`, {}, { action: 'requeue task' });
+          requeued++;
+        } catch (err) {
+          console.error(`Failed to requeue task ${taskId}:`, err);
+        }
+      }
+      showSuccess(`Requeued ${requeued}/${selectedTasks.size} task(s)`);
+      selectedTasks.clear();
+      renderTasksPage();
+    } catch (err) {
+      handleApiError('bulk requeue tasks', err);
+    }
+  }
+
+  updateBulkActionsUI();
 }
 
 async function renderTaskDetailModal(taskId) {
@@ -850,36 +982,6 @@ async function renderTaskDetailModal(taskId) {
   modal.querySelector('[data-action="close"]')?.addEventListener('click', () => closeModal(modal));
 
   attachTaskActionHandlers(modal, task);
-}
-
-function buildTimeoutStatus(timeStatus) {
-  const remainingLabel = Math.round(timeStatus.remaining);
-
-  if (timeStatus.isStale) {
-    return {
-      badge: '<span class="timeout-badge timeout-badge-error">TIMEOUT - Will be auto-failed</span>',
-      warning: 'This task has exceeded its timeout and will be automatically failed.',
-    };
-  }
-
-  if (timeStatus.isWarned) {
-    return {
-      badge: '<span class="timeout-badge timeout-badge-warning">WARNING - Approaching timeout</span>',
-      warning: `Task approaching timeout. ${Math.max(remainingLabel, 0)}s remaining`,
-    };
-  }
-
-  if (timeStatus.remaining < 300) {
-    return {
-      badge: `<span class="timeout-badge timeout-badge-critical">CRITICAL - ${Math.max(remainingLabel, 0)}s remaining</span>`,
-      warning: '',
-    };
-  }
-
-  return {
-    badge: `<span class="timeout-badge timeout-badge-ok">OK - ${Math.max(remainingLabel, 0)}s remaining</span>`,
-    warning: '',
-  };
 }
 
 function closeModal(modal) {
@@ -1003,6 +1105,8 @@ async function handleRequeueTask(taskId, modal, button) {
   }
 }
 
+Pages.Tasks = { render: renderTasksPage, renderDetail: renderTaskDetailModal };
+
 async function loadScriptIndex(force = false) {
   if (scriptIndexLoaded && !force) {
     return scriptIndexCache;
@@ -1030,19 +1134,6 @@ async function loadScriptIndex(force = false) {
   })();
 
   return scriptIndexPromise;
-}
-
-function normalizeScriptIndex(response) {
-  if (Array.isArray(response)) {
-    return response;
-  }
-  if (Array.isArray(response?.scripts)) {
-    return response.scripts;
-  }
-  if (Array.isArray(response?.index)) {
-    return response.index;
-  }
-  return [];
 }
 
 async function renderEnqueuePage() {
@@ -1370,7 +1461,17 @@ async function renderEnqueuePage() {
       handleApiError('enqueue task', err);
     }
   });
+
+  if (pendingScriptSelection) {
+    const match = scripts.find((entry) => String(entry.name || '') === String(pendingScriptSelection.name || ''));
+    if (match) {
+      selectScript(match);
+    }
+    pendingScriptSelection = null;
+  }
 }
+
+Pages.Enqueue = { render: renderEnqueuePage };
 
 async function renderSessionsPage() {
   const container = pages.sessions;
@@ -1452,6 +1553,8 @@ async function handleCreateSession() {
   }
 }
 
+Pages.Sessions = { render: renderSessionsPage };
+
 async function renderStreamsPage() {
   const container = pages.streams;
   if (!container) {
@@ -1496,10 +1599,6 @@ async function renderStreamsPage() {
         <td>${formatValue(stream.created_at, '—')}</td>
       </tr>
     `)
-    .join('');
-
-  const sessionOptions = sessions
-    .map((session) => `<option value="${session.id}">${session.name || session.id}</option>`)
     .join('');
 
   const table = streams.length
@@ -1571,6 +1670,8 @@ async function handleCreateStream(container, sessions) {
   }
 }
 
+Pages.Streams = { render: renderStreamsPage };
+
 async function renderConfigPage() {
   const container = pages.config;
   if (!container) {
@@ -1583,134 +1684,110 @@ async function renderConfigPage() {
     </div>
   `;
 
+  let config = null;
   try {
-    const response = await api('GET', '/api/config', null, { action: 'load config' });
-
-    const serverRows = Object.entries(response?.server || {})
-      .map(([key, value]) => `
-        <tr>
-          <td>${key}</td>
-          <td>${formatValue(value, '—')}</td>
-        </tr>
-      `)
-      .join('');
-
-    const databaseRows = Object.entries(response?.database || {})
-      .map(([key, value]) => `
-        <tr>
-          <td>${key}</td>
-          <td>${formatValue(value, '—')}</td>
-        </tr>
-      `)
-      .join('');
-
-    const purgeRows = Object.entries(response?.purge || {})
-      .map(([key, value]) => `
-        <tr>
-          <td>${key}</td>
-          <td>${formatValue(value, '—')}</td>
-        </tr>
-      `)
-      .join('');
-
-    const toolRows = Object.entries(response?.tools || {})
-      .map(([name, tool]) => `
-        <tr>
-          <td>${name}</td>
-          <td>${tool.description || '—'}</td>
-          <td>${tool.task_class || '—'}</td>
-        </tr>
-      `)
-      .join('');
-
-    const taskClassRows = Object.entries(response?.task_classes || {})
-      .map(([name, taskClass]) => `
-        <tr>
-          <td>${name}</td>
-          <td>${taskClass.timeout || '—'}</td>
-        </tr>
-      `)
-      .join('');
-
+    config = await api('GET', '/api/config', null, { action: 'load configuration' });
+  } catch (err) {
     container.innerHTML = `
       <div class="card">
-        <h2>Server Configuration</h2>
-
-        <h3 style="margin-top: 20px; margin-bottom: 12px;">Server</h3>
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Setting</th>
-              <th>Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${serverRows}
-          </tbody>
-        </table>
-
-        <h3 style="margin-top: 20px; margin-bottom: 12px;">Database</h3>
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Setting</th>
-              <th>Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${databaseRows}
-          </tbody>
-        </table>
-
-        <h3 style="margin-top: 20px; margin-bottom: 12px;">Purge Policy</h3>
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Setting</th>
-              <th>Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${purgeRows}
-          </tbody>
-        </table>
-
-        <h3 style="margin-top: 20px; margin-bottom: 12px;">Tools</h3>
-        ${toolRows ? `
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Tool Name</th>
-                <th>Description</th>
-                <th>Task Class</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${toolRows}
-            </tbody>
-          </table>
-        ` : '<p class="muted">No tools configured.</p>'}
-
-        <h3 style="margin-top: 20px; margin-bottom: 12px;">Task Classes</h3>
-        ${taskClassRows ? `
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Class Name</th>
-                <th>Timeout</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${taskClassRows}
-            </tbody>
-          </table>
-        ` : '<p class="muted">No task classes configured.</p>'}
+        <div class="muted">Unable to load configuration.</div>
       </div>
     `;
-  } catch (err) {
-    handleApiError('load config', err);
+    showError(`Failed to load configuration: ${err.message || err}`, err);
+    return;
   }
+
+  const server = config?.server || {};
+  const database = config?.database || {};
+  const purge = config?.purge || {};
+  const tools = config?.tools || {};
+  const taskClasses = config?.task_classes || {};
+
+  const toolEntries = Object.entries(tools);
+  const toolRows = toolEntries
+    .map(
+      ([name, detail]) => `
+        <tr>
+          <td>${formatValue(name, '—')}</td>
+          <td>${formatValue(detail?.description, '—')}</td>
+          <td>${formatValue(detail?.task_class, '—')}</td>
+        </tr>
+      `,
+    )
+    .join('');
+  const toolsTable = toolEntries.length
+    ? `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Tool Name</th>
+              <th>Description</th>
+              <th>Task Class</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${toolRows}
+          </tbody>
+        </table>
+      `
+    : `<p class="muted">No tools configured.</p>`;
+
+  const taskClassEntries = Object.entries(taskClasses);
+  const taskClassRows = taskClassEntries
+    .map(
+      ([name, detail]) => `
+        <tr>
+          <td>${formatValue(name, '—')}</td>
+          <td>${formatValue(detail?.timeout, '—')}</td>
+        </tr>
+      `,
+    )
+    .join('');
+  const taskClassTable = taskClassEntries.length
+    ? `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Class Name</th>
+              <th>Timeout</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${taskClassRows}
+          </tbody>
+        </table>
+      `
+    : `<p class="muted">No task classes configured.</p>`;
+
+  container.innerHTML = `
+    <div class="grid grid-2">
+      <div class="card">
+        <h2>Server</h2>
+        <p><strong>Host:</strong> ${formatValue(server.host, '—')}</p>
+        <p><strong>Port:</strong> ${formatValue(server.port, '—')}</p>
+      </div>
+      <div class="card">
+        <h2>Database</h2>
+        <p><strong>Path:</strong> ${formatValue(database.path, '—')}</p>
+        <p><strong>Mode:</strong> ${formatValue(database.mode, '—')}</p>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Purge</h2>
+      <p><strong>Older Than Days:</strong> ${formatValue(purge.older_than_days, '—')}</p>
+    </div>
+    <div class="card">
+      <h2>Tools</h2>
+      ${toolsTable}
+    </div>
+    <div class="card">
+      <h2>Task Classes</h2>
+      ${taskClassTable}
+    </div>
+  `;
 }
+
+Pages.Config = { render: renderConfigPage };
 
 async function renderScriptsPage() {
   const container = pages.scripts;
@@ -1728,6 +1805,10 @@ async function renderScriptsPage() {
   try {
     scripts = await loadScriptIndex();
   } catch (err) {
+    scripts = [];
+  }
+
+  if (!Array.isArray(scripts) || !scripts.length) {
     container.innerHTML = `
       <div class="card">
         <h2>Scripts</h2>
@@ -1737,39 +1818,73 @@ async function renderScriptsPage() {
     return;
   }
 
-  if (!scripts.length) {
-    container.innerHTML = `
-      <div class="card">
-        <h2>Scripts</h2>
-        <p class="muted">No scripts available.</p>
-      </div>
-    `;
-    return;
-  }
-
-  const uniqueClasses = [...new Set(scripts.map((s) => s.task_class).filter(Boolean))].sort();
-
-  let filteredScripts = scripts;
+  const taskClassOptions = Array.from(
+    new Set(
+      scripts
+        .map((entry) => entry.task_class)
+        .filter((value) => value !== undefined && value !== null && value !== ''),
+    ),
+  ).sort();
 
   container.innerHTML = `
     <div class="card">
       <h2>Scripts</h2>
-
-      <div style="margin-bottom: 16px; display: flex; gap: 12px;">
-        <div class="input-group" style="flex: 1;">
-          <input type="text" class="input" id="script-search" placeholder="Search by name or description…" />
+      <div class="grid grid-2">
+        <div class="input-group">
+          <label for="scripts-search">Search</label>
+          <input id="scripts-search" type="text" placeholder="Search by name or description" />
         </div>
         <div class="input-group">
-          <select class="input" id="script-class-filter">
-            <option value="">All Classes</option>
-            ${uniqueClasses.map((cls) => `<option value="${cls}">${cls}</option>`).join('')}
+          <label for="scripts-task-class">Task Class</label>
+          <select id="scripts-task-class">
+            <option value="">All task classes</option>
+            ${taskClassOptions.map((value) => `<option value="${value}">${value}</option>`).join('')}
           </select>
         </div>
       </div>
+      <div id="scripts-count" class="muted" style="margin-top: 6px;">Found ${scripts.length} scripts</div>
+      <div id="scripts-results" style="margin-top: 12px;"></div>
+    </div>
+  `;
 
-      <p class="muted" id="script-count">Found ${scripts.length} scripts</p>
+  const searchInput = container.querySelector('#scripts-search');
+  const taskClassSelect = container.querySelector('#scripts-task-class');
+  const resultsEl = container.querySelector('#scripts-results');
+  const countEl = container.querySelector('#scripts-count');
 
-      <table class="table" id="scripts-table">
+  function formatScriptField(value) {
+    if (!value && value !== 0) {
+      return '';
+    }
+    if (Array.isArray(value)) {
+      return value.join(', ');
+    }
+    return String(value);
+  }
+
+  function renderTable(list) {
+    if (!list.length) {
+      resultsEl.innerHTML = `<p class="muted">No scripts match your filters.</p>`;
+      return;
+    }
+
+    const rows = list
+      .map(
+        (script, index) => `
+          <tr>
+            <td><a href="#enqueue" class="link" data-script-index="${index}">${formatValue(script.name, 'Unnamed script')}</a></td>
+            <td>${formatValue(script.description, '—')}</td>
+            <td>${script.timeout ? `${script.timeout}s` : '—'}</td>
+            <td>${formatValue(script.task_class, '—')}</td>
+            <td>${formatScriptField(script.inputs) || '—'}</td>
+            <td>${formatScriptField(script.outputs) || '—'}</td>
+          </tr>
+        `,
+      )
+      .join('');
+
+    resultsEl.innerHTML = `
+      <table class="table">
         <thead>
           <tr>
             <th>Name</th>
@@ -1780,80 +1895,209 @@ async function renderScriptsPage() {
             <th>Outputs</th>
           </tr>
         </thead>
-        <tbody id="scripts-tbody">
-          ${scripts.map((script) => `
-            <tr style="cursor: pointer;" class="script-row" data-script-name="${encodeURIComponent(script.name || '')}">
-              <td><strong>${script.name || 'Unnamed'}</strong></td>
-              <td>${script.description || '—'}</td>
-              <td>${script.timeout || '—'}</td>
-              <td>${script.task_class || '—'}</td>
-              <td>${script.inputs?.length || 0}</td>
-              <td>${script.outputs?.length || 0}</td>
-            </tr>
-          `).join('')}
+        <tbody>
+          ${rows}
         </tbody>
       </table>
-    </div>
-  `;
+    `;
 
-  const searchInput = container.querySelector('#script-search');
-  const classFilter = container.querySelector('#script-class-filter');
-  const countLabel = container.querySelector('#script-count');
-  const tbody = container.querySelector('#scripts-tbody');
-
-  function updateTable() {
-    const searchQuery = (searchInput.value || '').trim().toLowerCase();
-    const classQuery = (classFilter.value || '').trim();
-
-    filteredScripts = scripts.filter((script) => {
-      const matchesSearch = !searchQuery ||
-        (script.name || '').toLowerCase().includes(searchQuery) ||
-        (script.description || '').toLowerCase().includes(searchQuery);
-      const matchesClass = !classQuery || script.task_class === classQuery;
-      return matchesSearch && matchesClass;
-    });
-
-    countLabel.textContent = `Found ${filteredScripts.length} scripts`;
-
-    tbody.innerHTML = filteredScripts.map((script) => `
-      <tr style="cursor: pointer;" class="script-row" data-script-name="${encodeURIComponent(script.name || '')}">
-        <td><strong>${script.name || 'Unnamed'}</strong></td>
-        <td>${script.description || '—'}</td>
-        <td>${script.timeout || '—'}</td>
-        <td>${script.task_class || '—'}</td>
-        <td>${script.inputs?.length || 0}</td>
-        <td>${script.outputs?.length || 0}</td>
-      </tr>
-    `).join('');
-
-    attachScriptRowHandlers();
-  }
-
-  function attachScriptRowHandlers() {
-    container.querySelectorAll('.script-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        const scriptName = decodeURIComponent(row.dataset.scriptName || '');
-        const script = scripts.find((s) => s.name === scriptName);
+    resultsEl.querySelectorAll('[data-script-index]').forEach((link) => {
+      const idx = Number(link.dataset.scriptIndex);
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        const script = list[idx];
         if (script) {
-          window.location.hash = '#enqueue';
-          setTimeout(() => {
-            const toolInput = document.querySelector('[name="tool"]');
-            if (toolInput) {
-              toolInput.value = script.name;
-              toolInput.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-          }, 100);
+          pendingScriptSelection = script;
         }
+        window.location.hash = '#enqueue';
       });
     });
   }
 
-  if (searchInput) {
-    searchInput.addEventListener('input', updateTable);
-  }
-  if (classFilter) {
-    classFilter.addEventListener('change', updateTable);
+  function applyFilters() {
+    const query = (searchInput?.value || '').trim().toLowerCase();
+    const taskClass = (taskClassSelect?.value || '').trim();
+    const filtered = scripts.filter((script) => {
+      const name = String(script.name || '').toLowerCase();
+      const description = String(script.description || '').toLowerCase();
+      const matchesQuery = !query || name.includes(query) || description.includes(query);
+      const matchesClass = !taskClass || String(script.task_class || '') === taskClass;
+      return matchesQuery && matchesClass;
+    });
+
+    countEl.textContent = `Found ${filtered.length} scripts`;
+    renderTable(filtered);
   }
 
-  attachScriptRowHandlers();
+  searchInput?.addEventListener('input', applyFilters);
+  taskClassSelect?.addEventListener('change', applyFilters);
+
+  applyFilters();
+}
+
+Pages.Scripts = { render: renderScriptsPage };
+
+// ===== MAIN APP =====
+
+function cachePages() {
+  pages.dashboard = document.getElementById('dashboard-page');
+  pages.sessions = document.getElementById('sessions-page');
+  pages.streams = document.getElementById('streams-page');
+  pages.tasks = document.getElementById('tasks-page');
+  pages.enqueue = document.getElementById('enqueue-page');
+  pages.config = document.getElementById('config-page');
+  pages.scripts = document.getElementById('scripts-page');
+}
+
+function setupNavTabs() {
+  document.querySelectorAll('.nav-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.page;
+      window.location.hash = `#${target}`;
+    });
+  });
+}
+
+function router() {
+  const target = (window.location.hash || '#dashboard').replace('#', '') || 'dashboard';
+  const page = pages[target] ? target : 'dashboard';
+  currentPage = page;
+
+  Object.entries(pages).forEach(([name, el]) => {
+    if (!el) {
+      return;
+    }
+    el.classList.toggle('active', name === page);
+  });
+
+  document.querySelectorAll('.nav-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab.dataset.page === page);
+  });
+
+  if (page === 'dashboard') {
+    loadDashboard();
+  } else if (page === 'tasks') {
+    renderTasksPage();
+  } else if (page === 'enqueue' && typeof renderEnqueuePage === 'function') {
+    renderEnqueuePage();
+  } else if (page === 'sessions' && typeof renderSessionsPage === 'function') {
+    renderSessionsPage();
+  } else if (page === 'streams' && typeof renderStreamsPage === 'function') {
+    renderStreamsPage();
+  } else if (page === 'config' && typeof renderConfigPage === 'function') {
+    renderConfigPage();
+  } else if (page === 'scripts' && typeof renderScriptsPage === 'function') {
+    renderScriptsPage();
+  }
+}
+
+function startStatusPolling() {
+  if (statusTimer) {
+    clearInterval(statusTimer);
+  }
+  refreshStatus();
+  statusTimer = setInterval(refreshStatus, REFRESH_MS);
+}
+
+function startDashboardPolling() {
+  if (dashboardTimer) {
+    clearInterval(dashboardTimer);
+  }
+  dashboardTimer = setInterval(() => {
+    if (currentPage === 'dashboard') {
+      loadDashboard();
+    }
+  }, REFRESH_MS);
+}
+
+async function refreshStatus() {
+  try {
+    const health = await api('GET', '/health', null, { action: 'refresh status' });
+    const status = normalizeStatus(health);
+    setStatusIndicator(status, health);
+  } catch (err) {
+    setStatusIndicator('error');
+    if (!statusErrorNotified) {
+      showError(`Failed to refresh status: ${err.message || err}`, err);
+      statusErrorNotified = true;
+    }
+  }
+}
+
+// Keyboard shortcuts handler (Phase 10)
+function setupKeyboardShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    // Ignore if typing in input/textarea
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+      return;
+    }
+
+    // Escape: Close modals
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal').forEach((modal) => {
+        if (modal && modal.parentNode) {
+          modal.remove();
+        }
+      });
+    }
+
+    // Ctrl+K: Focus search (if available)
+    if (e.ctrlKey && e.key === 'k') {
+      e.preventDefault();
+      const searchInput = document.querySelector('[data-search]') || document.querySelector('input[type="search"]');
+      if (searchInput) {
+        searchInput.focus();
+      }
+    }
+
+    // Ctrl+Shift+T: Navigate to Tasks page
+    if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+      e.preventDefault();
+      window.location.hash = '#tasks';
+    }
+
+    // Ctrl+Shift+E: Navigate to Enqueue page
+    if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+      e.preventDefault();
+      window.location.hash = '#enqueue';
+    }
+
+    // Ctrl+Shift+D: Navigate to Dashboard
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+      e.preventDefault();
+      window.location.hash = '#dashboard';
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
+  cachePages();
+  setupNavTabs();
+  injectStaleStyles();
+  setupKeyboardShortcuts();
+  loadScriptIndex().catch(() => {});
+
+  // Setup theme toggle button (Phase 10)
+  const themeToggleBtn = document.getElementById('theme-toggle-btn');
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', () => {
+      toggleTheme();
+      updateThemeButtonIcon();
+    });
+    updateThemeButtonIcon();
+  }
+
+  window.addEventListener('hashchange', router);
+  router();
+  startStatusPolling();
+  startDashboardPolling();
+});
+
+function updateThemeButtonIcon() {
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    btn.textContent = isDark ? '☀️' : '🌙';
+  }
 }

@@ -12,6 +12,18 @@
   --error: #f44336;
 }
 
+/* Light mode theme (Phase 10) */
+:root:not([data-theme="dark"]) {
+  --bg: #ffffff;
+  --surface: #f5f5f5;
+  --muted: #f0f0f0;
+  --text: #1a1a1a;
+  --subtle: #666666;
+  --accent: #0066cc;
+  --border: #e0e0e0;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
 * {
   box-sizing: border-box;
 }
