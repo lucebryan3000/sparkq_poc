@@ -19,8 +19,23 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-# Reuse a single storage instance for all commands
-storage = Storage("sparkq/data/sparkq.db")
+# Storage instance initialized lazily from config
+_storage_instance = None
+
+def get_storage():
+    """Get storage instance, initializing from config if needed."""
+    global _storage_instance
+    if _storage_instance is None:
+        import yaml
+        config_path = Path("sparkq.yml")
+        if config_path.exists():
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+                db_path = config.get("database", {}).get("path", "sparkq/data/sparkq.db")
+        else:
+            db_path = "sparkq/data/sparkq.db"
+        _storage_instance = Storage(db_path)
+    return _storage_instance
 
 def _requests_exceptions():
     try:
@@ -197,10 +212,10 @@ def setup():
     typer.echo(f"\nConfiguration saved to {config_path}")
 
     # Initialize database
-    storage.init_db()
+    get_storage().init_db()
 
     # Create project record
-    storage.create_project(
+    get_storage().create_project(
         name=project_name,
         repo_path=repo_path,
         prd_path=prd_path or None,
@@ -354,16 +369,16 @@ def session_create(
     name = name.strip()
 
     # Check project exists
-    project = storage.get_project()
+    project = get_storage().get_project()
     if not project:
         _config_error("Project not initialized. Run 'sparkq setup' first.")
 
     # Check name not taken
-    existing = storage.get_session_by_name(name)
+    existing = get_storage().get_session_by_name(name)
     if existing:
         _invalid_field("session name", name, suggestion="Try: choose a unique session name")
 
-    session = storage.create_session(name=name, description=instructions)
+    session = get_storage().create_session(name=name, description=instructions)
     typer.echo(f"Created session: {session['name']} ({session['id']})")
 
 
@@ -379,7 +394,7 @@ def session_list(
     if status and status not in valid_status:
         _invalid_field("status", status, valid_options=sorted(valid_status))
 
-    sessions = storage.list_sessions(status=status)
+    sessions = get_storage().list_sessions(status=status)
 
     if not sessions:
         typer.echo("No sessions found.")
@@ -389,7 +404,7 @@ def session_list(
     typer.echo("-" * 60)
 
     for s in sessions:
-        streams = storage.list_streams(session_id=s["id"])
+        streams = get_storage().list_streams(session_id=s["id"])
         stream_count = len(streams)
         typer.echo(
             f"{s['name']:<20} {s['status']:<10} {s['started_at'][:19]:<20} {stream_count:<10}"
@@ -407,14 +422,14 @@ def session_end(
 
     name = name.strip()
 
-    session = storage.get_session_by_name(name)
+    session = get_storage().get_session_by_name(name)
     if not session:
         _resource_missing("Session", name, "sparkq session list")
 
     if session["status"] == "ended":
         _state_error("Ending session", "ended", "sparkq session list")
 
-    storage.end_session(session["id"])
+    get_storage().end_session(session["id"])
     typer.echo(f"Ended session: {name}")
 
 
@@ -444,7 +459,7 @@ def stream_create(
     session = session.strip()
 
     # Find session
-    sess = storage.get_session_by_name(session)
+    sess = get_storage().get_session_by_name(session)
     if not sess:
         _resource_missing("Session", session, "sparkq session list")
 
@@ -452,11 +467,11 @@ def stream_create(
         _state_error("Creating stream", "ended", "sparkq session create <name>")
 
     # Check name not taken
-    existing = storage.get_stream_by_name(name)
+    existing = get_storage().get_stream_by_name(name)
     if existing:
         _invalid_field("stream name", name, suggestion="Try: choose a unique stream name")
 
-    stream = storage.create_stream(
+    stream = get_storage().create_stream(
         session_id=sess["id"],
         name=name,
         instructions=instructions,
@@ -487,12 +502,12 @@ def stream_list(
         if not session.strip():
             _required_field("Session name", "Try: sparkq session list")
         session = session.strip()
-        sess = storage.get_session_by_name(session)
+        sess = get_storage().get_session_by_name(session)
         if not sess:
             _resource_missing("Session", session, "sparkq session list")
         session_id = sess["id"]
 
-    streams = storage.list_streams(session_id=session_id, status=status)
+    streams = get_storage().list_streams(session_id=session_id, status=status)
 
     if not streams:
         typer.echo("No streams found.")
@@ -503,11 +518,11 @@ def stream_list(
 
     for st in streams:
         # Get session name
-        sess = storage.get_session(st["session_id"])
+        sess = get_storage().get_session(st["session_id"])
         sess_name = sess["name"] if sess else "?"
 
         # Count tasks (stub - returns 0 until Phase 2)
-        tasks = storage.list_tasks(stream_id=st["id"])
+        tasks = get_storage().list_tasks(stream_id=st["id"])
         task_count = len(tasks)
 
         typer.echo(
@@ -525,14 +540,14 @@ def stream_end(
         _required_field("Stream ID")
 
     stream_id = stream_id.strip()
-    stream = storage.get_stream(stream_id)
+    stream = get_storage().get_stream(stream_id)
     if not stream:
         _resource_missing("Stream", stream_id, "sparkq stream list")
 
     if stream.get("status") == "ended":
         _state_error("Ending stream", "ended", "sparkq stream list")
 
-    storage.end_stream(stream_id)
+    get_storage().end_stream(stream_id)
     typer.echo(f"Stream {stream_id} ended successfully")
 
 
@@ -572,7 +587,7 @@ def enqueue(
         _invalid_field("task_class", task_class, valid_options=sorted(valid_task_classes))
 
     # Validate stream exists
-    st = storage.get_stream_by_name(stream)
+    st = get_storage().get_stream_by_name(stream)
     if not st:
         _resource_missing("Stream", stream, "sparkq stream list")
 
@@ -618,7 +633,7 @@ def enqueue(
     payload_str = json.dumps(payload_data)
 
     # Create task
-    task = storage.create_task(
+    task = get_storage().create_task(
         stream_id=st['id'],
         tool_name=tool,
         task_class=task_class,
@@ -643,12 +658,12 @@ def peek(
     stream = stream.strip()
 
     # Find stream by name
-    st = storage.get_stream_by_name(stream)
+    st = get_storage().get_stream_by_name(stream)
     if not st:
         _resource_missing("Stream", stream, "sparkq stream list")
 
     # Get oldest queued task
-    task = storage.get_oldest_queued_task(st['id'])
+    task = get_storage().get_oldest_queued_task(st['id'])
 
     if not task:
         typer.echo("No queued tasks")
@@ -678,7 +693,7 @@ def claim(
 ):
     """Claim next task in stream."""
     if not stream or not stream.strip():
-        available_streams = storage.list_streams(status="active")
+        available_streams = get_storage().list_streams(status="active")
         if not available_streams:
             _required_field("Stream", "Try: sparkq stream list")
 
@@ -690,7 +705,7 @@ def claim(
     stream = stream.strip()
 
     # Find stream by name
-    st = storage.get_stream_by_name(stream)
+    st = get_storage().get_stream_by_name(stream)
     if not st:
         _resource_missing("Stream", stream, "sparkq stream list")
 
@@ -698,14 +713,14 @@ def claim(
         _state_error("Claim", "ended", "sparkq stream create <name>")
 
     # Get oldest queued task
-    task = storage.get_oldest_queued_task(st['id'])
+    task = get_storage().get_oldest_queued_task(st['id'])
 
     if not task:
         typer.echo(f"No queued tasks in stream '{stream}'")
         return
 
     # Claim the task
-    claimed_task = storage.claim_task(task['id'])
+    claimed_task = get_storage().claim_task(task['id'])
 
     # Output task details with stream instructions
     typer.echo(f"Task {claimed_task['id']}: {claimed_task['tool_name']}")
@@ -748,7 +763,7 @@ def complete(
     task_id = task_id.strip()
 
     # Get task
-    task = storage.get_task(task_id)
+    task = get_storage().get_task(task_id)
     if not task:
         _resource_missing("Task", task_id, "sparkq tasks")
 
@@ -802,7 +817,7 @@ def complete(
         _required_field("Result summary")
 
     # Complete the task
-    storage.complete_task(task_id, result_summary, result_data, stdout, stderr)
+    get_storage().complete_task(task_id, result_summary, result_data, stdout, stderr)
 
     typer.echo(f"Task {task_id} marked as succeeded")
 
@@ -823,7 +838,7 @@ def fail(
     task_id = task_id.strip()
 
     # Get task
-    task = storage.get_task(task_id)
+    task = get_storage().get_task(task_id)
     if not task:
         _resource_missing("Task", task_id, "sparkq tasks")
 
@@ -834,7 +849,7 @@ def fail(
     if task['status'] != 'running':
         _state_error("Fail task", task['status'], "sparkq claim --stream <name>")
 
-    storage.fail_task(task_id, error, error_type=error_type, stdout=stdout, stderr=stderr)
+    get_storage().fail_task(task_id, error, error_type=error_type, stdout=stdout, stderr=stderr)
 
     typer.echo(f"Task {task_id} marked as failed")
 
@@ -870,13 +885,13 @@ def tasks(
         if not stream.strip():
             _required_field("Stream", "Try: sparkq stream list")
         stream = stream.strip()
-        st = storage.get_stream_by_name(stream)
+        st = get_storage().get_stream_by_name(stream)
         if not st:
             _resource_missing("Stream", stream, "sparkq stream list")
         stream_id = st['id']
 
     # Get tasks with filters
-    task_list = storage.list_tasks(stream_id=stream_id, status=status)
+    task_list = get_storage().list_tasks(stream_id=stream_id, status=status)
 
     if limit is not None:
         task_list = task_list[:limit]
@@ -892,7 +907,7 @@ def tasks(
 
     for t in task_list:
         # Get stream name for display
-        task_stream = storage.get_stream(t['stream_id'])
+        task_stream = get_storage().get_stream(t['stream_id'])
         stream_name = task_stream['name'] if task_stream else t['stream_id']
 
         # Truncate long tool names
@@ -924,7 +939,7 @@ def requeue(
     task_id = task_id.strip()
 
     # Get the task
-    task = storage.get_task(task_id)
+    task = get_storage().get_task(task_id)
     if not task:
         _resource_missing("Task", task_id, "sparkq tasks")
 
@@ -933,7 +948,7 @@ def requeue(
         _state_error("Requeue", "queued", "run or fail the task first")
 
     # Requeue the task (creates new task with fresh ID)
-    new_task = storage.requeue_task(task_id)
+    new_task = get_storage().requeue_task(task_id)
 
     typer.echo(f"Task {task_id} requeued as {new_task['id']}")
 

@@ -10,7 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src import tools
-from src.cli import app, storage
+from src.cli import app, get_storage
 
 pytestmark = pytest.mark.integration
 
@@ -70,9 +70,9 @@ def cli_runner():
         )
         tools._registry = None
         tools.reload_registry()
-        storage.db_path = "sparkq.db"
-        storage.init_db()
-        storage.create_project(name="test-project", repo_path=".", prd_path=None)
+        get_storage().db_path = "sparkq.db"
+        get_storage().init_db()
+        get_storage().create_project(name="test-project", repo_path=".", prd_path=None)
         yield runner
         tools._registry = None
 
@@ -126,7 +126,7 @@ class TestSessionCommands:
 
         assert end_result.exit_code == 0
         assert "Ended session: end-session" in end_result.stdout
-        ended = storage.get_session_by_name("end-session")
+        ended = get_storage().get_session_by_name("end-session")
         assert ended and ended["status"] == "ended"
 
 
@@ -300,7 +300,7 @@ class TestTaskCommands:
 
         assert complete_result.exit_code == 0
         assert f"Task {task_id} marked as succeeded" in complete_result.stdout
-        task = storage.get_task(task_id)
+        task = get_storage().get_task(task_id)
         assert task and task["status"] == "succeeded"
 
     def test_complete_missing_summary(self, cli_runner: CliRunner):
@@ -331,7 +331,7 @@ class TestTaskCommands:
 
         assert complete_result.exit_code == 1
         assert "Result summary is required" in complete_result.stderr
-        task = storage.get_task(task_id)
+        task = get_storage().get_task(task_id)
         assert task and task["status"] == "running"
 
     def test_fail_task(self, cli_runner: CliRunner):
@@ -364,7 +364,7 @@ class TestTaskCommands:
 
         assert fail_result.exit_code == 0
         assert f"Task {task_id} marked as failed" in fail_result.stdout
-        task = storage.get_task(task_id)
+        task = get_storage().get_task(task_id)
         assert task and task["status"] == "failed"
 
     def test_requeue_task(self, cli_runner: CliRunner):
@@ -400,7 +400,7 @@ class TestTaskCommands:
         assert match
         assert match.group(1) == task_id
         new_task_id = match.group(2)
-        new_task = storage.get_task(new_task_id)
+        new_task = get_storage().get_task(new_task_id)
         assert new_task and new_task["status"] == "queued"
 
 
