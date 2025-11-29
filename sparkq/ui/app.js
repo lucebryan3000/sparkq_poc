@@ -2314,7 +2314,7 @@ async function showSessionDetailModal(sessionId) {
   modal.querySelector('#close-session-btn')?.addEventListener('click', async () => {
     if (confirm('Close this session?')) {
       try {
-        await api('POST', `/api/sessions/${sessionId}/close`, {}, { action: 'close session' });
+        await api('PUT', `/api/sessions/${sessionId}/end`, {}, { action: 'close session' });
         showSuccess('Session closed');
         modal.remove();
         renderProjectsPage();
@@ -2327,7 +2327,7 @@ async function showSessionDetailModal(sessionId) {
   modal.querySelector('#delete-session-btn')?.addEventListener('click', async () => {
     if (confirm('Delete this session? This action cannot be undone.')) {
       try {
-        await api('DELETE', `/api/sessions/${sessionId}`, null, { action: 'delete session' });
+        await api('PUT', `/api/sessions/${sessionId}/end`, null, { action: 'delete session' });
         showSuccess('Session deleted');
         modal.remove();
         renderProjectsPage();
@@ -2493,7 +2493,7 @@ async function showStreamDetailModal(streamId) {
   modal.querySelector('#delete-stream-btn')?.addEventListener('click', async () => {
     if (confirm('Delete this stream? This action cannot be undone.')) {
       try {
-        await api('DELETE', `/api/streams/${streamId}`, null, { action: 'delete stream' });
+        await api('PUT', `/api/streams/${streamId}/end`, null, { action: 'delete stream' });
         showSuccess('Stream deleted');
         modal.remove();
         renderProjectsPage();
