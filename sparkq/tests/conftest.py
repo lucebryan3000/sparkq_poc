@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,9 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from src.storage import Storage
+
+# Test logs directory
+TEST_LOGS_DIR = Path(__file__).resolve().parent / "logs"
 
 
 @pytest.fixture
@@ -64,3 +68,37 @@ def task(storage, stream):
         payload='{"test": true}',
         timeout=300,
     )
+
+
+def cleanup_old_test_logs(keep_last: int = 3):
+    """Remove old test log directories, keeping only the last N runs."""
+    if not TEST_LOGS_DIR.exists():
+        return
+
+    log_dirs = sorted(
+        [d for d in TEST_LOGS_DIR.iterdir() if d.is_dir()],
+        key=lambda x: x.stat().st_mtime,
+        reverse=True,
+    )
+
+    for old_dir in log_dirs[keep_last:]:
+        for file in old_dir.iterdir():
+            file.unlink()
+        old_dir.rmdir()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_logging(request):
+    """Setup test logging directory and cleanup old logs."""
+    TEST_LOGS_DIR.mkdir(exist_ok=True)
+    cleanup_old_test_logs(keep_last=3)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = TEST_LOGS_DIR / timestamp
+    log_dir.mkdir(exist_ok=True)
+
+    log_file = log_dir / "pytest.log"
+    request.config.option.log_file = str(log_file)
+    request.config.option.log_file_level = "INFO"
+
+    yield log_dir

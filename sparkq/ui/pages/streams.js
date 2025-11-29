@@ -119,9 +119,6 @@
       });
     }
 
-    // Initialize auto-refresh
-    initAutoRefresh(container);
-
     // If a stream was previously selected, reload it
     if (currentStreamId) {
       loadStreamDetails(container, currentStreamId, currentStreamName);
@@ -240,27 +237,18 @@
     }
   }
 
-  function initAutoRefresh(container) {
-    // Stop previous auto-refresh if exists
-    if (autoRefresh) {
-      autoRefresh.stop();
-    }
-
-    // Create new auto-refresh instance (60 second interval)
-    autoRefresh = new AutoRefresh(60000);
-
-    // Add callback to reload streams list
-    autoRefresh.addCallback(() => {
-      renderStreamsPage(container);
-    });
-
-    // Start auto-refresh
-    autoRefresh.start();
-  }
-
   Pages.Streams = {
     async render(container) {
       await renderStreamsPage(container);
+
+      // Initialize auto-refresh only once (not on every render)
+      if (!autoRefresh) {
+        autoRefresh = new AutoRefresh(60000);
+        autoRefresh.addCallback(() => {
+          renderStreamsPage(container);
+        });
+        autoRefresh.start();
+      }
     }
   };
 

@@ -121,7 +121,10 @@
         return;
       }
 
-      this.refresh();
+      // Set initial timestamp without calling refresh callbacks
+      this.lastRefreshTime = Date.now();
+
+      // Start intervals (don't call refresh() immediately to avoid infinite loop)
       this.intervalId = setInterval(() => this.refresh(), this.interval);
 
       // Update counter every second

@@ -19,28 +19,27 @@ VENV_DIR="$PROJECT_ROOT/.venv"
 # Help message
 show_help() {
   cat << EOF
-${BLUE}SparkQ CLI Wrapper${NC}
+SparkQ CLI Wrapper
 
 Usage: ./sparkq.sh [COMMAND] [OPTIONS]
 
-${BLUE}Server Commands:${NC}
-  run [--background]     Start the HTTP server (port 5005)
-  --start                Start server in background (alias for 'run --background')
-  stop                   Stop the HTTP server
-  --stop                 Stop the HTTP server (alias for 'stop')
+Server Commands:
+  start                  Start server in background
+  run                    Start server in foreground
+  stop                   Stop the server
   status                 Check server status
 
-${BLUE}Database & Config:${NC}
+Database & Config:
   setup                  Interactive setup (create sparkq.yml + database)
   reload                 Reload configuration and script index
 
-${BLUE}Session & Stream Management:${NC}
+Session & Stream:
   session create <name>  Create a named session
   session list           List all sessions
   session end <id>       End a session
   stream create <name>   Create a named stream
 
-${BLUE}Task Operations:${NC}
+Task Operations:
   enqueue                Enqueue a task
   peek                   Check next task in queue
   claim                  Claim a task
@@ -51,19 +50,18 @@ ${BLUE}Task Operations:${NC}
   requeue                Move task back to queued status
   purge                  Delete old succeeded/failed tasks
 
-${BLUE}Options:${NC}
+Options:
   -h, --help             Show this help message
 
-${BLUE}Examples:${NC}
-  ./sparkq.sh --start                          # Start server in background
-  ./sparkq.sh run --background                 # Start server in background (verbose)
-  ./sparkq.sh run                              # Start server in foreground
-  ./sparkq.sh setup                            # Interactive setup
-  ./sparkq.sh session create my-session        # Create session
-  ./sparkq.sh --stop                           # Stop server
-  ./sparkq.sh status                           # Check status
+Examples:
+  ./sparkq.sh start                  # Start server in background
+  ./sparkq.sh run                    # Start server in foreground
+  ./sparkq.sh setup                  # Interactive setup
+  ./sparkq.sh session create test    # Create session
+  ./sparkq.sh stop                   # Stop server
+  ./sparkq.sh status                 # Check status
 
-${BLUE}Full command help:${NC}
+Full command help:
   ./sparkq.sh help <command>
 EOF
 }
@@ -97,12 +95,8 @@ if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]] || [[ $# -eq 0 ]]; then
 fi
 
 # Handle convenience aliases
-if [[ "${1:-}" == "--start" ]]; then
+if [[ "${1:-}" == "start" ]]; then
   set -- run --background
-fi
-
-if [[ "${1:-}" == "--stop" ]]; then
-  set -- stop
 fi
 
 main "$@"
