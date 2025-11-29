@@ -1434,7 +1434,6 @@ async function renderSessionsPage() {
 async function handleCreateSession() {
   const sessionName = prompt('Enter session name:');
   if (!sessionName || !sessionName.trim()) {
-    showError('Session name is required');
     return;
   }
 
@@ -1534,20 +1533,17 @@ async function renderStreamsPage() {
 
 async function handleCreateStream(container, sessions) {
   if (!sessions.length) {
-    showError('No sessions available. Please create a session first.');
     return;
   }
 
   const streamName = prompt('Enter stream name:');
   if (!streamName || !streamName.trim()) {
-    showError('Stream name is required');
     return;
   }
 
   const sessionOptions = sessions.map((s) => `${s.id}: ${s.name || 'Unnamed'}`).join('\n');
   const sessionId = prompt(`Select session ID:\n\n${sessionOptions}`);
   if (!sessionId || !sessionId.trim()) {
-    showError('Session ID is required');
     return;
   }
 
