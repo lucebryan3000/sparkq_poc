@@ -1365,3 +1365,206 @@ async function renderEnqueuePage() {
     }
   });
 }
+
+async function renderSessionsPage() {
+  const container = pages.sessions;
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="muted"><span class="loading"></span> Loading sessions…</div>
+    </div>
+  `;
+
+  let sessions = [];
+  try {
+    const response = await api('GET', '/api/sessions', null, { action: 'load sessions' });
+    sessions = response?.sessions || [];
+  } catch (err) {
+    handleApiError('load sessions', err);
+  }
+
+  const rows = sessions
+    .map((session) => `
+      <tr>
+        <td>${session.id}</td>
+        <td>${session.name || '—'}</td>
+        <td>${session.status || '—'}</td>
+        <td>${formatValue(session.created_at, '—')}</td>
+      </tr>
+    `)
+    .join('');
+
+  const table = sessions.length
+    ? `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      `
+    : `<p class="muted">No sessions found.</p>`;
+
+  container.innerHTML = `
+    <div class="card">
+      <h2>Sessions</h2>
+      <div style="margin-bottom: 12px;">
+        <button class="button primary" id="create-session-btn">Create Session</button>
+      </div>
+      ${table}
+    </div>
+  `;
+
+  const createBtn = container.querySelector('#create-session-btn');
+  if (createBtn) {
+    createBtn.addEventListener('click', () => handleCreateSession(container));
+  }
+}
+
+async function handleCreateSession() {
+  const sessionName = prompt('Enter session name:');
+  if (!sessionName || !sessionName.trim()) {
+    showError('Session name is required');
+    return;
+  }
+
+  try {
+    await api('POST', '/api/sessions', { name: sessionName.trim() }, { action: 'create session' });
+    showSuccess(`Session "${sessionName}" created`);
+    renderSessionsPage();
+  } catch (err) {
+    handleApiError('create session', err);
+  }
+}
+
+async function renderStreamsPage() {
+  const container = pages.streams;
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="muted"><span class="loading"></span> Loading streams…</div>
+    </div>
+  `;
+
+  let sessions = [];
+  let streams = [];
+
+  try {
+    const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
+    sessions = sessionsResponse?.sessions || [];
+  } catch (err) {
+    handleApiError('load sessions', err);
+  }
+
+  try {
+    const streamsResponse = await api('GET', '/api/streams', null, { action: 'load streams' });
+    streams = streamsResponse?.streams || [];
+  } catch (err) {
+    handleApiError('load streams', err);
+  }
+
+  const sessionsById = {};
+  sessions.forEach((session) => {
+    sessionsById[session.id] = session.name || session.id;
+  });
+
+  const rows = streams
+    .map((stream) => `
+      <tr>
+        <td>${stream.id}</td>
+        <td>${stream.name || '—'}</td>
+        <td>${sessionsById[stream.session_id] || stream.session_id || '—'}</td>
+        <td>${stream.status || '—'}</td>
+        <td>${formatValue(stream.created_at, '—')}</td>
+      </tr>
+    `)
+    .join('');
+
+  const sessionOptions = sessions
+    .map((session) => `<option value="${session.id}">${session.name || session.id}</option>`)
+    .join('');
+
+  const table = streams.length
+    ? `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Session</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      `
+    : `<p class="muted">No streams found.</p>`;
+
+  container.innerHTML = `
+    <div class="card">
+      <h2>Streams</h2>
+      <div style="margin-bottom: 12px;">
+        <button class="button primary" id="create-stream-btn">Create Stream</button>
+      </div>
+      ${table}
+    </div>
+  `;
+
+  const createBtn = container.querySelector('#create-stream-btn');
+  if (createBtn) {
+    createBtn.addEventListener('click', () => handleCreateStream(container, sessions));
+  }
+}
+
+async function handleCreateStream(container, sessions) {
+  if (!sessions.length) {
+    showError('No sessions available. Please create a session first.');
+    return;
+  }
+
+  const streamName = prompt('Enter stream name:');
+  if (!streamName || !streamName.trim()) {
+    showError('Stream name is required');
+    return;
+  }
+
+  const sessionOptions = sessions.map((s) => `${s.id}: ${s.name || 'Unnamed'}`).join('\n');
+  const sessionId = prompt(`Select session ID:\n\n${sessionOptions}`);
+  if (!sessionId || !sessionId.trim()) {
+    showError('Session ID is required');
+    return;
+  }
+
+  const instructions = prompt('Enter stream instructions (optional):') || null;
+
+  try {
+    const payload = {
+      session_id: sessionId.trim(),
+      name: streamName.trim(),
+    };
+    if (instructions) {
+      payload.instructions = instructions;
+    }
+    await api('POST', '/api/streams', payload, { action: 'create stream' });
+    showSuccess(`Stream "${streamName}" created`);
+    renderStreamsPage();
+  } catch (err) {
+    handleApiError('create stream', err);
+  }
+}
