@@ -148,6 +148,18 @@ class TaskFailRequest(BaseModel):
     error_type: Optional[str] = None
 
 
+class QuickAddTaskRequest(BaseModel):
+    stream_id: str
+    mode: str  # 'llm' or 'script'
+
+    # For LLM mode
+    prompt: Optional[str] = None
+
+    # For script mode
+    script_path: Optional[str] = None
+    script_args: Optional[str] = None
+
+
 def _serialize_task(task: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize task fields for API responses."""
     serialized = dict(task)
@@ -521,6 +533,84 @@ async def requeue_task(task_id: str):
     new_task["failed_at"] = None
 
     return {"task": _serialize_task(new_task)}
+
+
+@app.post("/api/tasks/quick-add")
+async def quick_add_task(request: QuickAddTaskRequest):
+    """
+    Smart task creation with auto-configuration.
+    No JSON payload required from user - system builds it based on prompt/script.
+    """
+
+    # Verify stream exists
+    stream = storage.get_stream(request.stream_id)
+    if not stream:
+        raise HTTPException(status_code=404, detail=f"Stream not found: {request.stream_id}")
+
+    if request.mode == 'llm':
+        if not request.prompt:
+            raise HTTPException(status_code=400, detail="Prompt required for LLM mode")
+
+        # Auto-determine tool and task class based on prompt length
+        word_count = len(request.prompt.split())
+
+        if word_count < 50:
+            tool_name = 'llm-haiku'
+            task_class = 'LLM_LITE'
+            timeout = 300  # 5 minutes
+        else:
+            tool_name = 'llm-sonnet'
+            task_class = 'LLM_HEAVY'
+            timeout = 900  # 15 minutes
+
+        payload = json.dumps({
+            "prompt": request.prompt,
+            "mode": "chat"
+        })
+
+    elif request.mode == 'script':
+        if not request.script_path:
+            raise HTTPException(status_code=400, detail="Script path required for script mode")
+
+        # Determine tool from script extension
+        if request.script_path.endswith('.py'):
+            tool_name = 'run-python'
+        else:
+            tool_name = 'run-bash'
+
+        task_class = 'MEDIUM_SCRIPT'
+        timeout = 300
+
+        # Parse args
+        args = request.script_args.split() if request.script_args else []
+
+        payload = json.dumps({
+            "script_path": request.script_path,
+            "args": args
+        })
+
+    else:
+        raise HTTPException(status_code=400, detail="Mode must be 'llm' or 'script'")
+
+    # Create task using storage layer
+    task_dict = storage.create_task(
+        stream_id=request.stream_id,
+        tool_name=tool_name,
+        task_class=task_class,
+        payload=payload,
+        timeout=timeout
+    )
+
+    task_id = task_dict['id']
+    task = storage.get_task(task_id)
+
+    return {
+        "task_id": task_id,
+        "tool": tool_name,
+        "task_class": task_class,
+        "timeout": timeout,
+        "task": _serialize_task(task) if task else None
+    }
 
 
 @app.get("/api/scripts/index")

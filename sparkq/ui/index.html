@@ -39,6 +39,12 @@
   <!-- Core must load first -->
   <script src='/ui/core/app-core.js'></script>
 
+  <!-- Utils must load before components and pages that use them -->
+  <script src='/ui/utils/ui-utils.js'></script>
+
+  <!-- Components can load after utils -->
+  <script src='/ui/components/quick-add.js'></script>
+
   <!-- Pages can load in any order -->
   <script src='/ui/pages/dashboard.js'></script>
   <script src='/ui/pages/tasks.js'></script>
