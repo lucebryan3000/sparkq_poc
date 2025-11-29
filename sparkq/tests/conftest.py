@@ -53,3 +53,14 @@ def stream(storage, session):
         name="unit-test-stream",
         instructions="Stream used in storage unit tests",
     )
+
+
+@pytest.fixture
+def task(storage, stream):
+    return storage.create_task(
+        stream_id=stream["id"],
+        tool_name="unit-test-tool",
+        task_class="unit-test-class",
+        payload='{"test": true}',
+        timeout=300,
+    )
