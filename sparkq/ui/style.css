@@ -294,6 +294,8 @@ a {
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
   width: min(520px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .loading {
