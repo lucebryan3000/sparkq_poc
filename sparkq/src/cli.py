@@ -158,7 +158,7 @@ def setup():
     llm_heavy_timeout = typer.prompt("  LLM_HEAVY", default="900", type=int)
 
     # Server port
-    server_port = typer.prompt("\nServer port", default="8420", type=int)
+    server_port = typer.prompt("\nServer port", default="5005", type=int)
 
     # Build config
     config = {
@@ -231,7 +231,7 @@ def setup():
 @app.command(help="Start HTTP server")
 @cli_handler
 def run(
-    port: int = typer.Option(8420, help="Server port (default 8420)"),
+    port: int = typer.Option(5005, help="Server port (default 5005)"),
     host: str = typer.Option("127.0.0.1", help="Bind host"),
     background: bool = typer.Option(False, "--background", help="Run server in background (daemonize)"),
     session: Optional[str] = typer.Option(
@@ -316,9 +316,9 @@ def status():
     try:
         import requests
 
-        response = requests.get("http://127.0.0.1:8420/health", timeout=2)
+        response = requests.get("http://127.0.0.1:5005/health", timeout=2)
         if response.ok:
-            typer.echo(f"SparkQ server: running (PID {pid}, http://127.0.0.1:8420)")
+            typer.echo(f"SparkQ server: running (PID {pid}, http://127.0.0.1:5005)")
             return
     except Exception:
         pass

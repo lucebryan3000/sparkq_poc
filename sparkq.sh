@@ -24,7 +24,7 @@ ${BLUE}SparkQ CLI Wrapper${NC}
 Usage: ./sparkq.sh [COMMAND] [OPTIONS]
 
 ${BLUE}Server Commands:${NC}
-  run [--background]     Start the HTTP server (port 8420)
+  run [--background]     Start the HTTP server (port 5005)
   --start                Start server in background (alias for 'run --background')
   stop                   Stop the HTTP server
   --stop                 Stop the HTTP server (alias for 'stop')

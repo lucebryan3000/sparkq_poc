@@ -79,7 +79,7 @@ sparkqueue/
 - **FIFO Queues**: Tasks processed in order per stream
 - **Auto-Fail**: Stale tasks auto-fail after 2× timeout
 - **Auto-Purge**: Completed tasks auto-deleted after configurable days
-- **Web UI**: Dashboard at `http://localhost:8420/ui/`
+- **Web UI**: Dashboard at `http://localhost:5005/ui/`
 - **REST API**: Full API with interactive docs at `/docs`
 - **CLI**: Typer-based command-line interface
 - **SQLite WAL**: Efficient concurrent access with WAL mode
@@ -136,7 +136,7 @@ The background server:
 ### Port Already in Use
 
 ```bash
-lsof -i :8420
+lsof -i :5005
 kill <PID>
 ```
 

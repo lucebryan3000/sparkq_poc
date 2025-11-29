@@ -17,7 +17,7 @@ from .storage import Storage
 
 LOCKFILE_PATH = Path("sparkq.lock")
 HOST = "0.0.0.0"
-PORT = 8420
+PORT = 5005
 
 _lockfile_lock = threading.Lock()
 logger = logging.getLogger(__name__)
