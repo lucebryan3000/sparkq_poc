@@ -36,6 +36,16 @@
 
   <div id='breadcrumbs' class='breadcrumbs'></div>
 
-  <script src='app.js'></script>
+  <!-- Core must load first -->
+  <script src='core/app-core.js'></script>
+
+  <!-- Pages can load in any order -->
+  <script src='pages/dashboard.js'></script>
+  <script src='pages/tasks.js'></script>
+  <script src='pages/enqueue.js'></script>
+  <script src='pages/sessions.js'></script>
+  <script src='pages/streams.js'></script>
+  <script src='pages/config.js'></script>
+  <script src='pages/scripts.js'></script>
 </body>
 </html>
