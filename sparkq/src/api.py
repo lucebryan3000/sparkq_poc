@@ -1,27 +1,29 @@
 import inspect
 import json
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .index import ScriptIndex
 from .storage import Storage, now_iso
 
+logger = logging.getLogger(__name__)
 storage = Storage()
 
 app = FastAPI(title="SparkQ API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:8420",
-        "http://localhost:8420",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,6 +43,52 @@ DEFAULT_TASK_TIMEOUTS = {
 _LIST_HAS_OFFSET = "offset" in inspect.signature(storage.list_tasks).parameters
 _CREATE_HAS_PAYLOAD = "payload" in inspect.signature(storage.create_task).parameters
 _CLAIM_HAS_WORKER = "worker_id" in inspect.signature(storage.claim_task).parameters
+
+
+def _format_error(message: Optional[str]) -> str:
+    if not message:
+        return "Error: Internal server error"
+    return message if str(message).startswith("Error:") else f"Error: {message}"
+
+
+def _error_response(message: Optional[str], status_code: int) -> JSONResponse:
+    return JSONResponse({"error": _format_error(message), "status": status_code}, status_code=status_code)
+
+
+@app.exception_handler(ValueError)
+async def storage_exception_handler(request: Request, exc: ValueError):
+    return _error_response(str(exc), 400)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    missing_field = None
+    for error in exc.errors():
+        if error.get("type") == "value_error.missing":
+            loc = error.get("loc") or []
+            if loc and loc[0] == "body":
+                missing_field = str(loc[-1])
+                break
+
+    if missing_field:
+        message = f"Missing field {missing_field}"
+    else:
+        message = "Invalid request parameters"
+
+    return _error_response(message, 400)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code >= 500:
+        logger.exception("HTTPException encountered: %s", exc)
+    return _error_response(str(exc.detail) if exc.detail else None, exc.status_code)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled server error")
+    return _error_response("Internal server error", 500)
 
 
 class SessionCreateRequest(BaseModel):
@@ -126,10 +174,39 @@ async def health():
     }
 
 
+@app.get("/stats")
+async def stats():
+    """Get dashboard statistics."""
+    try:
+        sessions = storage.list_sessions()
+        streams = storage.list_streams()
+        tasks = storage.list_tasks()
+
+        queued_count = sum(1 for t in tasks if t.get("status") == "queued")
+        running_count = sum(1 for t in tasks if t.get("status") == "running")
+
+        return {
+            "sessions": len(sessions),
+            "streams": len(streams),
+            "queued_tasks": queued_count,
+            "running_tasks": running_count,
+        }
+    except Exception as exc:
+        logger.exception("Failed to compute stats: %s", exc)
+        return {
+            "sessions": 0,
+            "streams": 0,
+            "queued_tasks": 0,
+            "running_tasks": 0,
+        }
+
+
 @app.get("/api/sessions")
 async def list_sessions(limit: int = 100, offset: int = 0):
     if limit < 0 or offset < 0:
-        raise HTTPException(status_code=400, detail="Invalid pagination parameters")
+        raise HTTPException(
+            status_code=400, detail="Invalid pagination parameters: limit and offset must be non-negative"
+        )
 
     sessions = storage.list_sessions()
     paginated_sessions = sessions[offset : offset + limit] if limit is not None else sessions[offset:]
@@ -141,11 +218,7 @@ async def create_session(request: SessionCreateRequest):
     if not request.name or not request.name.strip():
         raise HTTPException(status_code=400, detail="Session name is required")
 
-    try:
-        session = storage.create_session(request.name.strip(), request.description)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    session = storage.create_session(request.name.strip(), request.description)
     return {"session": session}
 
 
@@ -160,7 +233,7 @@ async def get_session(session_id: str):
 @app.put("/api/sessions/{session_id}")
 async def update_session(session_id: str, request: SessionUpdateRequest):
     if request.name is None and request.description is None:
-        raise HTTPException(status_code=400, detail="No fields to update")
+        raise HTTPException(status_code=400, detail="No fields provided to update session")
 
     existing = storage.get_session(session_id)
     if not existing:
@@ -248,7 +321,7 @@ async def get_stream(stream_id: str):
 @app.put("/api/streams/{stream_id}")
 async def update_stream(stream_id: str, request: StreamUpdateRequest):
     if request.name is None and request.instructions is None:
-        raise HTTPException(status_code=400, detail="No fields to update")
+        raise HTTPException(status_code=400, detail="No fields provided to update stream")
 
     existing = storage.get_stream(stream_id)
     if not existing:
@@ -304,7 +377,8 @@ async def list_tasks(
     offset: int = Query(0, ge=0),
 ):
     if status and status not in TASK_STATUS_VALUES:
-        raise HTTPException(status_code=400, detail="Invalid status filter")
+        allowed_statuses = ", ".join(sorted(TASK_STATUS_VALUES))
+        raise HTTPException(status_code=400, detail=f"Invalid status filter. Allowed values: {allowed_statuses}")
 
     if _LIST_HAS_OFFSET:
         tasks = storage.list_tasks(stream_id=stream_id, status=status, limit=limit, offset=offset)
@@ -369,8 +443,9 @@ async def claim_task(task_id: str, request: TaskClaimRequest = Body(default_fact
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.get("status") != "queued":
-        raise HTTPException(status_code=409, detail="Task already claimed or not queued")
+    current_status = task.get("status") or "unknown"
+    if current_status != "queued":
+        raise HTTPException(status_code=409, detail=f"Cannot claim task while status is {current_status}")
 
     worker_id = request.worker_id or datetime.now(timezone.utc).isoformat()
 
@@ -389,8 +464,9 @@ async def complete_task(task_id: str, request: TaskCompleteRequest):
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.get("status") != "running":
-        raise HTTPException(status_code=409, detail="Task not running")
+    current_status = task.get("status") or "unknown"
+    if current_status != "running":
+        raise HTTPException(status_code=409, detail=f"Cannot complete task while status is {current_status}")
     if not request.result_summary.strip():
         raise HTTPException(status_code=400, detail="Result summary is required")
 
@@ -422,8 +498,9 @@ async def requeue_task(task_id: str):
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.get("status") not in {"failed", "succeeded"}:
-        raise HTTPException(status_code=409, detail="Task must be failed or succeeded to requeue")
+    status = task.get("status") or "unknown"
+    if status not in {"failed", "succeeded"}:
+        raise HTTPException(status_code=409, detail=f"Cannot requeue task while status is {status}")
 
     new_task = storage.requeue_task(task_id)
     new_task["claimed_at"] = None
@@ -431,3 +508,15 @@ async def requeue_task(task_id: str):
     new_task["failed_at"] = None
 
     return {"task": _serialize_task(new_task)}
+
+
+@app.get("/api/scripts/index")
+async def build_script_index():
+    script_index = ScriptIndex(config_path=Path("sparkq.yml"))
+    try:
+        script_index.build()
+    except Exception:
+        logger.exception("Failed to build script index")
+        return _error_response("Internal server error", 500)
+
+    return script_index.list_all()

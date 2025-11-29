@@ -367,21 +367,38 @@ class Storage:
     def claim_task(self, task_id: str) -> dict:
         """Claim a task by setting status to 'running' and started_at timestamp"""
         now = now_iso()
-        with self.connection() as conn:
-            # Update status to running
+        # Set isolation level to None (autocommit OFF) to use explicit transactions
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.isolation_level = None  # autocommit OFF for explicit transactions
+        conn.row_factory = sqlite3.Row
+        try:
+            # Use EXCLUSIVE transaction to serialize all concurrent claims
+            conn.execute("BEGIN EXCLUSIVE")
+
+            # Update status to running (only if currently queued)
             cursor = conn.execute(
                 """UPDATE tasks SET status = 'running', started_at = ?, updated_at = ?, attempts = attempts + 1
-                   WHERE id = ?""",
+                   WHERE id = ? AND status = 'queued'""",
                 (now, now, task_id)
             )
 
             if cursor.rowcount == 0:
-                raise ValueError(f"Task {task_id} not found")
+                conn.execute("ROLLBACK")
+                raise ValueError(f"Task {task_id} not found or already claimed")
 
             # Fetch and return the updated task
             cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
             row = cursor.fetchone()
+            conn.execute("COMMIT")
             return dict(row) if row else None
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
 
     def complete_task(self, task_id: str, result_summary: str, result_data: str = None,
                      stdout: str = None, stderr: str = None) -> dict:
@@ -461,3 +478,130 @@ class Storage:
                 (cutoff_date,)
             )
             return cursor.rowcount
+
+    def get_timeout_for_task(self, task_id: str) -> int:
+        """
+        Resolve timeout for a task using explicit value or tool registry fallback.
+
+        Returns timeout in seconds, defaulting to 3600 on errors.
+        """
+        try:
+            task = self.get_task(task_id)
+            if not task:
+                return 3600
+
+            timeout_value = task.get("timeout")
+            if timeout_value is not None:
+                try:
+                    timeout_int = int(timeout_value)
+                except (TypeError, ValueError):
+                    timeout_int = None
+
+                if timeout_int is not None and timeout_int > 0:
+                    return timeout_int
+
+            registry = getattr(self, "registry", None)
+            if registry:
+                tool_name = task.get("tool_name")
+                try:
+                    registry_timeout = registry.get_timeout(tool_name) if tool_name else None
+                except Exception:
+                    registry_timeout = None
+
+                if registry_timeout is not None and registry_timeout > 0:
+                    return registry_timeout
+
+            return 3600
+        except Exception:
+            return 3600
+
+    def get_stale_tasks(self, timeout_multiplier: float = 1.0) -> List[dict]:
+        """
+        Return tasks that have exceeded their claimed timeout threshold.
+
+        A task is stale if status is 'claimed', it has a claimed_at timestamp,
+        and now > claimed_at + (timeout * timeout_multiplier).
+        """
+        stale_tasks: List[dict] = []
+
+        try:
+            now_ts = datetime.utcnow().timestamp()
+            with self.connection() as conn:
+                cursor = conn.execute(
+                    "SELECT * FROM tasks WHERE status='claimed' AND claimed_at IS NOT NULL"
+                )
+                rows = cursor.fetchall()
+
+            for row in rows:
+                task = dict(row)
+                claimed_at = task.get("claimed_at")
+                if not claimed_at:
+                    continue
+
+                timeout_seconds = self.get_timeout_for_task(task["id"])
+
+                try:
+                    claimed_dt = datetime.fromisoformat(claimed_at.replace("Z", "+00:00"))
+                    claimed_ts = claimed_dt.timestamp()
+                except Exception:
+                    # Skip tasks with invalid timestamps instead of crashing
+                    continue
+
+                deadline_ts = claimed_ts + (timeout_seconds * timeout_multiplier)
+                if now_ts > deadline_ts:
+                    stale_tasks.append(task)
+
+            return stale_tasks
+        except Exception:
+            return []
+
+    def mark_stale_warning(self, task_id: str) -> dict:
+        """
+        Mark a task with a stale warning timestamp.
+        """
+        try:
+            task = self.get_task(task_id)
+            if not task:
+                return {}
+
+            now = now_iso()
+            with self.connection() as conn:
+                conn.execute(
+                    "UPDATE tasks SET stale_warned_at = ? WHERE id = ?",
+                    (now, task_id),
+                )
+                cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+                row = cursor.fetchone()
+
+            updated_task = dict(row) if row else task
+            updated_task["stale_warned_at"] = updated_task.get("stale_warned_at") or now
+
+            print(f"Marked task {task_id} with stale warning")
+            return updated_task
+        except Exception:
+            return {}
+
+    def auto_fail_stale_tasks(self, timeout_multiplier: float = 2.0) -> List[dict]:
+        """
+        Auto-fail tasks that are stale using the provided timeout multiplier.
+        """
+        auto_failed: List[dict] = []
+
+        try:
+            stale_tasks = self.get_stale_tasks(timeout_multiplier=timeout_multiplier)
+            for task in stale_tasks:
+                try:
+                    failed_task = self.fail_task(
+                        task["id"],
+                        "Task timeout (auto-failed)",
+                        error_type="TIMEOUT",
+                    )
+                    auto_failed.append(failed_task)
+                except Exception:
+                    # Continue processing other tasks even if one fails
+                    continue
+
+            print(f"Auto-failed {len(auto_failed)} stale tasks")
+            return auto_failed
+        except Exception:
+            return []

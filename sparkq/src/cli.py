@@ -1,7 +1,9 @@
 """SparkQ CLI Commands"""
 
+import functools
 import os
 import signal
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Optional
@@ -19,12 +21,100 @@ app = typer.Typer(
 # Reuse a single storage instance for all commands
 storage = Storage("sparkq.db")
 
+def _requests_exceptions():
+    try:
+        import requests
+
+        return {
+            "http_error": requests.HTTPError,
+            "connection_error": requests.ConnectionError,
+            "timeout": requests.Timeout,
+        }
+    except Exception:
+        return None
+
+
+def _emit_error(message: str, suggestion: Optional[str] = None, valid_options=None):
+    typer.echo(f"Error: {message}", err=True)
+    if valid_options:
+        typer.echo(f"Valid options: {', '.join(valid_options)}", err=True)
+    if suggestion:
+        typer.echo(f"Suggestion: {suggestion}", err=True)
+    raise typer.Exit(1)
+
+
+def _config_error(details: str):
+    _emit_error(f"Configuration error: {details}", "Check sparkq.yml")
+
+
+def _db_error(details: str):
+    _emit_error(f"Database error: {details}", "Check database file and permissions")
+
+
+def _server_error(details: str):
+    _emit_error(f"Server error: {details}", "Check server status: sparkq status")
+
+
+def _resource_missing(resource_type: str, identifier: str, list_command: str):
+    _emit_error(
+        f"{resource_type} not found: {identifier}",
+        f"List available: {list_command}",
+    )
+
+
+def _state_error(action: str, state: str, suggested_action: str):
+    _emit_error(f"{action} not allowed in {state} state", f"Try: {suggested_action}")
+
+
+def _required_field(field: str, suggestion: Optional[str] = None):
+    _emit_error(f"{field} is required", suggestion)
+
+
+def _invalid_field(field: str, value: str, valid_options=None, suggestion: Optional[str] = None):
+    _emit_error(f"Invalid {field}: {value}", suggestion, valid_options)
+
+
+def _handle_exception(exc: Exception):
+    requests_ex = _requests_exceptions()
+
+    if isinstance(exc, sqlite3.Error):
+        _db_error(str(exc))
+
+    if requests_ex:
+        if isinstance(exc, requests_ex["http_error"]):
+            status_code = (
+                exc.response.status_code if getattr(exc, "response", None) is not None else "unknown"
+            )
+            _server_error(status_code)
+        if isinstance(exc, (requests_ex["connection_error"], requests_ex["timeout"])):
+            _server_error("network request failed")
+
+    if isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError)):
+        _config_error(str(exc))
+
+    # TODO: add debug-level traceback logging when logging is available
+    _emit_error(str(exc))
+
+
+def cli_handler(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except typer.Exit:
+            raise
+        except Exception as exc:
+            _handle_exception(exc)
+
+    return wrapper
+
 
 # === Setup ===
 
-@app.command()
+@app.command(help="Initialize SparkQ environment")
+@cli_handler
 def setup():
-    """Interactive setup to create sparkq.yml and initialize database."""
+    """Initialize SparkQ environment."""
     import yaml
 
     typer.echo("\nSparkQ Setup")
@@ -122,41 +212,41 @@ def setup():
 # === Server Commands ===
 
 
-@app.command()
+@app.command(help="Start HTTP server")
+@cli_handler
 def run(
-    port: int = typer.Option(8420, help="Server port"),
+    port: int = typer.Option(8420, help="Server port (default 8420)"),
     host: str = typer.Option("127.0.0.1", help="Bind host"),
+    session: Optional[str] = typer.Option(
+        None, "--session", help="Default session for Web UI (optional)"
+    ),
 ):
-    """Start SparkQ HTTP server"""
+    """Start HTTP server."""
     from .server import run_server
 
-    try:
-        run_server(port=port, host=host)
-    except Exception as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(1)
+    # session parameter is reserved for future UI defaults
+    _ = session
+    run_server(port=port, host=host)
 
 
-@app.command()
+@app.command(help="Stop HTTP server")
+@cli_handler
 def stop():
-    """Stop the running SparkQ server"""
+    """Stop HTTP server."""
     from .server import check_server_running, remove_lockfile
 
     lockfile_path = Path("sparkq.lock")
     if not lockfile_path.exists():
-        typer.echo("Error: Server not running", err=True)
-        raise typer.Exit(1)
+        _state_error("Stop", "stopped", "sparkq status")
 
     pid = check_server_running()
     if pid is None:
-        typer.echo("Error: Server not running", err=True)
-        raise typer.Exit(1)
+        _state_error("Stop", "stopped", "sparkq status")
 
     try:
         os.kill(pid, signal.SIGTERM)
     except OSError:
-        typer.echo("Error: Server not running", err=True)
-        raise typer.Exit(1)
+        _state_error("Stop", "stopped", "sparkq status")
 
     wait_event = threading.Event()
 
@@ -184,9 +274,10 @@ def stop():
     typer.echo("SparkQ server stopped")
 
 
-@app.command()
+@app.command(help="Check server status")
+@cli_handler
 def status():
-    """Check if SparkQ server is running"""
+    """Check server status."""
     lockfile_path = Path("sparkq.lock")
     if not lockfile_path.exists():
         typer.echo("SparkQ server: not running")
@@ -218,22 +309,21 @@ def status():
     typer.echo(f"SparkQ server: running but API unreachable (PID {pid})")
 
 
-@app.command()
+@app.command(help="Reload configuration and script index")
+@cli_handler
 def reload():
-    """Reload tool registry from config file"""
+    """Reload configuration and script index."""
     from yaml import YAMLError
     from .tools import reload_registry
 
     config_path = Path("sparkq.yml")
     if not config_path.exists():
-        typer.echo("Error: sparkq.yml not found", err=True)
-        raise typer.Exit(1)
+        _config_error("sparkq.yml not found")
 
     try:
         reload_registry()
     except YAMLError as exc:
-        typer.echo(f"Error: Failed to parse sparkq.yml ({exc})", err=True)
-        raise typer.Exit(1)
+        _config_error(f"Failed to parse sparkq.yml ({exc})")
 
     typer.echo("Tool registry reloaded")
 
@@ -244,37 +334,50 @@ session_app = typer.Typer(help="Manage work sessions")
 app.add_typer(session_app, name="session")
 
 
-@session_app.command("create")
+@session_app.command("create", help="Create new session for task execution")
+@cli_handler
 def session_create(
-    name: str = typer.Argument(..., help="Session name (e.g., 'api-v2')"),
-    description: Optional[str] = typer.Option(
-        None, "--description", "-d", help="Session description"
+    name: str = typer.Argument(..., help="Session name (unique)"),
+    instructions: Optional[str] = typer.Option(
+        None,
+        "--instructions",
+        "-i",
+        "--description",
+        help="Optional instructions for workers",
     ),
 ):
-    """Create a new work session."""
+    """Create new session for task execution."""
+    if not name or not name.strip():
+        _required_field("Session name")
+
+    name = name.strip()
+
     # Check project exists
     project = storage.get_project()
     if not project:
-        typer.echo("Error: Run 'sparkq setup' first.", err=True)
-        raise typer.Exit(1)
+        _config_error("Project not initialized. Run 'sparkq setup' first.")
 
     # Check name not taken
     existing = storage.get_session_by_name(name)
     if existing:
-        typer.echo(f"Error: Session '{name}' already exists.", err=True)
-        raise typer.Exit(1)
+        _invalid_field("session name", name, suggestion="Try: choose a unique session name")
 
-    session = storage.create_session(name=name, description=description)
+    session = storage.create_session(name=name, description=instructions)
     typer.echo(f"Created session: {session['name']} ({session['id']})")
 
 
-@session_app.command("list")
+@session_app.command("list", help="List all sessions")
+@cli_handler
 def session_list(
     status: Optional[str] = typer.Option(
         None, "--status", "-s", help="Filter by status (active, ended)"
     ),
 ):
     """List all sessions."""
+    valid_status = {"active", "ended"}
+    if status and status not in valid_status:
+        _invalid_field("status", status, valid_options=sorted(valid_status))
+
     sessions = storage.list_sessions(status=status)
 
     if not sessions:
@@ -292,19 +395,23 @@ def session_list(
         )
 
 
-@session_app.command("end")
+@session_app.command("end", help="End an active session")
+@cli_handler
 def session_end(
     name: str = typer.Argument(..., help="Session name to end"),
 ):
     """End a session (marks it as ended, no new streams)."""
+    if not name or not name.strip():
+        _required_field("Session name")
+
+    name = name.strip()
+
     session = storage.get_session_by_name(name)
     if not session:
-        typer.echo(f"Error: Session '{name}' not found.", err=True)
-        raise typer.Exit(1)
+        _resource_missing("Session", name, "sparkq session list")
 
     if session["status"] == "ended":
-        typer.echo(f"Session '{name}' is already ended.")
-        return
+        _state_error("Ending session", "ended", "sparkq session list")
 
     storage.end_session(session["id"])
     typer.echo(f"Ended session: {name}")
@@ -316,32 +423,37 @@ stream_app = typer.Typer(help="Manage feature streams within sessions")
 app.add_typer(stream_app, name="stream")
 
 
-@stream_app.command("create")
+@stream_app.command("create", help="Create new stream in session")
+@cli_handler
 def stream_create(
-    name: str = typer.Argument(..., help="Stream name (globally unique, e.g., 'auth')"),
-    session: str = typer.Option(
-        ..., "--session", "-s", help="Parent session name"
-    ),
+    name: str = typer.Argument(..., help="Stream name"),
+    session: str = typer.Option(..., "--session", "-s", help="Session name or ID"),
     instructions: Optional[str] = typer.Option(
-        None, "--instructions", "-i", help="Stream instructions (mini-FRD)"
+        None, "--instructions", "-i", help="Optional stream-specific instructions"
     ),
 ):
-    """Create a new stream within a session."""
+    """Create new stream in session."""
+    if not name or not name.strip():
+        _required_field("Stream name")
+
+    if not session or not session.strip():
+        _required_field("Session name", "Try: sparkq session list")
+
+    name = name.strip()
+    session = session.strip()
+
     # Find session
     sess = storage.get_session_by_name(session)
     if not sess:
-        typer.echo(f"Error: Session '{session}' not found.", err=True)
-        raise typer.Exit(1)
+        _resource_missing("Session", session, "sparkq session list")
 
     if sess["status"] == "ended":
-        typer.echo(f"Error: Session '{session}' is ended.", err=True)
-        raise typer.Exit(1)
+        _state_error("Creating stream", "ended", "sparkq session create <name>")
 
     # Check name not taken
     existing = storage.get_stream_by_name(name)
     if existing:
-        typer.echo(f"Error: Stream '{name}' already exists.", err=True)
-        raise typer.Exit(1)
+        _invalid_field("stream name", name, suggestion="Try: choose a unique stream name")
 
     stream = storage.create_stream(
         session_id=sess["id"],
@@ -354,7 +466,8 @@ def stream_create(
         typer.echo(f"Instructions: {instructions[:50]}...")
 
 
-@stream_app.command("list")
+@stream_app.command("list", help="List all streams")
+@cli_handler
 def stream_list(
     session: Optional[str] = typer.Option(
         None, "--session", "-s", help="Filter by session"
@@ -363,13 +476,19 @@ def stream_list(
         None, "--status", help="Filter by status (active, ended)"
     ),
 ):
-    """List streams."""
+    """List all streams."""
+    valid_status = {"active", "ended"}
+    if status and status not in valid_status:
+        _invalid_field("status", status, valid_options=sorted(valid_status))
+
     session_id = None
     if session:
+        if not session.strip():
+            _required_field("Session name", "Try: sparkq session list")
+        session = session.strip()
         sess = storage.get_session_by_name(session)
         if not sess:
-            typer.echo(f"Error: Session '{session}' not found.", err=True)
-            raise typer.Exit(1)
+            _resource_missing("Session", session, "sparkq session list")
         session_id = sess["id"]
 
     streams = storage.list_streams(session_id=session_id, status=status)
@@ -395,214 +514,265 @@ def stream_list(
         )
 
 
-@stream_app.command("end")
+@stream_app.command("end", help="End an active stream")
+@cli_handler
 def stream_end(
     stream_id: str = typer.Argument(..., help="Stream ID to end")
 ):
-    """End an active stream"""
-    try:
-        success = storage.end_stream(stream_id)
+    """End an active stream."""
+    if not stream_id or not stream_id.strip():
+        _required_field("Stream ID")
 
-        if success:
-            typer.echo(f"✓ Stream {stream_id} ended successfully")
-        else:
-            typer.echo(f"Error: Stream {stream_id} not found", err=True)
-            raise typer.Exit(code=1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+    stream_id = stream_id.strip()
+    stream = storage.get_stream(stream_id)
+    if not stream:
+        _resource_missing("Stream", stream_id, "sparkq stream list")
+
+    if stream.get("status") == "ended":
+        _state_error("Ending stream", "ended", "sparkq stream list")
+
+    storage.end_stream(stream_id)
+    typer.echo(f"Stream {stream_id} ended successfully")
 
 
 # === Task Commands (Stubs for Phase 2) ===
 
-@app.command()
+@app.command(help="Enqueue task to stream")
+@cli_handler
 def enqueue(
-    stream: str = typer.Option(..., "--stream", "-s", help="Stream name"),
-    tool: str = typer.Option(..., "--tool", "-t", help="Tool name to execute"),
-    task_class: str = typer.Option("MEDIUM_SCRIPT", "--task-class", help="Task class (FAST_SCRIPT, MEDIUM_SCRIPT, LLM_LITE, LLM_HEAVY)"),
-    timeout: Optional[int] = typer.Option(None, "--timeout", help="Override timeout in seconds"),
+    stream: str = typer.Option(..., "--stream", "-s", help="Target stream name"),
+    tool: str = typer.Option(..., "--tool", "-t", help="Tool/script name"),
+    task_class: str = typer.Option(
+        "MEDIUM_SCRIPT",
+        "--task-class",
+        help="Task priority (FAST_SCRIPT, MEDIUM_SCRIPT, LLM_LITE, LLM_HEAVY)",
+    ),
+    timeout: Optional[int] = typer.Option(None, "--timeout", help="Timeout override in seconds"),
     prompt_file: Optional[str] = typer.Option(None, "--prompt-file", "-p", help="Path to prompt file"),
     metadata: Optional[str] = typer.Option(None, "--metadata", "-m", help="JSON metadata"),
 ):
-    """Queue a task for execution."""
+    """Enqueue task to stream."""
     import json
     from pathlib import Path
-    from sparkq.src.tools import get_registry
+    from .tools import get_registry
 
-    try:
-        # Validate stream exists
-        st = storage.get_stream_by_name(stream)
-        if not st:
-            typer.echo(f"Error: Stream '{stream}' not found", err=True)
-            raise typer.Exit(1)
+    if not stream or not stream.strip():
+        _required_field("Stream", "Try: sparkq stream list")
 
-        # Get tool registry
-        registry = get_registry()
+    if not tool or not tool.strip():
+        _required_field("Tool", "List available: sparkq list tools")
 
-        # Validate tool exists
-        if not registry.get_tool(tool):
-            typer.echo(f"Error: Tool '{tool}' not registered", err=True)
-            raise typer.Exit(1)
+    stream = stream.strip()
+    tool = tool.strip()
+    task_class = task_class.strip() if task_class else task_class
 
-        # Resolve timeout: override > task_class timeout > default 300
-        resolved_timeout = registry.get_timeout(tool, timeout)
+    valid_task_classes = {"FAST_SCRIPT", "MEDIUM_SCRIPT", "LLM_LITE", "LLM_HEAVY"}
+    if task_class not in valid_task_classes:
+        _invalid_field("task_class", task_class, valid_options=sorted(valid_task_classes))
 
-        # Load prompt from file if provided
-        prompt_content = ""
-        if prompt_file:
-            prompt_path = Path(prompt_file)
-            if not prompt_path.exists():
-                typer.echo(f"Error: Prompt file not found: {prompt_file}", err=True)
-                raise typer.Exit(1)
-            prompt_content = prompt_path.read_text()
+    # Validate stream exists
+    st = storage.get_stream_by_name(stream)
+    if not st:
+        _resource_missing("Stream", stream, "sparkq stream list")
 
-        # Parse metadata JSON if provided
-        metadata_dict = {}
-        if metadata:
-            try:
-                metadata_dict = json.loads(metadata)
-            except json.JSONDecodeError as e:
-                typer.echo(f"Error: Invalid metadata JSON: {e}", err=True)
-                raise typer.Exit(1)
+    if st.get("status") == "ended":
+        _state_error("Enqueue", "ended", "sparkq stream create <name>")
 
-        # Build payload (combine prompt and metadata)
-        payload_data = {
-            "prompt": prompt_content,
-            "metadata": metadata_dict
-        }
-        payload_str = json.dumps(payload_data)
+    # Get tool registry
+    registry = get_registry()
 
-        # Create task
-        task = storage.create_task(
-            stream_id=st['id'],
-            tool_name=tool,
-            task_class=task_class,
-            payload=payload_str,
-            timeout=resolved_timeout,
-            prompt_path=prompt_file,
-            metadata=metadata
-        )
+    # Validate tool exists
+    if not registry.get_tool(tool):
+        _resource_missing("Tool", tool, "sparkq list tools")
 
-        typer.echo(f"Task {task['id']} enqueued to stream '{stream}'")
+    # Resolve timeout: override > task_class timeout > default 300
+    resolved_timeout = registry.get_timeout(tool, timeout)
 
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+    # Load prompt from file if provided
+    prompt_content = ""
+    if prompt_file:
+        prompt_file = prompt_file.strip()
+        prompt_path = Path(prompt_file)
+        if not prompt_path.exists():
+            _emit_error(
+                f"Prompt file not found: {prompt_file}",
+                "Provide a valid --prompt-file path",
+            )
+        prompt_content = prompt_path.read_text()
+
+    # Parse metadata JSON if provided
+    metadata_dict = {}
+    if metadata:
+        metadata = metadata.strip()
+        try:
+            metadata_dict = json.loads(metadata)
+        except json.JSONDecodeError as exc:
+            _invalid_field("metadata", metadata, suggestion=f"Provide valid JSON ({exc})")
+
+    # Build payload (combine prompt and metadata)
+    payload_data = {
+        "prompt": prompt_content,
+        "metadata": metadata_dict
+    }
+    payload_str = json.dumps(payload_data)
+
+    # Create task
+    task = storage.create_task(
+        stream_id=st['id'],
+        tool_name=tool,
+        task_class=task_class,
+        payload=payload_str,
+        timeout=resolved_timeout,
+        prompt_path=prompt_file,
+        metadata=metadata
+    )
+
+    typer.echo(f"Task {task['id']} enqueued to stream '{stream}'")
 
 
-@app.command()
+@app.command(help="Check next task in queue")
+@cli_handler
 def peek(
-    stream: str = typer.Option(..., "--stream", "-s", help="Stream to peek"),
+    stream: str = typer.Option(..., "--stream", "-s", help="Stream name"),
 ):
-    """Check for next queued task without claiming it."""
-    try:
-        # Find stream by name
-        st = storage.get_stream_by_name(stream)
-        if not st:
-            typer.echo(f"Error: Stream '{stream}' not found", err=True)
-            raise typer.Exit(1)
+    """Check next task in queue."""
+    if not stream or not stream.strip():
+        _required_field("Stream", "Try: sparkq stream list")
 
-        # Get oldest queued task
-        task = storage.get_oldest_queued_task(st['id'])
+    stream = stream.strip()
 
-        if not task:
-            typer.echo("No queued tasks")
-            return
+    # Find stream by name
+    st = storage.get_stream_by_name(stream)
+    if not st:
+        _resource_missing("Stream", stream, "sparkq stream list")
 
-        # Output task details
-        typer.echo(f"Task {task['id']}: {task['tool_name']} (task_class: {task['task_class']})")
-        typer.echo(f"Queued: {task['created_at']}")
+    # Get oldest queued task
+    task = storage.get_oldest_queued_task(st['id'])
 
-        # Show prompt if available in payload
-        if task.get('payload'):
-            import json
-            try:
-                payload_data = json.loads(task['payload'])
-                if payload_data.get('prompt'):
-                    typer.echo(f"Prompt: {payload_data['prompt'][:100]}...")
-            except json.JSONDecodeError:
-                pass
+    if not task:
+        typer.echo("No queued tasks")
+        return
 
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+    # Output task details
+    typer.echo(f"Task {task['id']}: {task['tool_name']} (task_class: {task['task_class']})")
+    typer.echo(f"Queued: {task['created_at']}")
+
+    # Show prompt if available in payload
+    if task.get('payload'):
+        import json
+        try:
+            payload_data = json.loads(task['payload'])
+            if payload_data.get('prompt'):
+                typer.echo(f"Prompt: {payload_data['prompt'][:100]}...")
+        except json.JSONDecodeError:
+            pass
 
 
-@app.command()
+@app.command(help="Claim next task in stream")
+@cli_handler
 def claim(
     stream: Optional[str] = typer.Option(
-        None, "--stream", "-s", help="Stream to claim from"
+        None, "--stream", "-s", help="Stream name (optional - shows available if omitted)"
     ),
 ):
-    """Claim the next queued task. Returns full task + stream instructions."""
-    try:
-        # Find stream by name
-        st = storage.get_stream_by_name(stream)
-        if not st:
-            typer.echo(f"Error: Stream '{stream}' not found", err=True)
-            raise typer.Exit(1)
+    """Claim next task in stream."""
+    if not stream or not stream.strip():
+        available_streams = storage.list_streams(status="active")
+        if not available_streams:
+            _required_field("Stream", "Try: sparkq stream list")
 
-        # Get oldest queued task
-        task = storage.get_oldest_queued_task(st['id'])
+        typer.echo("Available streams (specify with --stream):")
+        for st in available_streams:
+            typer.echo(f"- {st['name']} ({st['id']})")
+        raise typer.Exit()
 
-        if not task:
-            typer.echo(f"No queued tasks in stream '{stream}'")
-            return
+    stream = stream.strip()
 
-        # Claim the task
-        claimed_task = storage.claim_task(task['id'])
+    # Find stream by name
+    st = storage.get_stream_by_name(stream)
+    if not st:
+        _resource_missing("Stream", stream, "sparkq stream list")
 
-        # Output task details with stream instructions
-        typer.echo(f"Task {claimed_task['id']}: {claimed_task['tool_name']}")
-        typer.echo(f"Stream: {st['name']}")
+    if st.get("status") == "ended":
+        _state_error("Claim", "ended", "sparkq stream create <name>")
 
-        if st.get('instructions'):
-            typer.echo(f"Instructions: {st['instructions']}")
+    # Get oldest queued task
+    task = storage.get_oldest_queued_task(st['id'])
 
-        # Show prompt if available in payload
-        if claimed_task.get('payload'):
-            import json
-            try:
-                payload_data = json.loads(claimed_task['payload'])
-                if payload_data.get('prompt'):
-                    typer.echo(f"Prompt: {payload_data['prompt']}")
-            except json.JSONDecodeError:
-                pass
+    if not task:
+        typer.echo(f"No queued tasks in stream '{stream}'")
+        return
 
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+    # Claim the task
+    claimed_task = storage.claim_task(task['id'])
+
+    # Output task details with stream instructions
+    typer.echo(f"Task {claimed_task['id']}: {claimed_task['tool_name']}")
+    typer.echo(f"Stream: {st['name']}")
+
+    if st.get('instructions'):
+        typer.echo(f"Instructions: {st['instructions']}")
+
+    # Show prompt if available in payload
+    if claimed_task.get('payload'):
+        import json
+        try:
+            payload_data = json.loads(claimed_task['payload'])
+            if payload_data.get('prompt'):
+                typer.echo(f"Prompt: {payload_data['prompt']}")
+        except json.JSONDecodeError:
+            pass
 
 
-@app.command()
+@app.command(help="Mark task as completed")
+@cli_handler
 def complete(
-    task_id: str = typer.Argument(..., help="Task ID to complete"),
+    task_id: str = typer.Argument(..., help="Task ID"),
     result: str = typer.Option(
-        ..., "--result", "-r", help="JSON result (must include 'summary' field)"
+        ..., "--result", "-r", "--summary", help="Brief result summary (REQUIRED)"
+    ),
+    result_file: Optional[str] = typer.Option(
+        None, "--result-file", "-f", help="Optional detailed result file"
     ),
     stdout: Optional[str] = typer.Option(None, "--stdout", help="Captured stdout"),
     stderr: Optional[str] = typer.Option(None, "--stderr", help="Captured stderr"),
 ):
-    """Mark a task as succeeded."""
+    """Mark task as completed."""
     import json
     from pathlib import Path
 
-    try:
-        # Get task
-        task = storage.get_task(task_id)
-        if not task:
-            typer.echo(f"Error: Task {task_id} not found", err=True)
-            raise typer.Exit(1)
+    if not task_id or not task_id.strip():
+        _required_field("Task ID")
 
-        # Verify task is claimed (running status)
-        if task['status'] != 'running':
-            typer.echo(f"Error: Task must be claimed first (current status: {task['status']})", err=True)
-            raise typer.Exit(1)
+    task_id = task_id.strip()
 
-        # Parse result (could be JSON string or file path)
-        result_data = result
-        result_summary = result
+    # Get task
+    task = storage.get_task(task_id)
+    if not task:
+        _resource_missing("Task", task_id, "sparkq tasks")
 
+    # Verify task is claimed (running status)
+    if task['status'] != 'running':
+        _state_error("Complete task", task['status'], "sparkq claim --stream <name>")
+
+    # Parse result (could be summary text, JSON, or file path)
+    result_data = result
+    result_summary = result
+
+    if result_file:
+        file_path = Path(result_file)
+        if not file_path.exists() or not file_path.is_file():
+            _emit_error(f"Result file not found: {result_file}")
+        result_data = file_path.read_text()
+        # Try to parse detailed result file for summary if not provided
+        if not result_summary or not result_summary.strip():
+            try:
+                result_json = json.loads(result_data)
+                if "summary" in result_json:
+                    result_summary = result_json["summary"]
+            except json.JSONDecodeError:
+                result_summary = result_data[:200]
+    else:
         # Check if result is a file path
         result_path = Path(result)
         if result_path.exists() and result_path.is_file():
@@ -626,148 +796,158 @@ def complete(
                 result_summary = result
                 result_data = result
 
-        # Validate summary is not empty
-        if not result_summary or not result_summary.strip():
-            typer.echo("Error: Result summary is required", err=True)
-            raise typer.Exit(1)
+    # Validate summary is not empty
+    if not result_summary or not result_summary.strip():
+        _required_field("Result summary")
 
-        # Complete the task
-        storage.complete_task(task_id, result_summary, result_data, stdout, stderr)
+    # Complete the task
+    storage.complete_task(task_id, result_summary, result_data, stdout, stderr)
 
-        typer.echo(f"Task {task_id} marked as succeeded")
-
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+    typer.echo(f"Task {task_id} marked as succeeded")
 
 
-@app.command()
+@app.command(help="Mark task as failed")
+@cli_handler
 def fail(
-    task_id: str = typer.Argument(..., help="Task ID to fail"),
+    task_id: str = typer.Argument(..., help="Task ID"),
     error: str = typer.Option(..., "--error", "-e", help="Error message"),
+    error_type: Optional[str] = typer.Option(None, "--error-type", help="Error type (optional)"),
     stdout: Optional[str] = typer.Option(None, "--stdout", help="Captured stdout"),
     stderr: Optional[str] = typer.Option(None, "--stderr", help="Captured stderr"),
 ):
-    """Mark a task as failed."""
-    try:
-        # Get task
-        task = storage.get_task(task_id)
-        if not task:
-            typer.echo(f"Error: Task {task_id} not found", err=True)
-            raise typer.Exit(1)
+    """Mark task as failed."""
+    if not task_id or not task_id.strip():
+        _required_field("Task ID")
 
-        # Validate error message is not empty
-        if not error or not error.strip():
-            typer.echo("Error: Error message is required", err=True)
-            raise typer.Exit(1)
+    task_id = task_id.strip()
 
-        # Fail the task (no error_type for now, can be added later)
-        storage.fail_task(task_id, error, error_type=None, stdout=stdout, stderr=stderr)
+    # Get task
+    task = storage.get_task(task_id)
+    if not task:
+        _resource_missing("Task", task_id, "sparkq tasks")
 
-        typer.echo(f"Task {task_id} marked as failed")
+    # Validate error message is not empty
+    if not error or not error.strip():
+        _required_field("Error message")
 
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+    if task['status'] != 'running':
+        _state_error("Fail task", task['status'], "sparkq claim --stream <name>")
+
+    storage.fail_task(task_id, error, error_type=error_type, stdout=stdout, stderr=stderr)
+
+    typer.echo(f"Task {task_id} marked as failed")
 
 
-@app.command()
+@app.command(help="List tasks with optional filters")
+@cli_handler
 def tasks(
     status: Optional[str] = typer.Option(
-        None, "--status", "-s", help="Filter by status"
+        None, "--status", "-s", help="Filter by status (queued, claimed, succeeded, failed)"
     ),
     stream: Optional[str] = typer.Option(
         None, "--stream", help="Filter by stream"
     ),
     stale: bool = typer.Option(False, "--stale", help="Show only stale (past timeout) tasks"),
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Limit number of results"),
 ):
     """List tasks with optional filters."""
-    try:
-        # Resolve stream name to ID if provided
-        stream_id = None
-        if stream:
-            st = storage.get_stream_by_name(stream)
-            if not st:
-                typer.echo(f"Error: Stream '{stream}' not found", err=True)
-                raise typer.Exit(1)
-            stream_id = st['id']
+    valid_status = {"queued", "running", "succeeded", "failed"}
+    status_aliases = {"claimed": "running"}
+    if status:
+        normalized_status = status_aliases.get(status, status)
+        if normalized_status not in valid_status:
+            _invalid_field(
+                "status",
+                status,
+                valid_options=sorted(valid_status.union(status_aliases.keys())),
+            )
+        status = normalized_status
 
-        # Get tasks with filters
-        task_list = storage.list_tasks(stream_id=stream_id, status=status)
+    # Resolve stream name to ID if provided
+    stream_id = None
+    if stream:
+        if not stream.strip():
+            _required_field("Stream", "Try: sparkq stream list")
+        stream = stream.strip()
+        st = storage.get_stream_by_name(stream)
+        if not st:
+            _resource_missing("Stream", stream, "sparkq stream list")
+        stream_id = st['id']
 
-        if not task_list:
-            typer.echo("No tasks found")
-            return
+    # Get tasks with filters
+    task_list = storage.list_tasks(stream_id=stream_id, status=status)
 
-        # Display tasks as table
-        typer.echo(f"\nFound {len(task_list)} task(s):\n")
-        typer.echo(f"{'ID':<15} {'Stream':<20} {'Tool':<25} {'Status':<12} {'Created':<20}")
-        typer.echo("-" * 95)
+    if limit is not None:
+        task_list = task_list[:limit]
 
-        for t in task_list:
-            # Get stream name for display
-            task_stream = storage.get_stream(t['stream_id'])
-            stream_name = task_stream['name'] if task_stream else t['stream_id']
+    if not task_list:
+        typer.echo("No tasks found")
+        return
 
-            # Truncate long tool names
-            tool_display = t['tool_name'][:22] + "..." if len(t['tool_name']) > 25 else t['tool_name']
+    # Display tasks as table
+    typer.echo(f"\nFound {len(task_list)} task(s):\n")
+    typer.echo(f"{'ID':<15} {'Stream':<20} {'Tool':<25} {'Status':<12} {'Created':<20}")
+    typer.echo("-" * 95)
 
-            typer.echo(f"{t['id']:<15} {stream_name:<20} {tool_display:<25} {t['status']:<12} {t['created_at']:<20}")
+    for t in task_list:
+        # Get stream name for display
+        task_stream = storage.get_stream(t['stream_id'])
+        stream_name = task_stream['name'] if task_stream else t['stream_id']
 
-        typer.echo()
+        # Truncate long tool names
+        tool_display = t['tool_name'][:22] + "..." if len(t['tool_name']) > 25 else t['tool_name']
 
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+        typer.echo(f"{t['id']:<15} {stream_name:<20} {tool_display:<25} {t['status']:<12} {t['created_at']:<20}")
+
+    typer.echo()
 
 
-@app.command()
+@app.command(help="Show detailed task information")
+@cli_handler
 def task(
     task_id: str = typer.Argument(..., help="Task ID to show"),
 ):
     """Show detailed task information."""
-    typer.echo("Phase 2: Not implemented yet")
-    raise typer.Exit(1)
+    _emit_error("Task command not implemented yet", "Try: sparkq tasks to list tasks")
 
 
-@app.command()
+@app.command(help="Move task back to queued status")
+@cli_handler
 def requeue(
-    task_id: str = typer.Argument(..., help="Failed task ID to requeue"),
+    task_id: str = typer.Argument(..., help="Task ID"),
 ):
-    """Clone a failed task as a new queued task."""
-    try:
-        # Get the task
-        task = storage.get_task(task_id)
-        if not task:
-            typer.echo("Error: Task not found", err=True)
-            raise typer.Exit(1)
+    """Move task back to queued status."""
+    if not task_id or not task_id.strip():
+        _required_field("Task ID")
 
-        # Check task status - can only requeue if claimed, succeeded, or failed
-        if task['status'] == 'queued':
-            typer.echo("Error: Task is already queued", err=True)
-            raise typer.Exit(1)
+    task_id = task_id.strip()
 
-        # Requeue the task (creates new task with fresh ID)
-        new_task = storage.requeue_task(task_id)
+    # Get the task
+    task = storage.get_task(task_id)
+    if not task:
+        _resource_missing("Task", task_id, "sparkq tasks")
 
-        typer.echo(f"Task {task_id} requeued as {new_task['id']}")
+    # Check task status - can only requeue if claimed, succeeded, or failed
+    if task['status'] == 'queued':
+        _state_error("Requeue", "queued", "run or fail the task first")
 
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+    # Requeue the task (creates new task with fresh ID)
+    new_task = storage.requeue_task(task_id)
+
+    typer.echo(f"Task {task_id} requeued as {new_task['id']}")
 
 
 # === Utility Commands ===
 
-@app.command()
+@app.command(help="Delete old succeeded/failed tasks")
+@cli_handler
 def purge(
     older_than: str = typer.Option(
         "3d", "--older-than", help="Delete tasks older than (e.g., '3d', '1w')"
     ),
 ):
-    """Manually purge old succeeded/failed tasks."""
-    typer.echo("Purge: Not implemented yet")
-    raise typer.Exit(1)
+    """Delete old succeeded/failed tasks."""
+    _emit_error("Purge command not implemented yet", "Check sparkq.yml purge settings")
 
 
 if __name__ == "__main__":
