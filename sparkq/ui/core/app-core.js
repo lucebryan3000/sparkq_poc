@@ -559,11 +559,8 @@ function cachePages() {
 
 function setupNavTabs() {
   const buttons = document.querySelectorAll('.nav-tab');
-  console.log('[SparkQ] Setting up nav tabs, found', buttons.length, 'buttons');
   buttons.forEach((tab) => {
-    console.log('[SparkQ] Adding click listener to button with data-tab:', tab.dataset.tab);
     tab.addEventListener('click', (event) => {
-      console.log('[SparkQ] Nav button clicked, data-tab:', tab.dataset.tab);
       event.preventDefault();
       const tabName = tab.dataset.tab;
       currentPage = tabName;
@@ -573,12 +570,9 @@ function setupNavTabs() {
 }
 
 function router(page = currentPage) {
-  console.log('[SparkQ] Router called with page:', page);
   Object.keys(pages).forEach((pageName) => {
     if (pages[pageName]) {
-      const shouldShow = pageName === page;
-      pages[pageName].style.display = shouldShow ? 'block' : 'none';
-      console.log(`[SparkQ] Page ${pageName}: display=${pages[pageName].style.display}`);
+      pages[pageName].style.display = pageName === page ? 'block' : 'none';
     }
   });
 
@@ -592,24 +586,19 @@ function router(page = currentPage) {
 
   // Render page
   const pageKey = page.charAt(0).toUpperCase() + page.slice(1);
-  console.log('[SparkQ] Looking for page renderer:', pageKey, 'exists:', !!window.Pages[pageKey]);
   if (window.Pages[pageKey] && typeof window.Pages[pageKey].render === 'function') {
-    console.log('[SparkQ] Rendering page:', pageKey);
     try {
       window.Pages[pageKey].render(pages[page]);
-      console.log('[SparkQ] Page rendered successfully:', pageKey);
     } catch (err) {
       console.error('[SparkQ] Error rendering page:', pageKey, err);
-      // Fallback: show error in page
       if (pages[page]) {
         pages[page].innerHTML = `<div class="card"><p class="error">Error loading ${page}: ${err.message}</p></div>`;
       }
     }
   } else {
-    console.warn('[SparkQ] Page renderer not found:', pageKey, 'Available:', Object.keys(window.Pages || {}));
-    // Fallback: show placeholder
+    console.error('[SparkQ] Page renderer not found:', pageKey);
     if (pages[page]) {
-      pages[page].innerHTML = `<div class="card"><p class="muted">Page module not loaded: ${pageKey}</p><p class="muted">Available: ${Object.keys(window.Pages || {}).join(', ')}</p></div>`;
+      pages[page].innerHTML = `<div class="card"><p class="error">Page module not loaded: ${pageKey}</p></div>`;
     }
   }
 }
@@ -734,19 +723,6 @@ window.Utils = {
 
 document.addEventListener('DOMContentLoaded', () => {
   cachePages();
-  console.log('[SparkQ] Pages cached:', Object.keys(pages));
-  console.log('[SparkQ] Window.Pages:', Object.keys(window.Pages || {}));
-
-  // Export diagnostic object for debugging
-  window.SparkQDebug = {
-    pages,
-    Pages: window.Pages,
-    currentPage,
-    api: window.API?.api,
-    utils: Object.keys(window.Utils || {}),
-  };
-  console.log('[SparkQ] Debug info available as window.SparkQDebug');
-
   setupNavTabs();
   router(currentPage);
   startStatusPolling();
