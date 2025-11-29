@@ -1106,6 +1106,8 @@ Implement Phase 3: Server + API + Web UI using the Complete Orchestration Patter
 
 ## 13. Common Batch Patterns by Phase Type
 
+**Note:** These token ranges are based on Phase 1 actual results (5-8K tokens verified). They serve as benchmarks for similar phases. Will be updated with actual metrics from Phases 2-5 as they complete.
+
 ### Foundation Phase (Phase 1 Model)
 
 **Typical Structure:**
