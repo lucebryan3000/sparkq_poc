@@ -1,8 +1,49 @@
+# Virtual environments - HUGE, not needed in context
 .venv/
+sparkq/venv/
+env/
+venv/
+
+# Python cache and build artifacts
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .pytest_cache/
-.egg-info/
+*.egg-info/
 dist/
 build/
+
+# Logs and runtime files
+logs/
+*.log
+_build/sparkqueue/logs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
+
+# Project-specific generated files that are temporary
+.claude/commands/-codex_prompt.md
+BOOTSTRAP_WORKING.md
+
+# SQLite database files (can get large)
+*.db
+*.db-shm
+*.db-wal
+
+# Environment files
+.env
+.env.local
+
+# Node modules if ever added
+node_modules/
+package-lock.json
+
+# OS files
+.DS_Store
+Thumbs.db
