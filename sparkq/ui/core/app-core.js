@@ -582,9 +582,14 @@ function router(page = currentPage) {
   console.log('[SparkQ] Looking for page renderer:', pageKey, 'exists:', !!window.Pages[pageKey]);
   if (window.Pages[pageKey] && typeof window.Pages[pageKey].render === 'function') {
     console.log('[SparkQ] Rendering page:', pageKey);
-    window.Pages[pageKey].render(pages[page]);
+    try {
+      window.Pages[pageKey].render(pages[page]);
+      console.log('[SparkQ] Page rendered successfully:', pageKey);
+    } catch (err) {
+      console.error('[SparkQ] Error rendering page:', pageKey, err);
+    }
   } else {
-    console.warn('[SparkQ] Page renderer not found:', pageKey);
+    console.warn('[SparkQ] Page renderer not found:', pageKey, 'Available:', Object.keys(window.Pages || {}));
   }
 }
 
