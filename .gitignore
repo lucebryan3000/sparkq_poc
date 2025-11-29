@@ -1,3 +1,4 @@
 .env
 .venv/
 _build/sparkqueue/logs/
+sparkq/logs/

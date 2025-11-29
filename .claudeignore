@@ -14,10 +14,13 @@ __pycache__/
 dist/
 build/
 
+# Large build and generated content - context compression culprits
+_build/
+.git/
+
 # Logs and runtime files
 logs/
 *.log
-_build/sparkqueue/logs/
 
 # IDE and editor files
 .vscode/
