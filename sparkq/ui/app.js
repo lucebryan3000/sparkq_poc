@@ -33,6 +33,8 @@ function cachePages() {
   pages.streams = document.getElementById('streams-page');
   pages.tasks = document.getElementById('tasks-page');
   pages.enqueue = document.getElementById('enqueue-page');
+  pages.config = document.getElementById('config-page');
+  pages.scripts = document.getElementById('scripts-page');
 }
 
 function setupNavTabs() {
@@ -70,6 +72,10 @@ function router() {
     renderSessionsPage();
   } else if (page === 'streams' && typeof renderStreamsPage === 'function') {
     renderStreamsPage();
+  } else if (page === 'config' && typeof renderConfigPage === 'function') {
+    renderConfigPage();
+  } else if (page === 'scripts' && typeof renderScriptsPage === 'function') {
+    renderScriptsPage();
   }
 }
 
@@ -1563,4 +1569,291 @@ async function handleCreateStream(container, sessions) {
   } catch (err) {
     handleApiError('create stream', err);
   }
+}
+
+async function renderConfigPage() {
+  const container = pages.config;
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="muted"><span class="loading"></span> Loading configuration…</div>
+    </div>
+  `;
+
+  try {
+    const response = await api('GET', '/api/config', null, { action: 'load config' });
+
+    const serverRows = Object.entries(response?.server || {})
+      .map(([key, value]) => `
+        <tr>
+          <td>${key}</td>
+          <td>${formatValue(value, '—')}</td>
+        </tr>
+      `)
+      .join('');
+
+    const databaseRows = Object.entries(response?.database || {})
+      .map(([key, value]) => `
+        <tr>
+          <td>${key}</td>
+          <td>${formatValue(value, '—')}</td>
+        </tr>
+      `)
+      .join('');
+
+    const purgeRows = Object.entries(response?.purge || {})
+      .map(([key, value]) => `
+        <tr>
+          <td>${key}</td>
+          <td>${formatValue(value, '—')}</td>
+        </tr>
+      `)
+      .join('');
+
+    const toolRows = Object.entries(response?.tools || {})
+      .map(([name, tool]) => `
+        <tr>
+          <td>${name}</td>
+          <td>${tool.description || '—'}</td>
+          <td>${tool.task_class || '—'}</td>
+        </tr>
+      `)
+      .join('');
+
+    const taskClassRows = Object.entries(response?.task_classes || {})
+      .map(([name, taskClass]) => `
+        <tr>
+          <td>${name}</td>
+          <td>${taskClass.timeout || '—'}</td>
+        </tr>
+      `)
+      .join('');
+
+    container.innerHTML = `
+      <div class="card">
+        <h2>Server Configuration</h2>
+
+        <h3 style="margin-top: 20px; margin-bottom: 12px;">Server</h3>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Setting</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${serverRows}
+          </tbody>
+        </table>
+
+        <h3 style="margin-top: 20px; margin-bottom: 12px;">Database</h3>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Setting</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${databaseRows}
+          </tbody>
+        </table>
+
+        <h3 style="margin-top: 20px; margin-bottom: 12px;">Purge Policy</h3>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Setting</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${purgeRows}
+          </tbody>
+        </table>
+
+        <h3 style="margin-top: 20px; margin-bottom: 12px;">Tools</h3>
+        ${toolRows ? `
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Tool Name</th>
+                <th>Description</th>
+                <th>Task Class</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${toolRows}
+            </tbody>
+          </table>
+        ` : '<p class="muted">No tools configured.</p>'}
+
+        <h3 style="margin-top: 20px; margin-bottom: 12px;">Task Classes</h3>
+        ${taskClassRows ? `
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Class Name</th>
+                <th>Timeout</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${taskClassRows}
+            </tbody>
+          </table>
+        ` : '<p class="muted">No task classes configured.</p>'}
+      </div>
+    `;
+  } catch (err) {
+    handleApiError('load config', err);
+  }
+}
+
+async function renderScriptsPage() {
+  const container = pages.scripts;
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="card">
+      <div class="muted"><span class="loading"></span> Loading scripts…</div>
+    </div>
+  `;
+
+  let scripts = [];
+  try {
+    scripts = await loadScriptIndex();
+  } catch (err) {
+    container.innerHTML = `
+      <div class="card">
+        <h2>Scripts</h2>
+        <p class="muted">No scripts loaded.</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (!scripts.length) {
+    container.innerHTML = `
+      <div class="card">
+        <h2>Scripts</h2>
+        <p class="muted">No scripts available.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const uniqueClasses = [...new Set(scripts.map((s) => s.task_class).filter(Boolean))].sort();
+
+  let filteredScripts = scripts;
+
+  container.innerHTML = `
+    <div class="card">
+      <h2>Scripts</h2>
+
+      <div style="margin-bottom: 16px; display: flex; gap: 12px;">
+        <div class="input-group" style="flex: 1;">
+          <input type="text" class="input" id="script-search" placeholder="Search by name or description…" />
+        </div>
+        <div class="input-group">
+          <select class="input" id="script-class-filter">
+            <option value="">All Classes</option>
+            ${uniqueClasses.map((cls) => `<option value="${cls}">${cls}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <p class="muted" id="script-count">Found ${scripts.length} scripts</p>
+
+      <table class="table" id="scripts-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Timeout</th>
+            <th>Task Class</th>
+            <th>Inputs</th>
+            <th>Outputs</th>
+          </tr>
+        </thead>
+        <tbody id="scripts-tbody">
+          ${scripts.map((script) => `
+            <tr style="cursor: pointer;" class="script-row" data-script-name="${encodeURIComponent(script.name || '')}">
+              <td><strong>${script.name || 'Unnamed'}</strong></td>
+              <td>${script.description || '—'}</td>
+              <td>${script.timeout || '—'}</td>
+              <td>${script.task_class || '—'}</td>
+              <td>${script.inputs?.length || 0}</td>
+              <td>${script.outputs?.length || 0}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const searchInput = container.querySelector('#script-search');
+  const classFilter = container.querySelector('#script-class-filter');
+  const countLabel = container.querySelector('#script-count');
+  const tbody = container.querySelector('#scripts-tbody');
+
+  function updateTable() {
+    const searchQuery = (searchInput.value || '').trim().toLowerCase();
+    const classQuery = (classFilter.value || '').trim();
+
+    filteredScripts = scripts.filter((script) => {
+      const matchesSearch = !searchQuery ||
+        (script.name || '').toLowerCase().includes(searchQuery) ||
+        (script.description || '').toLowerCase().includes(searchQuery);
+      const matchesClass = !classQuery || script.task_class === classQuery;
+      return matchesSearch && matchesClass;
+    });
+
+    countLabel.textContent = `Found ${filteredScripts.length} scripts`;
+
+    tbody.innerHTML = filteredScripts.map((script) => `
+      <tr style="cursor: pointer;" class="script-row" data-script-name="${encodeURIComponent(script.name || '')}">
+        <td><strong>${script.name || 'Unnamed'}</strong></td>
+        <td>${script.description || '—'}</td>
+        <td>${script.timeout || '—'}</td>
+        <td>${script.task_class || '—'}</td>
+        <td>${script.inputs?.length || 0}</td>
+        <td>${script.outputs?.length || 0}</td>
+      </tr>
+    `).join('');
+
+    attachScriptRowHandlers();
+  }
+
+  function attachScriptRowHandlers() {
+    container.querySelectorAll('.script-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const scriptName = decodeURIComponent(row.dataset.scriptName || '');
+        const script = scripts.find((s) => s.name === scriptName);
+        if (script) {
+          window.location.hash = '#enqueue';
+          setTimeout(() => {
+            const toolInput = document.querySelector('[name="tool"]');
+            if (toolInput) {
+              toolInput.value = script.name;
+              toolInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          }, 100);
+        }
+      });
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', updateTable);
+  }
+  if (classFilter) {
+    classFilter.addEventListener('change', updateTable);
+  }
+
+  attachScriptRowHandlers();
 }

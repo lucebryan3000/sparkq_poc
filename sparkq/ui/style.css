@@ -334,3 +334,170 @@ a {
     padding: 18px;
   }
 }
+
+/* ===== BREADCRUMB NAVIGATION ===== */
+.breadcrumbs {
+  display: flex;
+  gap: 8px;
+  padding: 12px 0;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.breadcrumb-item {
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--accent);
+  transition: opacity 0.15s ease;
+}
+
+.breadcrumb-item:hover {
+  opacity: 0.8;
+}
+
+.breadcrumb-separator {
+  color: var(--subtle);
+  margin: 0 4px;
+}
+
+.breadcrumb-active {
+  color: var(--text);
+  cursor: default;
+}
+
+/* ===== PAGINATION ===== */
+.pagination-container {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 16px;
+  padding: 12px;
+}
+
+.pagination-button {
+  padding: 8px 12px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 36px;
+  min-width: 36px;
+}
+
+.pagination-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pagination-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  color: var(--subtle);
+  font-size: 13px;
+}
+
+/* ===== MODAL A11y IMPROVEMENTS ===== */
+.modal {
+  transition: outline-color 0.15s ease;
+}
+
+.modal:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.modal-content {
+  transition: box-shadow 0.15s ease;
+}
+
+.modal-content:focus-within {
+  outline: none;
+  box-shadow: var(--shadow), 0 0 0 2px rgba(74, 158, 255, 0.35);
+}
+
+.modal-close-button {
+  transition: all 0.15s ease;
+}
+
+.modal-close-button:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px rgba(74, 158, 255, 0.18);
+}
+
+/* ===== MOBILE RESPONSIVE ===== */
+@media (max-width: 768px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  .card {
+    padding: 12px;
+  }
+
+  .modal-content {
+    width: 95vw;
+    max-height: 90vh;
+    padding: 16px;
+  }
+
+  .table {
+    font-size: 13px;
+  }
+
+  .nav-tabs {
+    flex-direction: row;
+    gap: 4px;
+  }
+
+  .nav-tab {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 12px;
+  }
+
+  .card {
+    padding: 8px;
+  }
+
+  .navbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .nav-tabs {
+    flex: 1 1 100%;
+    gap: 4px;
+  }
+
+  .modal-content {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    padding: 12px;
+  }
+
+  .table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}

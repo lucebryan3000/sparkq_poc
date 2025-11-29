@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import yaml
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,7 @@ from pydantic import BaseModel
 
 from .index import ScriptIndex
 from .storage import Storage, now_iso
+from .tools import get_registry
 
 logger = logging.getLogger(__name__)
 storage = Storage()
@@ -525,3 +527,32 @@ async def build_script_index():
         return _error_response("Internal server error", 500)
 
     return script_index.list_all()
+
+
+@app.get("/api/config")
+async def get_config():
+    '''Get complete server configuration'''
+    config_path = Path("sparkq.yml")
+    server_config: Dict[str, Any] = {}
+    database_config: Dict[str, Any] = {}
+    purge_config: Dict[str, Any] = {}
+
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                full_config = yaml.safe_load(f) or {}
+                server_config = full_config.get("server", {})
+                database_config = full_config.get("database", {})
+                purge_config = full_config.get("purge", {})
+        except Exception:
+            pass  # Use defaults
+
+    registry = get_registry()
+
+    return {
+        "server": server_config or {"port": 8420, "host": "0.0.0.0"},
+        "database": database_config or {"path": "sparkq/data/sparkq.db", "mode": "wal"},
+        "purge": purge_config or {"older_than_days": 3},
+        "tools": registry.tools or {},
+        "task_classes": registry.task_classes or {},
+    }
