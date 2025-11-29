@@ -3,6 +3,7 @@
 
   const api = API.api;
   const formatValue = Utils.formatValue;
+  const formatTimestamp = Utils.formatTimestamp;
   const getTaskTimeStatus = Utils.getTaskTimeStatus;
   const getTaskTimeout = Utils.getTaskTimeout;
   const buildTimeoutStatus = Utils.buildTimeoutStatus;
@@ -109,7 +110,7 @@
             <td>${streamName}</td>
             <td>${task.tool_name}</td>
             <td>${task.status} ${staleBadge}</td>
-            <td>${formatValue(task.created_at, '—')}</td>
+            <td>${formatTimestamp(task.created_at)}</td>
           </tr>
         `;
       })
@@ -358,12 +359,12 @@
         <div class="grid grid-2">
           <div><strong>Stream</strong><div>${formatValue(task.stream_id, '—')}</div></div>
           <div><strong>Tool</strong><div>${formatValue(task.tool_name, '—')}</div></div>
-          <div><strong>Created</strong><div>${formatValue(task.created_at, '—')}</div></div>
-          <div><strong>Claimed</strong><div>${formatValue(task.claimed_at, '—')}</div></div>
-          <div><strong>Completed</strong><div>${formatValue(task.completed_at, '—')}</div></div>
-          <div><strong>Failed</strong><div>${formatValue(task.failed_at, '—')}</div></div>
+          <div><strong>Created</strong><div>${formatTimestamp(task.created_at)}</div></div>
+          <div><strong>Claimed</strong><div>${formatTimestamp(task.claimed_at)}</div></div>
+          <div><strong>Completed</strong><div>${formatTimestamp(task.completed_at)}</div></div>
+          <div><strong>Failed</strong><div>${formatTimestamp(task.failed_at)}</div></div>
           <div><strong>Timeout</strong><div>${timeoutSeconds} seconds</div></div>
-          <div><strong>Stale Warned</strong><div>${formatValue(task.stale_warned_at, '—')}</div></div>
+          <div><strong>Stale Warned</strong><div>${formatTimestamp(task.stale_warned_at)}</div></div>
         </div>
 
         <div class="timeout-info-section">

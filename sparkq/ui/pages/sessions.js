@@ -3,6 +3,7 @@
 
   const api = API.api;
   const formatValue = Utils.formatValue;
+  const formatTimestamp = Utils.formatTimestamp;
   const handleApiError = Utils.handleApiError;
   const showError = Utils.showError;
   const showSuccess = Utils.showSuccess;
@@ -32,7 +33,7 @@
           <td><code style="font-size: 12px;">${session.id.substring(0, 12)}…</code></td>
           <td>${session.name || '—'}</td>
           <td><span class="badge badge-${session.status}">${session.status}</span></td>
-          <td>${formatValue(session.created_at, '—')}</td>
+          <td>${formatTimestamp(session.created_at)}</td>
           <td>
             <button class="button secondary copy-btn" data-copy="${session.id}" style="padding: 4px 8px; font-size: 12px;" title="Copy session ID">Copy ID</button>
           </td>
@@ -206,7 +207,7 @@
             </div>
             <div>
               <div class="muted" style="font-size: 12px;">Created</div>
-              <div>${formatValue(session.created_at, '—')}</div>
+              <div>${formatTimestamp(session.created_at)}</div>
             </div>
           </div>
           ${session.description ? `<div style="margin-top: 12px;"><strong>Description:</strong> ${session.description}</div>` : ''}

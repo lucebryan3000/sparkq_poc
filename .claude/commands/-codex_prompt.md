@@ -97,6 +97,89 @@ wait
 
 [Validation checkpoints and Haiku prompts]
 
+## Step 4: Self-Test BEFORE User Testing
+
+**CRITICAL**: Before asking the user to test, YOU must test programmatically first.
+
+**Reference**: See `.claude/playbooks/self-testing-protocol.md` for detailed testing procedures.
+
+### Automated Testing Checklist
+
+For each feature implemented, complete this checklist:
+
+**Backend/API Features:**
+- [ ] Check server is running (curl health endpoint)
+- [ ] Test API endpoint with curl/httpie
+- [ ] Verify response format matches spec
+- [ ] Test error cases (404, 400, etc.)
+- [ ] Check database state if applicable
+- [ ] Verify logs show expected behavior
+
+**CLI Features:**
+- [ ] Run command with --help
+- [ ] Test happy path with valid inputs
+- [ ] Test error cases with invalid inputs
+- [ ] Verify output format
+- [ ] Check file/database side effects
+
+**UI Features:**
+- [ ] Fetch HTML and verify structure
+- [ ] Check JavaScript loads without errors
+- [ ] Verify API calls in browser network tab (or curl)
+- [ ] Test interactive features programmatically
+- [ ] Check element visibility/state
+
+**E2E Workflows:**
+- [ ] Run pytest e2e tests if they exist
+- [ ] Create manual test script if needed
+- [ ] Verify entire workflow end-to-end
+- [ ] Check all state transitions
+- [ ] Validate final state
+
+### Testing Commands to Run
+
+```bash
+# API endpoint testing
+curl -X GET http://localhost:5005/api/endpoint
+curl -X POST http://localhost:5005/api/endpoint -H "Content-Type: application/json" -d '{"key": "value"}'
+
+# CLI testing
+./sparkq.sh command --help
+./sparkq.sh command arg1 arg2
+
+# Database verification
+sqlite3 sparkq/sparkq.db "SELECT * FROM table LIMIT 5;"
+
+# UI testing
+curl http://localhost:5005/ | grep "expected-element"
+curl http://localhost:5005/page.html | grep -o "<div id=\"component\""
+
+# E2E testing
+cd sparkq && pytest tests/e2e/test_feature.py -v
+```
+
+### What to Report to User
+
+After self-testing, report:
+
+✅ **Confirmed Working:**
+- Feature X works (tested with: command/curl)
+- Feature Y verified (output: result)
+
+❓ **User Verification Needed:**
+- Visual appearance (screenshot needed)
+- User experience feedback
+- Performance perception
+- Edge cases requiring domain knowledge
+
+❌ **Found Issues:**
+- Bug description
+- Error message
+- Fix applied
+- Re-tested and confirmed
+
+**NEVER** report "Not fully implemented yet" after you claim it's done. Test it yourself first.
+
 ## Token Breakdown
 
 [Table showing token costs per step]
@@ -132,6 +215,8 @@ When you invoke `/-codex_prompt`:
 - Treat it as "optional guidance"
 - Generate planning documents
 - Return vague recommendations
+- **Ask user to test features you haven't tested yourself**
+- **Report "not fully implemented" after claiming completion**
 
 ✅ DO:
 - Read the playbook immediately
@@ -140,6 +225,9 @@ When you invoke `/-codex_prompt`:
 - Include ready-to-copy Codex prompts
 - State token costs and timeline
 - Deliver in <10 minutes
+- **Test all features programmatically BEFORE user testing**
+- **Report bugs found during self-testing and fix them**
+- **Only ask user to verify UX/visual aspects after functional testing**
 
 ---
 
@@ -204,6 +292,23 @@ You will receive:
 - ✅ Ready-to-copy Codex prompts (copy-paste to terminal)
 - ✅ Token costs and wall-clock timeline
 - ✅ Haiku validation checkpoints
+- ✅ **Self-testing results (what was tested, what works, what bugs were found/fixed)**
+- ✅ **Clear distinction: what's tested vs what needs user verification**
+
+---
+
+## The Testing Workflow (MANDATORY)
+
+```
+Implementation → Haiku Validation → SELF-TESTING → Bug Fixes → User Verification
+                                       ↑
+                                 YOU ARE HERE
+                              (before user sees it)
+```
+
+**Rule:** Never hand off to user until you've completed self-testing.
+
+**Exception:** UI visual design, UX feedback, domain-specific edge cases that require user knowledge.
 
 ---
 

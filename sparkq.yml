@@ -1,19 +1,19 @@
 project:
-  name: sparkq-demo
+  name: my-project
   repo_path: /home/luce/apps/sparkqueue
-  prd_path: null
+  prd_path: _build/FRD/sparkq_frd_v7.5.md
 server:
-  port: 8420
+  port: 5005
 database:
   path: sparkq/data/sparkq.db
   mode: wal
 purge:
   older_than_days: 3
 script_dirs:
-  - scripts
+- scripts
 task_classes:
   FAST_SCRIPT:
-    timeout: 30
+    timeout: 60
   MEDIUM_SCRIPT:
     timeout: 300
   LLM_LITE:

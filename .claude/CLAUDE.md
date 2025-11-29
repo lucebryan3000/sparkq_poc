@@ -31,9 +31,12 @@ SparkQueue is a Python-based distributed task/job queue management system with a
 - Don't add features that aren't explicitly requested
 
 ### Testing & Validation
+- **ALWAYS test features yourself before asking user to test**
 - Test changes in the venv before deploying
 - Verify changes don't break existing functionality
 - Check for security vulnerabilities
+- See `.claude/playbooks/self-testing-protocol.md` for detailed testing procedures
+- Only ask user to verify UX/visual aspects after functional testing
 
 ## File Structure
 ```
@@ -57,6 +60,7 @@ sparkqueue/
 - `/test` - Testing and validation
 - `/debug` - Debugging techniques
 - `/investigate` - Defensive dependency checks before deletion
+- `/-codex_prompt` - Generate execution specs with mandatory self-testing
 
 ## Bootstrap Management
 The project uses a self-contained Python bootstrap system:
