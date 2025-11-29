@@ -140,6 +140,14 @@ class Storage:
                 "CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)"
             )
 
+            # Create default project for single-project mode (Phase 12)
+            now = now_iso()
+            cursor.execute(
+                """INSERT OR IGNORE INTO projects (id, name, repo_path, prd_path, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                ("prj_default", "default", None, None, now, now)
+            )
+
     # === Project CRUD ===
     def create_project(self, name: str, repo_path: str = None, prd_path: str = None) -> dict:
         project_id = gen_project_id()
