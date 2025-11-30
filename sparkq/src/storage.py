@@ -17,8 +17,8 @@ def gen_session_id() -> str:
     return f"ses_{uuid.uuid4().hex[:12]}"
 
 
-def gen_stream_id() -> str:
-    return f"str_{uuid.uuid4().hex[:12]}"
+def gen_queue_id() -> str:
+    return f"que_{uuid.uuid4().hex[:12]}"
 
 
 def gen_task_id() -> str:
@@ -87,7 +87,7 @@ class Storage:
 
             cursor.execute(
                 """
-            CREATE TABLE IF NOT EXISTS streams (
+            CREATE TABLE IF NOT EXISTS queues (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL REFERENCES sessions(id),
                 name TEXT NOT NULL UNIQUE,
@@ -103,7 +103,7 @@ class Storage:
                 """
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY,
-                stream_id TEXT NOT NULL REFERENCES streams(id),
+                queue_id TEXT NOT NULL REFERENCES queues(id),
                 tool_name TEXT NOT NULL,
                 task_class TEXT NOT NULL,
                 payload TEXT NOT NULL,
@@ -144,7 +144,7 @@ class Storage:
 
             # Create indexes
             cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tasks_stream_status ON tasks(stream_id, status)"
+                "CREATE INDEX IF NOT EXISTS idx_tasks_queue_status ON tasks(queue_id, status)"
             )
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
             cursor.execute(
@@ -154,9 +154,9 @@ class Storage:
                 "CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at)"
             )
             cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_streams_session ON streams(session_id)"
+                "CREATE INDEX IF NOT EXISTS idx_queues_session ON queues(session_id)"
             )
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_streams_status ON streams(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_queues_status ON queues(status)")
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)"
             )
@@ -380,6 +380,9 @@ class Storage:
 
     def delete_stream(self, stream_id: str) -> bool:
         with self.connection() as conn:
+            # Delete tasks associated with this stream first (cascade)
+            conn.execute("DELETE FROM tasks WHERE stream_id = ?", (stream_id,))
+            # Then delete the stream itself
             cursor = conn.execute(
                 "DELETE FROM streams WHERE id = ?",
                 (stream_id,)

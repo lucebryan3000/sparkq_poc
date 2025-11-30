@@ -560,8 +560,43 @@ function setupNavTabs() {
       const tabName = tab.dataset.tab;
       currentPage = tabName;
       router(currentPage);
+      closeHamburgerMenu();
     });
   });
+}
+
+function setupHamburgerMenu() {
+  const menuToggle = document.getElementById('menu-toggle');
+  const navMenu = document.getElementById('nav-menu');
+
+  if (!menuToggle || !navMenu) return;
+
+  // Toggle menu on button click
+  menuToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navMenu.classList.toggle('open');
+  });
+
+  // Close menu when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!navMenu.contains(e.target) && e.target !== menuToggle) {
+      navMenu.classList.remove('open');
+    }
+  });
+
+  // Close menu on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      navMenu.classList.remove('open');
+    }
+  });
+}
+
+function closeHamburgerMenu() {
+  const navMenu = document.getElementById('nav-menu');
+  if (navMenu) {
+    navMenu.classList.remove('open');
+  }
 }
 
 function router(page = currentPage) {
@@ -703,6 +738,7 @@ window.Utils = {
 document.addEventListener('DOMContentLoaded', () => {
   cachePages();
   setupNavTabs();
+  setupHamburgerMenu();
   router(currentPage);
   initTheme();
   setupKeyboardShortcuts();

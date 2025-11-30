@@ -7,18 +7,26 @@
   <link rel='stylesheet' href='/ui/style.css'>
 </head>
 <body>
-  <nav class='navbar'>
-    <div class='navbar-brand'>SparkQ</div>
-    <div class='nav-tabs'>
-      <button class='nav-tab active' data-tab='dashboard'>Dashboard</button>
-      <button class='nav-tab' data-tab='enqueue'>Enqueue</button>
-      <button class='nav-tab' data-tab='config'>Config</button>
-      <button class='nav-tab' data-tab='scripts'>Scripts</button>
+  <header class='app-header'>
+    <div class='header-left'>
+      <button class='hamburger-btn' id='menu-toggle' aria-label='Toggle menu'>
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class='navbar-brand'>SparkQ</div>
     </div>
-    <div style='display: flex; align-items: center; gap: 8px;'>
+    <div class='header-right'>
       <button class='button secondary' id='theme-toggle-btn' title='Toggle dark/light mode' style='padding: 6px 12px; font-size: 14px;'>🌙</button>
       <div class='status-indicator' id='status' title='Status'>●</div>
     </div>
+  </header>
+
+  <nav class='hamburger-menu' id='nav-menu'>
+    <button class='nav-tab active' data-tab='dashboard'>Dashboard</button>
+    <button class='nav-tab' data-tab='enqueue'>Enqueue</button>
+    <button class='nav-tab' data-tab='config'>Config</button>
+    <button class='nav-tab' data-tab='scripts'>Scripts</button>
   </nav>
 
   <main id='app' class='container'>
@@ -31,18 +39,18 @@
   <div id='breadcrumbs' class='breadcrumbs'></div>
 
   <!-- Core must load first -->
-  <script src='/ui/dist/app-core.ab9f68d0.js'></script>
+  <script src='/ui/dist/app-core.8a4b6448.js'></script>
 
   <!-- Utils must load before components and pages that use them -->
-  <script src='/ui/dist/ui-utils.ab9f68d0.js'></script>
+  <script src='/ui/dist/ui-utils.8a4b6448.js'></script>
 
   <!-- Components can load after utils -->
-  <script src='/ui/dist/quick-add.ab9f68d0.js'></script>
+  <script src='/ui/dist/quick-add.8a4b6448.js'></script>
 
   <!-- Pages can load in any order -->
-  <script src='/ui/dist/dashboard.ab9f68d0.js'></script>
-  <script src='/ui/dist/enqueue.ab9f68d0.js'></script>
-  <script src='/ui/dist/config.ab9f68d0.js'></script>
-  <script src='/ui/dist/scripts.ab9f68d0.js'></script>
+  <script src='/ui/dist/dashboard.8a4b6448.js'></script>
+  <script src='/ui/dist/enqueue.8a4b6448.js'></script>
+  <script src='/ui/dist/config.8a4b6448.js'></script>
+  <script src='/ui/dist/scripts.8a4b6448.js'></script>
 </body>
 </html>
