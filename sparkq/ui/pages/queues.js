@@ -130,7 +130,7 @@
     }
 
     // Auto-select session or use first available
-    const sessionId = sessions.length === 1 ? sessions[0].id : sessions[0].id;
+    const sessionId = sessions[0].id;
 
     // Generate a simple queue name with timestamp
     const timestamp = new Date().toISOString().substring(0, 10).replace(/-/g, '');
@@ -138,7 +138,7 @@
 
     try {
       const payload = {
-        session_id: sessionId.trim(),
+        session_id: sessionId,
         name: queueName,
       };
       await api('POST', '/api/queues', payload, { action: 'create queue' });

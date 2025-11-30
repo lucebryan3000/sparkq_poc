@@ -96,6 +96,7 @@
 
   Pages.Dashboard = {
     currentQueueId: null,
+    currentSessionId: null,
     queuesCache: [],
     quickAddInstance: null,
 
@@ -133,6 +134,9 @@
       if (!streams.length) {
         // Get the first session or use a placeholder
         activeSession = sessions.length > 0 ? sessions[0] : null;
+        if (activeSession) {
+          this.currentSessionId = activeSession.id;
+        }
         const sessionSelector = this.renderSessionSelector(activeSession, sessions);
 
         container.innerHTML = `
@@ -163,6 +167,9 @@
       // Get the session for the first queue
       if (streams.length > 0) {
         activeSession = sessions.find((s) => s.id === streams[0].session_id) || sessions[0];
+        if (activeSession) {
+          this.currentSessionId = activeSession.id;
+        }
       }
 
       const sessionSelector = this.renderSessionSelector(activeSession, sessions);
@@ -276,7 +283,7 @@
         }
 
         // Auto-select session or use first available
-        const sessionId = sessions.length === 1 ? sessions[0].id : sessions[0].id;
+        const sessionId = sessions[0].id;
 
         // Generate a simple queue name with timestamp
         const timestamp = new Date().toISOString().substring(0, 10).replace(/-/g, '');
@@ -284,7 +291,7 @@
 
         try {
           const payload = {
-            session_id: sessionId.trim(),
+            session_id: sessionId,
             name: queueName,
           };
           await api('POST', '/api/queues', payload, { action: 'create queue' });
@@ -500,15 +507,21 @@
         return '';
       }
 
+      const activeName = activeSession.name || activeSession.id;
       const sessionOptions = sessions
-        .map((s) => `<option value="${s.id}" ${s.id === activeSession.id ? 'selected' : ''}>${s.name || s.id}</option>`)
+        .map((s) => `<button class="session-option" data-session-id="${s.id}" style="padding: 10px 12px; display: block; width: 100%; text-align: left; background: var(--surface); color: var(--text); border: none; cursor: pointer; font-size: 13px; transition: all 0.15s ease; border-radius: 4px;">${s.name || s.id}</button>`)
         .join('');
 
       return `
-        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
-          <select id="session-selector" style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); font-size: 13px;">
-            ${sessionOptions}
-          </select>
+        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; position: relative;">
+          <div class="session-dropdown-wrapper" style="position: relative;">
+            <button id="session-dropdown-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; border-radius: 4px; background: var(--surface); color: var(--text); border: 1px solid var(--border); cursor: pointer;" title="Select session">
+              ${activeName}
+            </button>
+            <div id="session-dropdown-menu" class="session-dropdown-menu" style="display: none; position: absolute; top: 100%; left: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; box-shadow: var(--shadow); z-index: 100; min-width: 180px; margin-top: 4px;">
+              ${sessionOptions}
+            </div>
+          </div>
           <button id="session-rename-btn" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Rename session">✏️</button>
           <button id="session-delete-btn" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Delete session">🗑️</button>
         </div>
@@ -587,23 +600,52 @@
     },
 
     attachSessionSelectorHandlers(container, sessions) {
-      const selector = container?.querySelector('#session-selector');
+      const dropdownBtn = container?.querySelector('#session-dropdown-btn');
+      const dropdownMenu = container?.querySelector('#session-dropdown-menu');
+      const sessionOptions = container?.querySelectorAll('.session-option');
       const renameBtn = container?.querySelector('#session-rename-btn');
       const deleteBtn = container?.querySelector('#session-delete-btn');
 
-      if (selector) {
-        selector.addEventListener('change', async () => {
-          // Re-render dashboard with the selected session's queues
-          this.render(container);
+      // Toggle dropdown menu
+      if (dropdownBtn && dropdownMenu) {
+        dropdownBtn.addEventListener('click', () => {
+          dropdownMenu.style.display = dropdownMenu.style.display === 'none' ? 'block' : 'none';
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+          if (!e.target.closest('.session-dropdown-wrapper')) {
+            dropdownMenu.style.display = 'none';
+          }
+        });
+      }
+
+      // Handle session option selection
+      if (sessionOptions) {
+        sessionOptions.forEach((option) => {
+          option.addEventListener('click', async (e) => {
+            const sessionId = e.target.getAttribute('data-session-id');
+            const selectedSession = sessions.find((s) => s.id === sessionId);
+            if (selectedSession) {
+              if (dropdownBtn) {
+                dropdownBtn.textContent = selectedSession.name || selectedSession.id;
+              }
+              if (dropdownMenu) {
+                dropdownMenu.style.display = 'none';
+              }
+              // Store current session and re-render
+              this.currentSessionId = sessionId;
+              this.render(container);
+            }
+          });
         });
       }
 
       if (renameBtn) {
         renameBtn.addEventListener('click', async () => {
-          const selector = container.querySelector('#session-selector');
-          if (!selector) return;
+          const sessionId = this.currentSessionId;
+          if (!sessionId) return;
 
-          const sessionId = selector.value;
           const currentSession = sessions.find((s) => s.id === sessionId);
           if (!currentSession) return;
 
@@ -623,10 +665,9 @@
 
       if (deleteBtn) {
         deleteBtn.addEventListener('click', async () => {
-          const selector = container.querySelector('#session-selector');
-          if (!selector) return;
+          const sessionId = this.currentSessionId;
+          if (!sessionId) return;
 
-          const sessionId = selector.value;
           const currentSession = sessions.find((s) => s.id === sessionId);
           if (!currentSession) return;
 

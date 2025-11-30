@@ -1,4 +1,16 @@
 {
-  "hash": "60c57af9",
-  "timestamp": "2025-11-29T20:40:36.656147"
+  "files": {
+    "config.js": "dist/config.6af0bfab.js",
+    "dashboard.js": "dist/dashboard.6af0bfab.js",
+    "enqueue.js": "dist/enqueue.6af0bfab.js",
+    "queues.js": "dist/queues.6af0bfab.js",
+    "scripts.js": "dist/scripts.6af0bfab.js",
+    "sessions.js": "dist/sessions.6af0bfab.js",
+    "tasks.js": "dist/tasks.6af0bfab.js",
+    "app-core.js": "dist/app-core.6af0bfab.js",
+    "ui-utils.js": "dist/ui-utils.6af0bfab.js",
+    "quick-add.js": "dist/quick-add.6af0bfab.js"
+  },
+  "hash": "6af0bfab",
+  "timestamp": "2025-11-29T20:43:47-06:00"
 }
