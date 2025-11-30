@@ -57,12 +57,73 @@
     return `${hours}h`;
   }
 
+  // === Tool friendly names ===
+
+  function prettifyToolName(name) {
+    if (!name) return '—';
+    return String(name)
+      .replace(/[-_]+/g, ' ')
+      .split(' ')
+      .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
+      .join(' ')
+      .trim();
+  }
+
+  let toolNameCache = null;
+  let toolNamePromise = null;
+
+  async function loadFriendlyToolNames(force = false) {
+    if (!force && toolNameCache) {
+      return toolNameCache;
+    }
+    if (!force && toolNamePromise) {
+      return toolNamePromise;
+    }
+
+    const api = window.API?.api;
+    if (!api) {
+      toolNameCache = toolNameCache || {};
+      return toolNameCache;
+    }
+
+    toolNamePromise = api('GET', '/api/tools', null, { action: 'load tools' })
+      .then((res) => {
+        const cache = {};
+        (res?.tools || []).forEach((tool) => {
+          const name = tool?.name;
+          if (!name) return;
+          cache[name] = tool?.description || prettifyToolName(name);
+        });
+        toolNameCache = cache;
+        return toolNameCache;
+      })
+      .catch((err) => {
+        console.error('Failed to load tools for friendly names:', err);
+        toolNameCache = toolNameCache || {};
+        return toolNameCache;
+      })
+      .finally(() => {
+        toolNamePromise = null;
+      });
+
+    return toolNamePromise;
+  }
+
+  function getFriendlyToolName(toolName) {
+    if (!toolName) return '—';
+    const friendly = toolNameCache?.[toolName];
+    if (friendly) return friendly;
+    return prettifyToolName(toolName);
+  }
+
   // === Toast Notifications ===
 
   const MAX_TOASTS = 2;
   let activeToasts = [];
 
-  function showToast(message, type = 'success') {
+  function showToast(message, type = 'success', durationMs = 2000) {
+    const duration = Number(durationMs);
+    const timeoutMs = Number.isFinite(duration) && duration > 0 ? duration : 2000;
     // If we already have 2 toasts, remove the oldest one
     if (activeToasts.length >= MAX_TOASTS) {
       const oldestToast = activeToasts.shift();
@@ -116,7 +177,7 @@
         toast.remove();
         activeToasts = activeToasts.filter(t => t !== toast);
       }, 300);
-    }, 2000);
+    }, timeoutMs);
   }
 
   // === Modal Dialog System ===
@@ -456,6 +517,9 @@
   // Add new utility functions to existing Utils
   window.Utils.formatTimestamp = formatTimestamp;
   window.Utils.formatDuration = formatDuration;
+  window.Utils.prettifyToolName = prettifyToolName;
+  window.Utils.loadFriendlyToolNames = loadFriendlyToolNames;
+  window.Utils.getFriendlyToolName = getFriendlyToolName;
   window.Utils.showToast = showToast;
   window.Utils.showModal = showModal;
   window.Utils.showPrompt = showPrompt;

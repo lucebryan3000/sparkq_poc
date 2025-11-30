@@ -117,18 +117,60 @@
     return clean.length > 80 ? `${clean.slice(0, 80)}…` : clean;
   }
 
+  let toolNameCache = null;
+
+  function prettifyToolName(name) {
+    if (!name) return '—';
+    return name
+      .replace(/[-_]+/g, ' ')
+      .split(' ')
+      .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
+      .join(' ')
+      .trim();
+  }
+
+  async function loadToolNameCache() {
+    if (toolNameCache) {
+      return toolNameCache;
+    }
+    try {
+      const res = await api('GET', '/api/tools', null, { action: 'load tools' });
+      const cache = {};
+      (res?.tools || []).forEach((tool) => {
+        const name = tool?.name;
+        if (!name) return;
+        const friendly = tool?.description || prettifyToolName(name);
+        cache[name] = friendly;
+      });
+      toolNameCache = cache;
+      return toolNameCache;
+    } catch (err) {
+      console.error('Failed to load tools for friendly names:', err);
+      toolNameCache = {};
+      return toolNameCache;
+    }
+  }
+
+  function getFriendlyToolName(toolName) {
+    if (!toolName) return '—';
+    const friendly = toolNameCache?.[toolName];
+    if (friendly) return friendly;
+    return prettifyToolName(toolName);
+  }
+
   function renderTaskRow(task, displayId) {
     const status = String(task?.status || 'queued').toLowerCase();
     const badgeClass = taskBadgeClass(status);
     const timestamp = formatTimestamp(task?.created_at);
-    const label = displayId || `Task #${task?.id || '—'}`;
+    const label = task?.friendly_id || displayId || `Task #${task?.id || '—'}`;
     const preview = taskPreview(task);
+    const toolLabel = task?.friendlyTool || getFriendlyToolName(task?.tool_name);
 
     return `
       <div class="task-row" data-task-id="${task?.id || ''}">
         <div class="task-cell status"><span class="badge ${badgeClass}">${status}</span></div>
         <div class="task-cell id">${label}</div>
-        <div class="task-cell tool">${task?.tool_name || '—'}</div>
+        <div class="task-cell tool">${toolLabel || '—'}</div>
         <div class="task-cell preview" title="${preview}">${preview}</div>
         <div class="task-cell created">${timestamp}</div>
         <div class="task-cell actions">
@@ -143,6 +185,7 @@
     currentQueueId: null,
     currentSessionId: null,
     queuesCache: [],
+    taskViewState: {},
     _rendering: false,
     quickAddInstance: null,
 
@@ -521,6 +564,7 @@
       try {
         const response = await api('GET', `/api/tasks?queue_id=${encodeURIComponent(queueId)}`, null, { action: 'load tasks' });
         tasks = response?.tasks || [];
+        await loadToolNameCache();
       } catch (err) {
         container.innerHTML = `
           <div class="card">
@@ -531,41 +575,152 @@
         return;
       }
 
-      const queue = this.queuesCache.find((q) => q.id === queueId) || {};
-      const prefix = slugifyName(queue.name || queue.id || 'Task');
-      const friendlyIds = new Map();
-      [...tasks].reverse().forEach((task, idx) => {
-        friendlyIds.set(String(task.id), `${prefix}-${String(idx + 1).padStart(2, '0')}`);
-      });
+      tasks = tasks.map((task) => ({
+        ...task,
+        friendlyTool: getFriendlyToolName(task.tool_name),
+        friendlyLabel: task.friendly_id || task.friendlyLabel,
+      }));
 
-      const taskRows = tasks.length
-        ? tasks.map((task) => {
-            task.friendlyLabel = friendlyIds.get(String(task.id));
-            return renderTaskRow(task, task.friendlyLabel);
-          }).join('')
-        : '<p class="muted">No tasks found for this queue.</p>';
+      const pageSize = 10;
+      const statusOptionsRaw = tasks.map((t) => String(t.status || 'queued').toLowerCase()).filter(Boolean);
+      const statusOptions = Array.from(new Set(statusOptionsRaw));
+      const defaultStatuses = statusOptions.length ? statusOptions : ['queued', 'running', 'succeeded', 'failed'];
 
-      container.innerHTML = `
-        <div class="card">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-            <h3 style="margin: 0;">Tasks</h3>
-            <span class="muted" style="font-size: 13px;">${tasks.length} total</span>
-          </div>
-          <div class="task-table">
-            <div class="task-row head">
-              <div class="task-cell status">Status</div>
-              <div class="task-cell id">Task</div>
-              <div class="task-cell tool">Tool</div>
-              <div class="task-cell preview">Preview</div>
-              <div class="task-cell created">Created</div>
-              <div class="task-cell actions">Actions</div>
+      const state = this.taskViewState[queueId] || { statuses: new Set(defaultStatuses), page: 0 };
+      const normalizedStatuses = new Set(
+        [...(state.statuses || [])].filter((s) => defaultStatuses.includes(s))
+      );
+      if (!normalizedStatuses.size) {
+        defaultStatuses.forEach((s) => normalizedStatuses.add(s));
+      }
+      state.statuses = normalizedStatuses;
+      state.page = state.page || 0;
+      this.taskViewState[queueId] = state;
+
+      const applyFilters = () => tasks.filter((t) => state.statuses.has(String(t.status || '').toLowerCase()));
+
+      const renderTaskTable = () => {
+        const filtered = applyFilters();
+        const total = filtered.length;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        if (state.page >= totalPages) {
+          state.page = totalPages - 1;
+        }
+        const startIdx = state.page * pageSize;
+        const pageTasks = filtered.slice(startIdx, startIdx + pageSize);
+        const rangeLabel = total
+          ? `${startIdx + 1}-${Math.min(startIdx + pageSize, total)} of ${total}`
+          : '0 of 0';
+        const filterLabel = `Filter (${state.statuses.size}/${defaultStatuses.length})`;
+
+        const taskRows = pageTasks.length
+          ? pageTasks.map((task) => renderTaskRow(task, task.friendlyLabel)).join('')
+          : '<p class="muted">No tasks match filters.</p>';
+
+        container.innerHTML = `
+          <div class="card">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
+              <h3 style="margin: 0;">Tasks</h3>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <div class="filter-dropdown" style="position:relative;">
+                  <button id="task-filter-toggle-${queueId}" class="button secondary" style="padding:6px 10px;font-size:13px;">${filterLabel}</button>
+                  <div id="task-filter-menu-${queueId}" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface, #111);border:1px solid var(--border, #333);border-radius:8px;padding:10px;box-shadow:var(--shadow, 0 10px 30px rgba(0,0,0,0.3));min-width:220px;z-index:20;">
+                    ${defaultStatuses.map((status) => {
+                      const checked = state.statuses.has(status) ? 'checked' : '';
+                      const label = status.charAt(0).toUpperCase() + status.slice(1);
+                      const inputId = `task-filter-${queueId}-${status}`;
+                      return `<label for="${inputId}" style="display:flex;align-items:center;gap:8px;padding:4px 6px;cursor:pointer;">
+                        <input id="${inputId}" type="checkbox" data-status="${status}" ${checked} />
+                        <span>${label}</span>
+                      </label>`;
+                    }).join('')}
+                    <div style="display:flex;justify-content:space-between;gap:8px;margin-top:8px;">
+                      <button id="task-filter-reset-${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Reset</button>
+                      <button id="task-filter-close-${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Close</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="pager" style="display:flex;align-items:center;gap:6px;">
+                  <button id="task-page-prev-${queueId}" class="button secondary" style="padding:6px 8px;font-size:12px;" ${state.page === 0 ? 'disabled' : ''}>Prev</button>
+                  <span class="muted" style="font-size:12px;">${rangeLabel}</span>
+                  <button id="task-page-next-${queueId}" class="button secondary" style="padding:6px 8px;font-size:12px;" ${startIdx + pageSize >= total ? 'disabled' : ''}>Next</button>
+                </div>
+                <span class="muted" style="font-size:12px;">${tasks.length} total</span>
+              </div>
             </div>
-            ${taskRows}
+            <div class="task-table">
+              <div class="task-row head">
+                <div class="task-cell status">Status</div>
+                <div class="task-cell id">Task</div>
+                <div class="task-cell tool">Tool</div>
+                <div class="task-cell preview">Preview</div>
+                <div class="task-cell created">Created</div>
+                <div class="task-cell actions">Actions</div>
+              </div>
+              ${taskRows}
+            </div>
           </div>
-        </div>
-      `;
+        `;
 
-      this.attachTaskActionHandlers(container, tasks, queueId);
+        this.attachTaskActionHandlers(container, pageTasks, queueId);
+
+        const toggleBtn = container.querySelector(`#task-filter-toggle-${queueId}`);
+        const menu = container.querySelector(`#task-filter-menu-${queueId}`);
+        const resetBtn = container.querySelector(`#task-filter-reset-${queueId}`);
+        const closeBtn = container.querySelector(`#task-filter-close-${queueId}`);
+
+        const setMenuVisible = (visible) => {
+          if (menu) {
+            menu.style.display = visible ? 'block' : 'none';
+          }
+        };
+
+        toggleBtn?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isOpen = menu && menu.style.display === 'block';
+          setMenuVisible(!isOpen);
+        });
+        closeBtn?.addEventListener('click', () => setMenuVisible(false));
+        resetBtn?.addEventListener('click', () => {
+          state.statuses = new Set(defaultStatuses);
+          state.page = 0;
+          renderTaskTable();
+        });
+        menu?.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+          cb.addEventListener('change', () => {
+            const val = cb.dataset.status;
+            const selected = new Set(state.statuses);
+            if (cb.checked) {
+              selected.add(val);
+            } else {
+              selected.delete(val);
+            }
+            if (!selected.size) {
+              defaultStatuses.forEach((s) => selected.add(s));
+            }
+            state.statuses = selected;
+            state.page = 0;
+            renderTaskTable();
+          });
+        });
+
+        const prevBtn = container.querySelector(`#task-page-prev-${queueId}`);
+        const nextBtn = container.querySelector(`#task-page-next-${queueId}`);
+        prevBtn?.addEventListener('click', () => {
+          if (state.page > 0) {
+            state.page -= 1;
+            renderTaskTable();
+          }
+        });
+        nextBtn?.addEventListener('click', () => {
+          if (startIdx + pageSize < total) {
+            state.page += 1;
+            renderTaskTable();
+          }
+        });
+      };
+
+      renderTaskTable();
     },
 
     async attachTaskActionHandlers(container, tasks, queueId) {
@@ -641,8 +796,8 @@
         color: var(--text, #fff);
         border: 1px solid var(--border, #333);
         border-radius: 12px;
-        padding: 16px;
-        width: min(420px, 92vw);
+        padding: 20px;
+        width: min(560px, 95vw);
         box-shadow: var(--shadow, 0 10px 40px rgba(0,0,0,0.35));
       `;
 
@@ -671,8 +826,8 @@
         payloadText = '';
       }
       const statusLabel = (task.status || 'queued').toString();
-      const friendlyLabel = task.friendlyLabel || `Task #${task.id}`;
-      const toolLabel = task.friendlyTool || task.tool_name || '';
+      const friendlyLabel = task.friendly_id || task.friendlyLabel || `Task #${task.id}`;
+      const toolLabel = task.friendlyTool || getFriendlyToolName(task.tool_name) || task.tool_name || '';
       modal.innerHTML = `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
           <h3 style="margin:0;font-size:18px;">Edit ${friendlyLabel}</h3>
@@ -737,6 +892,14 @@
         if (originalPayload && typeof originalPayload === 'object') {
           payload = { ...originalPayload, prompt: promptText };
         }
+        if (payload && typeof payload === 'object') {
+          try {
+            return { payload: JSON.stringify(payload) };
+          } catch (err) {
+            console.error('Failed to serialize payload, falling back to prompt text:', err);
+            return { payload: promptText };
+          }
+        }
         return { payload };
       };
 
@@ -755,7 +918,7 @@
 
       if (payload.delete) {
         const friendly = task?.friendlyLabel;
-        const label = friendly ? `${task.id} (${friendly})` : task.id;
+        const label = (task?.friendly_id || task.id) + (friendly ? ` (${friendly})` : '');
         let confirmed = false;
         try {
           confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
@@ -786,7 +949,8 @@
         }
       } catch (err) {
         console.error('Failed to update task:', err);
-        Utils.showToast('Failed to update task', 'error');
+        const msg = err?.detail || err?.message || 'Failed to update task';
+        Utils.showToast(msg, 'error', 4000);
       }
     },
 

@@ -29,18 +29,18 @@
 
 /* Light mode theme - Anthropic Design Language */
 :root:not([data-theme="dark"]) {
-  /* Base colors - Clean white with subtle warm undertones */
-  --bg: #ffffff;
-  --surface: #fafbfc;
-  --muted: #f3f4f6;
+  /* Base colors - Anthropic palette with sophisticated layers */
+  --bg: #fafbfc;
+  --surface: #f8fafc;
+  --muted: #f1f5f9;
   --text: #0f172a;
   --subtle: #64748b;
   --accent: #3b82f6;
   --border: #e2e8f0;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
 
-  /* Light mode overrides for additional colors */
-  --navbar-bg: rgba(255, 255, 255, 0.99);
+  /* Light mode overrides for additional colors - Anthropic extended palette */
+  --navbar-bg: rgba(248, 250, 252, 0.95);
   --tab-hover-text: var(--text);
   --tab-active-text: #ffffff;
   --button-primary-text: #ffffff;
@@ -49,40 +49,42 @@
   --table-row-alt: rgba(59, 130, 246, 0.02);
   --loading-ring: rgba(59, 130, 246, 0.2);
 
-  /* Input and interactive elements */
+  /* Input and interactive elements - Layered backgrounds */
   --queue-tab-bg: #ffffff;
   --queue-tab-hover: #f8fafc;
   --mode-btn-bg: #f1f5f9;
-  --mode-btn-hover: #e2e8f0;
+  --mode-btn-hover: #e8eef7;
   --tools-btn-bg: #f1f5f9;
-  --tools-btn-hover: #e2e8f0;
+  --tools-btn-hover: #e8eef7;
 
-  /* Status colors - Anthropic palette */
-  --status-success: #10b981;
-  --status-warning: #f59e0b;
-  --status-error: #ef4444;
-  --status-planned: #8b5cf6;
+  /* Status colors - Anthropic palette with enhanced depth */
+  --status-success: #059669;
+  --status-warning: #d97706;
+  --status-error: #dc2626;
+  --status-planned: #7c3aed;
+  --status-secondary: #06b6d4;
+  --status-info: #0ea5e9;
 
-  /* Badge backgrounds - soft, low-saturation colors */
-  --badge-active-bg: #e8f5e9;
-  --badge-active-text: #2e7d32;
-  --badge-active-border: #c5e1a5;
+  /* Badge backgrounds - Anthropic palette with soft layers */
+  --badge-active-bg: #d1fae5;
+  --badge-active-text: #065f46;
+  --badge-active-border: #a7f3d0;
 
-  --badge-ended-bg: #fdecee;
-  --badge-ended-text: #b23c17;
-  --badge-ended-border: #f5c6cb;
+  --badge-ended-bg: #fee2e2;
+  --badge-ended-text: #7f1d1d;
+  --badge-ended-border: #fecaca;
 
-  --badge-running-bg: #e8f5e9;
-  --badge-running-text: #2e7d32;
-  --badge-running-border: #c5e1a5;
+  --badge-running-bg: #dbeafe;
+  --badge-running-text: #0c2340;
+  --badge-running-border: #bfdbfe;
 
-  --badge-queued-bg: #fff7e6;
-  --badge-queued-text: #a15c00;
-  --badge-queued-border: #ffe2b5;
+  --badge-queued-bg: #fef3c7;
+  --badge-queued-text: #78350f;
+  --badge-queued-border: #fde68a;
 
-  --badge-idle-bg: #e9edf5;
-  --badge-idle-text: #475569;
-  --badge-idle-border: #d5dce8;
+  --badge-idle-bg: #e0e7ff;
+  --badge-idle-text: #312e81;
+  --badge-idle-border: #c7d2fe;
 
   /* Dark mode badge palette */
   --badge-active-bg-dark: rgba(46, 125, 50, 0.18);
@@ -105,10 +107,16 @@
   --badge-idle-text-dark: #e2e8f0;
   --badge-idle-border-dark: rgba(148, 163, 184, 0.35);
 
-  /* Popup menu */
-  --popup-bg: #ffffff;
-  --popup-border: #e2e8f0;
-  --popup-hover: #f8fafc;
+  /* Popup menu - Anthropic palette */
+  --popup-bg: #f8fafc;
+  --popup-border: #cbd5e1;
+  --popup-hover: #f1f5f9;
+
+  /* Additional accent layers for depth */
+  --accent-secondary: #06b6d4;
+  --accent-tertiary: #8b5cf6;
+  --accent-light: #dbeafe;
+  --accent-lighter: #eff6ff;
 }
 
 * {
@@ -160,6 +168,25 @@ a {
   font-weight: 700;
   letter-spacing: 0.4px;
   font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.navbar-brand::before {
+  content: '⚡';
+  font-size: 20px;
+}
+
+:root:not([data-theme="dark"]) .navbar-brand {
+  color: #f59e0b;
+}
+
+:root[data-theme="dark"] .navbar-brand {
+  color: #fbbf24;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 6px 12px;
+  border-radius: 8px;
 }
 
 .header-right {
@@ -261,11 +288,16 @@ a {
 }
 
 .card {
-  background: var(--surface);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--muted) 100%);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 16px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 6px rgba(0, 0, 0, 0.02);
+  transition: box-shadow 0.2s ease;
+}
+
+.card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 12px rgba(0, 0, 0, 0.04);
 }
 
 .card h2,
@@ -284,11 +316,17 @@ a {
 }
 
 .stat-card {
-  background: var(--muted);
+  background: linear-gradient(135deg, var(--muted) 0%, rgba(59, 130, 246, 0.04) 100%);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px 14px;
   box-shadow: inset 0 1px 0 var(--highlight-overlay-hover);
+  transition: all 0.2s ease;
+}
+
+.stat-card:hover {
+  border-color: var(--accent);
+  box-shadow: inset 0 1px 0 var(--highlight-overlay-hover), 0 1px 3px rgba(59, 130, 246, 0.1);
 }
 
 .stat-label {
@@ -327,7 +365,7 @@ a {
 .button {
   padding: 10px 14px;
   border: 1px solid var(--border);
-  background: var(--muted);
+  background: linear-gradient(135deg, var(--muted) 0%, rgba(59, 130, 246, 0.04) 100%);
   color: var(--text);
   border-radius: 10px;
   cursor: pointer;
@@ -336,7 +374,7 @@ a {
 }
 
 .button.primary {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent) 0%, #2563eb 100%);
   color: var(--button-primary-text);
   border-color: var(--accent);
 }
@@ -348,7 +386,11 @@ a {
 
 .button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+}
+
+.button.primary:hover {
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
 
 .input-group {

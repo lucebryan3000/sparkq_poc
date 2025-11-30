@@ -591,6 +591,18 @@ function setupHamburgerMenu() {
   });
 }
 
+function setupNavbarBrandButton() {
+  const brandBtn = document.getElementById('navbar-brand-btn');
+  if (brandBtn) {
+    brandBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      currentPage = 'dashboard';
+      router(currentPage);
+      closeHamburgerMenu();
+    });
+  }
+}
+
 function closeHamburgerMenu() {
   const navMenu = document.getElementById('nav-menu');
   if (navMenu) {
@@ -697,6 +709,22 @@ function attachThemeButtonListener() {
   }
 }
 
+async function syncBuildIdFromServer() {
+  try {
+    const resp = await api('GET', '/api/version', null, { action: 'version sync' });
+    const serverBuild = resp?.build_id;
+    if (serverBuild) {
+      window.__BUILD_ID__ = serverBuild;
+      const buildEl = document.getElementById('build-id');
+      if (buildEl) {
+        buildEl.textContent = `UI v${serverBuild}`;
+      }
+    }
+  } catch (err) {
+    console.warn('[SparkQ] Failed to sync build id from server:', err);
+  }
+}
+
 // ===== EXPORTS =====
 
 window.API = { api };
@@ -738,9 +766,11 @@ document.addEventListener('DOMContentLoaded', () => {
   cachePages();
   setupNavTabs();
   setupHamburgerMenu();
+  setupNavbarBrandButton();
   router(currentPage);
   initTheme();
   setupKeyboardShortcuts();
   updateThemeButtonIcon();
   attachThemeButtonListener();
+  syncBuildIdFromServer();
 });

@@ -1,57 +1,202 @@
-# Run SparkQueue Task Queue Runner
+# Execute SparkQueue Tasks (Phase 20.2)
 
-You are helping the user run the SparkQueue task queue runner interactively.
+**One command = One queue. All work visible here. Full context preserved across dependent tasks.**
 
-## Your Job
+## Quick Start
 
-1. **Fetch available queues** via API
-2. **Display numbered list** with task counts
-3. **Prompt user** to select a queue (number or name)
-4. **Run queue_runner** with `--queue` (runs once through the queue by default)
-5. **Monitor output** and report results
+- `/sparkq` — Fetch queues, ask which to process
+- `/sparkq Front End` — Process "Front End" queue immediately
+- `/sparkq 2` — Process queue #2 from the last displayed list
 
-## Execution
+## Core Principle
 
-**Step 1: Fetch queues from API**
+Each `/sparkq` invocation:
+1. Processes **exactly one queue**
+2. Keeps all work **in this chat** (context preserved)
+3. Allows later tasks to reference earlier results
+4. **Stops completely** when queue is empty (waits for next `/sparkq` command)
+
+## Workflow
+
+### If No Queue Specified: Fetch & Display
+
 ```bash
 curl http://localhost:5005/api/queues
 ```
 
-Parse JSON and display:
+Display numbered list:
 ```
-[queue-selector] Available Queues:
-  1. Back End (1 task queued)
-  2. Front End (0 tasks)
-  3. APIs (0 tasks)
+Available Queues:
 
-[queue-selector] Select a queue (enter number or queue name):
+1. Front End      (1 queued, 2 done, progress: 2/3)
+2. Spark Testing  (0 queued, 8 done, progress: 8/8)
+3. APIs           (0 queued, 0 done, progress: 0/0)
+
+Enter queue number or name:
 ```
 
-**Step 2: User selects queue**
-User types: `1` or `Back End`
+### Queue Selection
 
-If the API call fails (network/server down), show an error and abort, or prompt the user to input a queue name manually and warn that queue existence is not validated.
+User responds with:
+- **Number**: `1`, `2`, `3`
+- **Name**: `Front End`, `APIs`, etc.
 
-**Step 3: Run the queue runner in default mode**
+**CRITICAL:** Match response against fetched list. If ambiguous, ask for clarification. Do NOT guess.
+
+### Run Queue_Runner
+
 ```bash
 python3 sparkq/queue_runner.py --queue "<resolved_queue_name>"
 ```
 
-This runs in **default mode** (no extra flags needed):
-- Processes all queued tasks until queue is empty, then exits (--run is implicit)
-- Logs each prompt without executing it (dry-run behavior)
-- Auto-detects base URL from config or local IP
-- Auto-derives worker ID from hostname + queue name
+No flags. Default mode only:
+- Processes all tasks serially
+- Auto-detects base URL
+- Exits when queue empty
 
-**Step 4: Monitor and report**
-- Show task IDs and prompts as they're processed
-- Report progress: "Queue 'Back End': 1/3 tasks completed"
-- Show final summary when queue is empty
+### Monitor & Execute Tasks
 
-## Notes
+Queue_runner streams output like:
 
-- Default mode is dry-run (safe preview)
-- `--run` is the default; no flag needed to process queue and exit
-- Worker ID is auto-generated for audit trail
-- Base URL auto-detected from local IP (works on network)
-- Execution happens later; this phase is dry-run only
+```
+[runner] Task: QUEUE-xxxx
+[runner] Prompt:
+Do X with Y
+```
+
+**For each task:**
+
+1. Read friendly task ID and prompt
+2. Execute the prompt **here in chat**
+3. Show results (scroll in thread)
+4. queue_runner auto-completes via API
+
+**Key:** Task 2 can reference Task 1 results because they're in the same thread.
+
+### Stop When Empty
+
+Queue_runner exits:
+```
+[runner] Queue is empty. Processed N tasks. Exiting.
+```
+
+Report:
+```
+✅ Queue 'Front End' complete
+   Processed N tasks
+   All completed successfully
+```
+
+**Then STOP.** Do NOT:
+- Fetch queues again
+- Select next queue
+- Auto-advance
+
+**Wait for user's next `/sparkq` command.**
+
+## Architecture
+
+```
+/sparkq Front End
+       ↓
+[runner] starts, processes tasks serially
+       ↓
+Task 1: [runner] Task: QUEUE-0001
+        [runner] Prompt: Create config file
+            ↓
+        I create config.yml
+        Results scroll in chat
+            ↓
+Task 2: [runner] Task: QUEUE-0002
+        [runner] Prompt: Update README with config examples
+            ↓
+        I have config.yml in context (from Task 1)
+        I write examples using actual config
+        Results scroll in chat
+            ↓
+Task 3: [runner] Task: QUEUE-0003
+        [runner] Prompt: Validate all files created
+            ↓
+        I have config.yml AND README context
+        Full history in thread
+            ↓
+[runner] Queue is empty. Exiting.
+        ↓
+Report completion, STOP
+User responds with next command
+```
+
+## DO ✅
+
+- Display queues clearly (numbered, with stats)
+- **Verify queue selection** against list (no guessing)
+- Run queue_runner in default mode
+- Execute prompts **in chat** (maintain context)
+- Let queue_runner handle all API calls
+- **STOP when queue is empty**
+- Wait for explicit `/sparkq` to continue
+
+## DON'T ❌
+
+- ❌ Auto-advance to next queue
+- ❌ Manually call API (claim/complete/fail)
+- ❌ Use --execute, --watch, --once flags
+- ❌ Guess queue names (ask for clarification)
+- ❌ Re-display queue list after selection
+- ❌ Run tasks outside this thread
+- ❌ Assume which queue user meant
+
+## Why This Works
+
+| Aspect | Benefit |
+|--------|---------|
+| **One queue per invocation** | Clear, repeatable, predictable |
+| **All work in chat** | Context naturally preserved |
+| **Task sequencing** | Task N can reference Tasks 1..N-1 |
+| **No auto-advance** | User controls pace and direction |
+| **queue_runner handles state** | No LLM confusion about task status |
+
+## Examples
+
+### Simple Sequential Tasks
+
+```
+Task 1: Create database schema
+  → Schema created, visible in chat
+
+Task 2: Populate test data
+  → Can reference schema from Task 1 results
+```
+
+### Dependent Tasks
+
+```
+Task 1: Generate API specification
+  → Spec in chat
+
+Task 2: Implement endpoints
+  → Implements from spec (in context)
+
+Task 3: Write integration tests
+  → Tests verify spec + implementation (both in context)
+```
+
+## Error Handling
+
+**If queue_runner fails:**
+- Show error message
+- Ask user: retry? different queue?
+- Do NOT auto-recover
+
+**If selection is ambiguous:**
+- Example: User says "back" but queue is "Back End"
+- Ask for clarification
+- Do NOT assume
+
+## Implementation Note
+
+Phase 20.2 establishes consistency by:
+1. Moving decision logic out of LLM (into queue_runner)
+2. Keeping work visible (same thread)
+3. Eliminating auto-advance (explicit user control)
+4. Preserving context naturally (sequential in chat)

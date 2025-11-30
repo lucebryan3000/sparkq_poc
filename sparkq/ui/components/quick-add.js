@@ -84,6 +84,25 @@
       }
     }
 
+    async resolveToolLabel(toolName) {
+      const name = toolName || '';
+      const match = this.llmTools.find(t => t.name === name);
+      if (match?.description) {
+        return match.description;
+      }
+      try {
+        if (Utils.loadFriendlyToolNames) {
+          await Utils.loadFriendlyToolNames();
+        }
+        if (Utils.getFriendlyToolName) {
+          return Utils.getFriendlyToolName(name);
+        }
+      } catch (err) {
+        console.warn('[QuickAdd] Failed to resolve friendly tool name:', err);
+      }
+      return name || '—';
+    }
+
     async render() {
       const container = document.getElementById(this.containerId);
       if (!container) return;
@@ -359,9 +378,11 @@
         // Clear field
         promptField.value = '';
 
-        // Show success (friendly ID not returned here; keep short, extend duration)
+        // Show success (use friendly label if returned; keep short, extend duration)
         const usedTool = response.tool || selectedTool;
-        Utils.showToast(`Task ${response.task_id} added (${usedTool})`, 'success', 3500);
+        const friendly = response.friendly_id || response.task_id;
+        const toolLabel = await this.resolveToolLabel(usedTool);
+        Utils.showToast(`Task ${friendly} added (${toolLabel})`, 'success', 4000);
 
         // Refresh if callback is set
         if (this.refreshCallback && typeof this.refreshCallback === 'function') {
@@ -419,7 +440,9 @@
 
         // Show success
         const tool = response.tool || 'script';
-        Utils.showToast(`Task ${response.task_id} added (${tool})`, 'success', 3500);
+        const friendly = response.friendly_id || response.task_id;
+        const toolLabel = await this.resolveToolLabel(tool);
+        Utils.showToast(`Task ${friendly} added (${toolLabel})`, 'success', 4000);
 
         // Refresh if callback is set
         if (this.refreshCallback && typeof this.refreshCallback === 'function') {

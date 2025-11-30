@@ -5,6 +5,9 @@
   const formatTimestamp = Utils.formatTimestamp;
   const formatDuration = Utils.formatDuration;
   const showToast = Utils.showToast;
+  const loadFriendlyToolNames = Utils.loadFriendlyToolNames;
+  const prettifyToolName = Utils.prettifyToolName || ((name) => (name ? String(name) : '—'));
+  const getFriendlyToolName = Utils.getFriendlyToolName || ((name) => prettifyToolName(name));
 
   let currentQueueId = null;
   let currentQueueName = null;
@@ -232,17 +235,25 @@
       console.error('Failed to load tasks:', err);
       showToast('Failed to load tasks', 'error');
     }
+    if (loadFriendlyToolNames) {
+      try {
+        await loadFriendlyToolNames();
+      } catch (err) {
+        console.error('Failed to load tools for friendly names:', err);
+      }
+    }
 
     const taskRows = tasks
       .map((task) => {
         const duration = task.duration ? formatDuration(task.duration) : '—';
         const status = task.status || 'pending';
         const statusClass = status === 'completed' ? 'success' : status === 'failed' ? 'error' : 'muted';
+        const friendlyTool = getFriendlyToolName(task.tool_name);
 
         return `
           <tr>
             <td>${task.id}</td>
-            <td>${task.tool_name || '—'}</td>
+            <td>${friendlyTool || '—'}</td>
             <td><span class="${statusClass}">${status}</span></td>
             <td>${formatTimestamp(task.created_at)}</td>
             <td>${duration}</td>

@@ -11,6 +11,9 @@
   const showError = Utils.showError;
   const showSuccess = Utils.showSuccess;
   const withButtonLoading = Utils.withButtonLoading;
+  const loadFriendlyToolNames = Utils.loadFriendlyToolNames;
+  const prettifyToolName = Utils.prettifyToolName || ((name) => (name ? String(name) : '—'));
+  const getFriendlyToolName = Utils.getFriendlyToolName || ((name) => prettifyToolName(name));
 
   const taskFilters = {
     queueId: '',
@@ -67,6 +70,14 @@
       return;
     }
 
+    if (loadFriendlyToolNames) {
+      try {
+        await loadFriendlyToolNames();
+      } catch (err) {
+        console.error('Failed to load tools for friendly names:', err);
+      }
+    }
+
     const queuesById = {};
     queues.forEach((queue) => {
       queuesById[queue.id] = queue.name || queue.id;
@@ -108,7 +119,7 @@
             <td style="width: 30px;"><input type="checkbox" class="task-checkbox" data-task-id="${task.id}" /></td>
             <td>${task.id}</td>
             <td>${queueName}</td>
-            <td>${task.tool_name}</td>
+            <td>${getFriendlyToolName(task.tool_name)}</td>
             <td>${task.status} ${staleBadge}</td>
             <td>${formatTimestamp(task.created_at)}</td>
           </tr>
@@ -348,6 +359,14 @@
     const remainingSeconds = Math.round(timeStatus.remaining);
     const timeoutStatus = buildTimeoutStatus(timeStatus);
     const claimedLabel = task.claimed_at ? `${task.claimed_at} (ISO8601)` : '—';
+    if (loadFriendlyToolNames) {
+      try {
+        await loadFriendlyToolNames();
+      } catch (err) {
+        console.error('Failed to load tools for friendly names:', err);
+      }
+    }
+    const friendlyTool = getFriendlyToolName(task.tool_name);
 
     const content = `
       <div class="modal-content">
@@ -358,7 +377,7 @@
         <p class="muted">Status: ${task.status}</p>
         <div class="grid grid-2">
           <div><strong>Queue</strong><div>${formatValue(task.queue_id, '—')}</div></div>
-          <div><strong>Tool</strong><div>${formatValue(task.tool_name, '—')}</div></div>
+          <div><strong>Tool</strong><div>${formatValue(friendlyTool, '—')}</div></div>
           <div><strong>Created</strong><div>${formatTimestamp(task.created_at)}</div></div>
           <div><strong>Claimed</strong><div>${formatTimestamp(task.claimed_at)}</div></div>
           <div><strong>Completed</strong><div>${formatTimestamp(task.completed_at)}</div></div>

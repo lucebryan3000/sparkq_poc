@@ -475,6 +475,18 @@ class PromptUpdateRequest(BaseModel):
 def _serialize_task(task: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize task fields for API responses."""
     serialized = dict(task)
+
+    # Friendly ID: <QUEUE>-<last4>
+    queue_name = None
+    queue_id = serialized.get("queue_id")
+    if queue_id:
+        queue_obj = storage.get_queue(queue_id)
+        queue_name = queue_obj["name"] if queue_obj else None
+    friendly_prefix = (queue_name or queue_id or "TASK")
+    friendly_prefix = friendly_prefix.upper()
+    short_id = (str(serialized.get("id") or "")[-4:] or "0000")
+    serialized["friendly_id"] = f"{friendly_prefix}-{short_id}"
+
     serialized.setdefault("claimed_at", serialized.get("started_at"))
 
     finished_at = serialized.get("finished_at")
@@ -933,11 +945,17 @@ async def update_task(task_id: str, request: Request):
     """Update a task with new values"""
     try:
         body = await request.json()
+        if not isinstance(body, dict) or not body:
+            raise HTTPException(status_code=400, detail="Update body must be a non-empty object")
+        if "payload" in body and body["payload"] == "":
+            raise HTTPException(status_code=400, detail="Payload cannot be empty")
         updated_task = storage.update_task(task_id, **body)
         if not updated_task:
             raise HTTPException(status_code=404, detail="Task not found")
         return {"task": _serialize_task(updated_task)}
     except Exception as err:
+        if isinstance(err, HTTPException):
+            raise
         raise HTTPException(status_code=400, detail=str(err))
 
 
@@ -1027,6 +1045,7 @@ async def quick_add_task(request: QuickAddTaskRequest):
 
     return {
         "task_id": task_id,
+        "friendly_id": _serialize_task(task).get("friendly_id") if task else None,
         "tool": tool_name,
         "task_class": task_class,
         "timeout": timeout,

@@ -351,7 +351,8 @@ def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = Fals
     elif isinstance(payload, dict):
         prompt = payload.get("prompt") or json.dumps(payload)
 
-    log(f"Claimed {task_id} from queue '{queue.get('name') or queue['id']}'")
+    friendly_id = task.get("friendly_id", task_id)
+    log(f"Task: {friendly_id}")
     log(f"Prompt:\n{prompt}\n")
 
     try:
@@ -363,14 +364,14 @@ def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = Fals
             result_summary = "Executed externally"
             result_data = {"prompt": prompt, "note": "Completed by queue_runner (dry-run)"}
             complete_task(base_url, task_id, result_summary, result_data)
-        log(f"Completed {task_id}")
+        log(f"✅ Completed: {friendly_id}")
         return True
     except Exception as exc:  # noqa: BLE001
-        log(f"Error executing task {task_id}: {exc}")
+        log(f"❌ Error executing task {friendly_id}: {exc}")
         try:
             fail_task(base_url, task_id, str(exc))
         except Exception as fail_exc:  # noqa: BLE001
-            log(f"Failed to mark task {task_id} as failed: {fail_exc}")
+            log(f"Failed to mark task {friendly_id} as failed: {fail_exc}")
         return True  # Made progress
 
 
