@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from .index import ScriptIndex
 from .storage import Storage, now_iso
-from .tools import get_registry
+from .tools import get_registry, reload_registry
 
 logger = logging.getLogger(__name__)
 storage = Storage()
@@ -170,6 +170,7 @@ class QuickAddTaskRequest(BaseModel):
 
     # For LLM mode
     prompt: Optional[str] = None
+    tool_name: Optional[str] = None
 
     # For script mode
     script_path: Optional[str] = None
@@ -227,6 +228,24 @@ async def health():
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@app.get("/api/build-prompts")
+async def list_build_prompts():
+    """
+    List Markdown prompts under _build/prompts-build (excluding archive-like folders).
+    Returns relative paths from repo root.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    prompts_dir = repo_root / "_build" / "prompts-build"
+    prompts = []
+    if prompts_dir.exists():
+        for path in sorted(prompts_dir.rglob("*.md")):
+            if "archive" in path.parts:
+                continue
+            rel = path.relative_to(repo_root)
+            prompts.append({"name": path.name, "path": str(rel)})
+    return {"prompts": prompts}
 
 
 @app.get("/stats")
@@ -659,17 +678,23 @@ async def quick_add_task(request: QuickAddTaskRequest):
         if not request.prompt:
             raise HTTPException(status_code=400, detail="Prompt required for LLM mode")
 
-        # Auto-determine tool and task class based on prompt length
-        word_count = len(request.prompt.split())
-
-        if word_count < 50:
-            tool_name = 'llm-haiku'
-            task_class = 'LLM_LITE'
-            timeout = 300  # 5 minutes
+        registry = get_registry()
+        # If UI provided tool_name, honor it; otherwise auto-pick by word count.
+        if request.tool_name:
+            tool_name = request.tool_name
+            task_class = registry.get_task_class(tool_name) or 'LLM_LITE'
+            timeout = registry.get_timeout(tool_name)
         else:
-            tool_name = 'llm-sonnet'
-            task_class = 'LLM_HEAVY'
-            timeout = 900  # 15 minutes
+            # Auto-determine tool and task class based on prompt length
+            word_count = len(request.prompt.split())
+            if word_count < 50:
+                tool_name = 'llm-haiku'
+                task_class = 'LLM_LITE'
+                timeout = 300  # 5 minutes
+            else:
+                tool_name = 'llm-sonnet'
+                task_class = 'LLM_HEAVY'
+                timeout = 900  # 15 minutes
 
         payload = json.dumps({
             "prompt": request.prompt,
@@ -751,7 +776,8 @@ async def get_config():
         except Exception:
             pass  # Use defaults
 
-    registry = get_registry()
+    # Reload registry on each call so UI reflects any sparkq.yml edits without a server restart
+    registry = reload_registry()
 
     return {
         "server": server_config or {"port": 8420, "host": "0.0.0.0"},

@@ -23,14 +23,17 @@ task_classes:
     timeout: 1200
 tools:
   run-bash:
-    description: Execute a bash script
+    description: Bash script
     task_class: MEDIUM_SCRIPT
   run-python:
-    description: Execute a python script
+    description: Python script
     task_class: MEDIUM_SCRIPT
   llm-haiku:
-    description: Call Claude Haiku
+    description: Haiku
     task_class: LLM_LITE
   llm-sonnet:
-    description: Call Claude Sonnet
+    description: Sonnet
+    task_class: LLM_HEAVY
+  llm-codex:
+    description: Codex
     task_class: LLM_HEAVY

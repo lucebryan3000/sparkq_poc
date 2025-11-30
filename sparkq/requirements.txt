@@ -5,4 +5,4 @@ typer==0.12.3           # CLI commands in sparkq/src/cli.py
 pydantic==2.7.1         # Data models in sparkq/src/models.py and FastAPI schemas
 pyyaml==6.0.1           # Config parsing for sparkq.yml, ToolRegistry, ScriptIndex
 requests==2.31.0        # HTTP error handling in CLI and integrations
-anthropic>=0.7.0        # Claude API for prompt execution in scripts/queue_runner.py
+anthropic>=0.7.0        # Claude API for prompt execution in sparkq/queue_runner.py

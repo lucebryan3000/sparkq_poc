@@ -3,10 +3,10 @@
 Per-queue task runner for SparkQ with Claude Haiku integration.
 
 Usage examples:
-  python scripts/queue_runner.py --queue "Back End" --drain
-  python scripts/queue_runner.py --queue "Back End" --execute --drain
-  python scripts/queue_runner.py --queue "APIs" --base-url http://localhost:5005 --worker-id cli-runner-1 --execute
-  python scripts/queue_runner.py --queue "Back End" --once
+  python sparkq/queue_runner.py --queue "Back End" --drain
+  python sparkq/queue_runner.py --queue "Back End" --execute --drain
+  python sparkq/queue_runner.py --queue "APIs" --base-url http://localhost:5005 --worker-id cli-runner-1 --execute
+  python sparkq/queue_runner.py --queue "Back End" --once
 
 Behavior:
 - Resolves the queue by name or ID.
@@ -199,60 +199,42 @@ def execute_with_claude(
 
         return {
             "response": response_text,
-            "input_tokens": message.usage.input_tokens,
-            "output_tokens": message.usage.output_tokens,
+            "input_tokens": getattr(message.usage, "input_tokens", 0),
+            "output_tokens": getattr(message.usage, "output_tokens", 0),
             "error": None,
+        }
+    except APIError as exc:
+        return {
+            "response": None,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "error": f"Claude API error: {exc}",
         }
     except Exception as exc:  # noqa: BLE001
         return {
             "response": None,
             "input_tokens": 0,
             "output_tokens": 0,
-            "error": str(exc),
+            "error": f"Unexpected error: {exc}",
         }
 
 
-def get_iso_timestamp() -> str:
-    """Get current time as ISO 8601 timestamp."""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def process_one(
-    base_url: str,
-    queue: dict,
-    worker_id: str,
-    execute: bool = False,
-    total_tasks: int = 0,
-    completed_tasks: int = 0,
-) -> tuple[bool, int]:
-    """
-    Process a single queued task.
-
-    Args:
-        base_url: SparkQ server URL
-        queue: Queue dict
-        worker_id: Worker ID
-        execute: Whether to execute via Claude Haiku
-        total_tasks: Total task count (for progress logging)
-        completed_tasks: Number of completed tasks (for progress logging)
-
-    Returns:
-        Tuple of (success: bool, completed_count: int)
-    """
+def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = False) -> bool:
     tasks = fetch_tasks(base_url, queue["id"])
+    # Oldest-first: sort by created_at ascending
+    tasks = sorted(tasks, key=lambda t: t.get("created_at") or "")
     queued = [t for t in tasks if (t.get("status") or "").lower() == "queued"]
     if not queued:
-        return False, completed_tasks
+        return False
 
-    # Sort by created_at to ensure oldest-first ordering (deterministic)
-    queued_sorted = sorted(
-        queued,
-        key=lambda t: t.get("created_at", ""),
-    )
-    task = queued_sorted[0]
+    task = queued[0]
     task_id = task["id"]
 
-    # Extract prompt from payload
+    claimed = claim_task(base_url, task_id, worker_id)
+    if not claimed:
+        log(f"Task {task_id} was not claimable (already running?)")
+        return False
+
     prompt = ""
     payload = task.get("payload")
     if isinstance(payload, str):
@@ -264,95 +246,38 @@ def process_one(
     elif isinstance(payload, dict):
         prompt = payload.get("prompt") or json.dumps(payload)
 
-    queue_name = queue.get("name") or queue["id"]
-    log(f"Queue '{queue_name}': {completed_tasks}/{total_tasks} tasks completed")
-    log(f"Processing: {task_id}")
+    log(f"Claimed {task_id} from queue '{queue.get('name') or queue['id']}'")
+    log(f"Prompt:\n{prompt}\n")
 
-    # Claim task
-    claimed = claim_task(base_url, task_id, worker_id)
-    if not claimed:
-        log(f"Task {task_id} was not claimable (already running?)")
-        return False, completed_tasks
-
-    start_time = time.time()
-    start_ts = get_iso_timestamp()
-
-    # Execute or log
     try:
         if execute:
-            timeout = task.get("timeout", 30)
-            log(f"Executing via Claude Haiku (timeout: {timeout}s)...")
-            result = execute_with_claude(prompt, timeout, task_id)
-
-            if result["error"]:
-                raise Exception(result["error"])
-
-            execution_time = time.time() - start_time
-            log(
-                f"Task {task_id} succeeded (execution time: {execution_time:.1f}s, "
-                f"tokens: {result['input_tokens']} input / {result['output_tokens']} output)"
-            )
-
-            # Prepare result data
-            summary = "Executed via Claude Haiku"
-            result_data = {
-                "summary": summary,
-                "result_type": "prompt_execution",
-                "tokens_used": {
-                    "input": result["input_tokens"],
-                    "output": result["output_tokens"],
-                },
-                "execution_time": execution_time,
-            }
-            stdout_text = (
-                f"Executed via Claude Haiku. Input: {result['input_tokens']} tokens, "
-                f"Output: {result['output_tokens']} tokens. Time: {execution_time:.1f}s"
-            )
-
-            complete_task(base_url, task_id, summary, result_data, stdout_text)
+            result = execute_with_claude(prompt, timeout=task.get("timeout") or 30, task_id=task_id)
+            summary = result.get("error") or "Claude execution succeeded"
+            complete_task(base_url, task_id, summary, result, stdout_text=result.get("response") or "")
         else:
-            # Dry-run: just log the prompt
-            log(f"Prompt:\n{prompt}\n")
-            result_summary = "Logged (dry-run)"
+            result_summary = "Executed externally"
             result_data = {"prompt": prompt, "note": "Completed by queue_runner (dry-run)"}
-            stdout_text = f"Logged prompt: {len(prompt)} chars"
-            complete_task(base_url, task_id, result_summary, result_data, stdout_text)
-            log(f"Task {task_id} completed (dry-run)")
-
-        return True, completed_tasks + 1
-
+            complete_task(base_url, task_id, result_summary, result_data)
+        log(f"Completed {task_id}")
+        return True
     except Exception as exc:  # noqa: BLE001
-        execution_time = time.time() - start_time
         log(f"Error executing task {task_id}: {exc}")
         try:
-            stderr_text = str(exc)
-            fail_task(base_url, task_id, str(exc), stderr_text)
-            log(f"Marked {task_id} as failed")
+            fail_task(base_url, task_id, str(exc))
         except Exception as fail_exc:  # noqa: BLE001
-            log(f"Failed to mark {task_id} as failed: {fail_exc}")
-        return True, completed_tasks  # Made progress (task is done, even if failed)
+            log(f"Failed to mark task {task_id} as failed: {fail_exc}")
+        return True  # Made progress
 
 
-def main() -> None:
-    """Main entry point for queue runner."""
-    parser = argparse.ArgumentParser(
-        description="Run SparkQ tasks for a specific queue (one worker per queue)."
-    )
+def main():
+    parser = argparse.ArgumentParser(description="Run SparkQ tasks for a specific queue (one worker per queue).")
     parser.add_argument("--queue", required=True, help="Queue name or ID to process")
-    parser.add_argument(
-        "--base-url",
-        default="http://localhost:5005",
-        help="SparkQ base URL (default: http://localhost:5005)",
-    )
+    parser.add_argument("--base-url", default="http://localhost:5005", help="SparkQ base URL (default: http://localhost:5005)")
     parser.add_argument("--worker-id", default=None, help="Worker ID to tag claims (default: auto timestamp)")
     parser.add_argument("--poll", type=float, default=3.0, help="Polling interval when idle (seconds, default 3)")
     parser.add_argument("--once", action="store_true", help="Process at most one task then exit")
-    parser.add_argument("--drain", action="store_true", default=True, help="Exit when queue is drained (default: True)")
-    parser.add_argument(
-        "--execute",
-        action="store_true",
-        help="Execute prompts via Claude Haiku (default: dry-run, just log prompts)",
-    )
+    parser.add_argument("--drain", action="store_true", help="Drain queue until empty, then exit (default behavior)")
+    parser.add_argument("--execute", action="store_true", help="Execute prompts via Claude Haiku (requires ANTHROPIC_API_KEY)")
     args = parser.parse_args()
 
     base_url = args.base_url.rstrip("/")
@@ -363,53 +288,22 @@ def main() -> None:
         log(f"Queue '{args.queue}' not found.")
         sys.exit(1)
 
-    queue_name = queue.get("name") or queue["id"]
-    log(f"Starting worker for queue '{queue_name}' as {worker_id}")
-    if args.execute:
-        log("Mode: Execute via Claude Haiku")
-    else:
-        log("Mode: Dry-run (log prompts only)")
+    log(f"Starting worker for queue '{queue.get('name') or queue['id']}' as {worker_id}")
 
-    # Get total task count for progress reporting
-    tasks = fetch_tasks(base_url, queue["id"])
-    total_tasks = len([t for t in tasks if (t.get("status") or "").lower() == "queued"])
-
-    completed_count = 0
-    tasks_processed = 0
-
+    # Default behavior: drain unless --once is set. Ignore poll loop for now.
     while True:
         did_work = False
         try:
-            did_work, completed_count = process_one(
-                base_url,
-                queue,
-                worker_id,
-                execute=args.execute,
-                total_tasks=total_tasks,
-                completed_tasks=completed_count,
-            )
-            if did_work:
-                tasks_processed += 1
+            did_work = process_one(base_url, queue, worker_id, execute=args.execute)
         except Exception as exc:  # noqa: BLE001
-            log(f"Fatal error: {exc}")
-            sys.exit(1)
+            log(f"Error: {exc}")
 
-        # Check exit conditions
         if args.once:
-            log(f"--once flag: exiting after single task")
-            sys.exit(0)
-
+            break
         if not did_work:
             if args.drain:
-                # Queue is empty
-                succeeded_count = completed_count
-                failed_count = tasks_processed - completed_count
-                log(f"Queue drained. Processed {tasks_processed} tasks ({succeeded_count} succeeded, {failed_count} failed). Exit code: 0")
-                sys.exit(0)
-            else:
-                # Poll and wait (not implemented in this phase)
-                log(f"No tasks available. Polling in {args.poll}s...")
-                time.sleep(max(args.poll, 0.5))
+                break
+            time.sleep(max(args.poll, 0.5))
 
 
 if __name__ == "__main__":

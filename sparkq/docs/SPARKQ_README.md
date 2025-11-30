@@ -110,7 +110,6 @@ sparkq/
 ├── pytest.ini                 # Test configuration
 ├── API.md                     # API endpoint reference
 ├── README.md                  # This file
-├── sparkq-watcher.sh          # Stream monitoring (Phase 7)
 ├── test_integration.py        # Integration test suite
 ├── src/
 │   ├── __main__.py            # CLI entrypoint

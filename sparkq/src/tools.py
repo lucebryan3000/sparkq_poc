@@ -58,6 +58,27 @@ class ToolRegistry:
         tool = self.get_tool(tool_name)
         return tool.get('task_class') if tool else None
 
+    def list_llm_tools(self) -> list[dict]:
+        """
+        List tools whose task_class starts with LLM_.
+        Returns list of dicts: {name, description, task_class}
+        """
+        llm_tools = []
+        for name, cfg in (self.tools or {}).items():
+            task_class = cfg.get("task_class", "")
+            if isinstance(task_class, str) and task_class.upper().startswith("LLM_"):
+                llm_tools.append({
+                    "name": name,
+                    "description": cfg.get("description") or name,
+                    "task_class": task_class,
+                })
+        return llm_tools
+
+    def get_tool_display(self, name: str) -> str:
+        """Return a human-friendly label (description fallback to name)."""
+        tool = self.get_tool(name)
+        return tool.get("description") if tool else name
+
 
 # Module-level singleton
 _registry: ToolRegistry | None = None

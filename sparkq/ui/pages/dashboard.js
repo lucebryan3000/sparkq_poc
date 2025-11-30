@@ -133,7 +133,7 @@
         <div class="task-cell created">${timestamp}</div>
         <div class="task-cell actions">
           <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task">✏️</button>
-          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task">🗑️</button>
+          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task">✖️</button>
         </div>
       </div>
     `;
@@ -600,7 +600,16 @@
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const taskId = btn.dataset.taskId;
-          const confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${taskId}? This cannot be undone.`);
+          const task = tasks.find(t => String(t.id) === String(taskId));
+          const friendly = task?.friendlyLabel || taskId;
+          const label = friendly;
+          let confirmed = false;
+          try {
+            confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
+          } catch (err) {
+            // Fallback to native confirm if custom dialog fails
+            confirmed = window.confirm(`Are you sure you want to delete task ${label}? This cannot be undone.`);
+          }
           if (!confirmed) return;
 
           try {
@@ -662,8 +671,8 @@
         payloadText = '';
       }
       const statusLabel = (task.status || 'queued').toString();
-
       const friendlyLabel = task.friendlyLabel || `Task #${task.id}`;
+      const toolLabel = task.friendlyTool || task.tool_name || '';
       modal.innerHTML = `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
           <h3 style="margin:0;font-size:18px;">Edit ${friendlyLabel}</h3>
@@ -671,21 +680,23 @@
         </div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           <div>
-            <label style="display:block;font-weight:600;margin-bottom:4px;">Tool Name</label>
-            <input id="edit-task-tool" type="text" value="${task.tool_name || ''}" disabled style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, #151515);color:var(--text);opacity:0.75;">
+            <span class="badge ${taskBadgeClass(statusLabel)}">${statusLabel}</span>
           </div>
           <div>
-            <label style="display:block;font-weight:600;margin-bottom:4px;">Status</label>
-            <div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, #151515);color:var(--text);opacity:0.85;">${statusLabel}</div>
+            <label style="display:block;font-weight:600;margin-bottom:4px;">Tool</label>
+            <input id="edit-task-tool" type="text" value="${toolLabel}" disabled style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, #151515);color:var(--text);opacity:0.75;">
           </div>
           <div>
             <label style="display:block;font-weight:600;margin-bottom:4px;">Prompt / Payload</label>
             <textarea id="edit-task-payload" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, #151515);color:var(--text);min-height:140px;font-family:inherit;">${payloadText}</textarea>
           </div>
         </div>
-        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
-          <button id="edit-task-cancel" class="button secondary" style="padding:8px 14px;">Cancel</button>
-          <button id="edit-task-save" class="button primary" style="padding:8px 14px;">Save</button>
+        <div style="display:flex;justify-content:space-between;gap:10px;margin-top:16px;">
+          <button id="edit-task-delete" class="button secondary" style="padding:8px 14px;">🗑️ Delete</button>
+          <div style="display:flex;gap:8px;">
+            <button id="edit-task-cancel" class="button secondary" style="padding:8px 14px;">Cancel</button>
+            <button id="edit-task-save" class="button primary" style="padding:8px 14px;">Save</button>
+          </div>
         </div>
       `;
 
@@ -714,6 +725,7 @@
       const cancelBtn = modal.querySelector('#edit-task-cancel');
       const saveBtn = modal.querySelector('#edit-task-save');
       const closeBtn = modal.querySelector('#edit-task-close');
+      const deleteBtn = modal.querySelector('#edit-task-delete');
       if (toolInput) {
         toolInput.focus();
         toolInput.select();
@@ -731,13 +743,39 @@
       const result = await new Promise((resolve) => {
         const handleSave = () => resolve(getPayload());
         const handleCancel = () => resolve(null);
+        const handleDelete = () => resolve({ delete: true });
         cancelBtn?.addEventListener('click', handleCancel);
         closeBtn?.addEventListener('click', handleCancel);
         saveBtn?.addEventListener('click', handleSave);
+        deleteBtn?.addEventListener('click', handleDelete);
       });
 
       const payload = cleanup(result);
       if (!payload) return;
+
+      if (payload.delete) {
+        const friendly = task?.friendlyLabel;
+        const label = friendly ? `${task.id} (${friendly})` : task.id;
+        let confirmed = false;
+        try {
+          confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
+        } catch (err) {
+          confirmed = window.confirm(`Are you sure you want to delete task ${label}? This cannot be undone.`);
+        }
+        if (!confirmed) return;
+        try {
+          await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
+          Utils.showToast(`Task ${label} deleted`, 'success');
+          const tasksContainer = document.getElementById('dashboard-tasks');
+          if (tasksContainer) {
+            this.renderTasks(tasksContainer, queueId);
+          }
+        } catch (err) {
+          console.error('Failed to delete task:', err);
+          Utils.showToast('Failed to delete task', 'error');
+        }
+        return;
+      }
 
       try {
         await api('PUT', `/api/tasks/${encodeURIComponent(task.id)}`, payload, { action: 'update task' });

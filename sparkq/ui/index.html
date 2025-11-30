@@ -4,7 +4,9 @@
   <meta charset='utf-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
   <title>SparkQ</title>
-  <link rel='stylesheet' href='/ui/style.css'>
+  <!-- Simple build/version id for cache-busting static assets (update as needed) -->
+  <script>window.__BUILD_ID__ = 'b712';</script>
+  <link rel="stylesheet" href="/ui/style.css?v=b712">
 </head>
 <body>
   <header class='app-header'>
@@ -14,11 +16,10 @@
         <span></span>
         <span></span>
       </button>
-      <div class='navbar-brand'>SparkQ</div>
+      <div class='navbar-brand'>SparkQueue</div>
     </div>
     <div class='header-right'>
       <button class='button secondary' id='theme-toggle-btn' title='Toggle dark/light mode' style='padding: 6px 12px; font-size: 14px;'>🌙</button>
-      <div class='status-indicator' id='status' title='Status'>●</div>
     </div>
   </header>
 
@@ -40,18 +41,12 @@
   <div id='breadcrumbs' class='breadcrumbs'></div>
 
   <!-- Core must load first -->
-  <script src='/ui/dist/app-core.18fc37c8.js'></script>
-
-  <!-- Utils must load before components and pages that use them -->
-  <script src='/ui/dist/ui-utils.18fc37c8.js'></script>
-
-  <!-- Components can load after utils -->
-  <script src='/ui/dist/quick-add.18fc37c8.js'></script>
-
-  <!-- Pages can load in any order -->
-  <script src='/ui/dist/dashboard.js'></script>
-  <script src='/ui/dist/enqueue.18fc37c8.js'></script>
-  <script src='/ui/dist/config.18fc37c8.js'></script>
-  <script src='/ui/dist/scripts.18fc37c8.js'></script>
+  <script src="/ui/dist/app-core.js?v=b712"></script>
+  <script src="/ui/dist/ui-utils.js?v=b712"></script>
+  <script src="/ui/dist/quick-add.js?v=b712"></script>
+  <script src="/ui/dist/dashboard.js?v=b712"></script>
+  <script src="/ui/dist/enqueue.js?v=b712"></script>
+  <script src="/ui/dist/config.js?v=b712"></script>
+  <script src="/ui/dist/scripts.js?v=b712"></script>
 </body>
 </html>

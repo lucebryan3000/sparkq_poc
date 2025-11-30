@@ -11,6 +11,8 @@
       this.queueName = queueName;
       this.mode = 'llm';  // Default mode
       this.refreshCallback = null;
+      this.llmTools = [];
+      this.selectedTool = null;
 
       // Text expander state (Phase 14B)
       this.prompts = [];
@@ -36,15 +38,63 @@
       this.refreshCallback = callback;
     }
 
-    render() {
+    async loadTools() {
+      const prevSelected = this.selectedTool;
+      try {
+        const cfg = await API.api('GET', '/api/config', null, { action: 'load config' });
+        const tools = cfg?.tools || {};
+        this.llmTools = Object.entries(tools)
+          .filter(([_, val]) => {
+            const tc = (val?.task_class || '').toString().toUpperCase();
+            return tc.startsWith('LLM_');
+          })
+          .map(([name, val]) => ({
+            name,
+            description: val?.description || name,
+            task_class: val?.task_class || '',
+          }));
+        if (this.llmTools.length) {
+          const hasPrev = prevSelected && this.llmTools.some(t => t.name === prevSelected);
+          const haiku = this.llmTools.find(t => t.name === 'llm-haiku');
+          if (hasPrev) {
+            this.selectedTool = prevSelected;
+          } else {
+            this.selectedTool = haiku ? haiku.name : this.llmTools[0].name;
+          }
+        }
+      } catch (err) {
+        console.error('[QuickAdd] Failed to load tools:', err);
+        this.llmTools = [];
+        this.selectedTool = this.selectedTool || 'llm-haiku';
+      }
+    }
+
+    async render() {
       const container = document.getElementById(this.containerId);
       if (!container) return;
 
+      await this.loadTools();
+
+      const llmOptions = this.llmTools.length
+        ? this.llmTools
+        : [{ name: 'llm-haiku', description: 'Claude Haiku', task_class: 'LLM_LITE' }];
+
+      if (!this.selectedTool) {
+        this.selectedTool = llmOptions[0].name;
+      }
+
+      const llmSelect = `
+        <label for="llm-tool-select" style="font-size: 13px; color: #bbb; display: block; margin-bottom: 6px;">Model</label>
+        <select
+          id="llm-tool-select"
+          onchange="window.quickAdd.handleToolChange(event)"
+          style="display: inline-block; min-width: 220px; max-width: 320px; background: rgba(0, 0, 0, 0.3); border: 1px solid #444; border-radius: 6px; padding: 10px; color: #fff; margin-bottom: 10px;">
+          ${llmOptions.map(opt => `<option value="${opt.name}" ${opt.name === this.selectedTool ? 'selected' : ''}>${opt.description}</option>`).join('')}
+        </select>
+      `;
+
       container.innerHTML = `
         <div class="quick-add-bar" style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-          <div class="queue-indicator" style="font-size: 12px; color: #888; margin-bottom: 12px;">
-            Add to queue: <strong style="color: #3b82f6;">${this.queueName || 'Select a queue'}</strong>
-          </div>
 
           <div class="mode-toggle" style="display: flex; gap: 8px; margin-bottom: 12px;">
             <button
@@ -62,6 +112,7 @@
           </div>
 
           <div id="llm-input" class="input-area" style="display: ${this.mode === 'llm' ? 'block' : 'none'}; position: relative;">
+            ${llmSelect}
             <div class="prompt-input-wrapper" style="position: relative;">
               <textarea
                 id="prompt-field"
@@ -259,11 +310,14 @@
         return;
       }
 
+      const tool = this.selectedTool || 'llm-haiku';
+
       try {
         const response = await API.api('POST', '/api/tasks/quick-add', {
           queue_id: this.queueId,
           mode: 'llm',
-          prompt: prompt
+          prompt: prompt,
+          tool_name: tool
         }, { action: 'add task' });
 
         if (!response || !response.task_id) {
@@ -274,7 +328,7 @@
         promptField.value = '';
 
         // Show success
-        const tool = response.tool || 'llm';
+        const tool = response.tool || tool;
         Utils.showToast(`Task #${response.task_id} added (${tool})`);
 
         // Refresh if callback is set
@@ -286,6 +340,10 @@
         console.error('Failed to add task:', error);
         Utils.showToast(error.message || 'Failed to add task', 'error');
       }
+    }
+
+    handleToolChange(event) {
+      this.selectedTool = event?.target?.value || this.selectedTool || 'llm-haiku';
     }
 
     async addScriptTask() {
