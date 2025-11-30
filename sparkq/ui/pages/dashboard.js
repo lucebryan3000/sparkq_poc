@@ -99,16 +99,20 @@
     currentSessionId: null,
     queuesCache: [],
     quickAddInstance: null,
-    pageContainer: null,
 
     async render(container) {
       if (!container) {
         return;
       }
 
-      this.pageContainer = container;
+      // Always ensure we have the correct page container
+      const actualContainer = container?.id === 'dashboard-page' ? container : document.getElementById('dashboard-page');
+      if (!actualContainer) {
+        console.error('Dashboard page container not found');
+        return;
+      }
 
-      container.innerHTML = `
+      actualContainer.innerHTML = `
         <div class="card">
           <div class="muted"><span class="loading"></span> Loading queues…</div>
         </div>
@@ -142,7 +146,7 @@
         }
         const sessionSelector = this.renderSessionSelector(activeSession, sessions);
 
-        container.innerHTML = `
+        actualContainer.innerHTML = `
           <div class="session-tabs-section">
             <div class="section-title">Sessions</div>
             ${sessionSelector}
@@ -158,8 +162,8 @@
             <p class="muted">No queues yet. Create one to get started.</p>
           </div>
         `;
-        this.attachSessionSelectorHandlers(container, sessions);
-        this.attachNewQueueHandler(container);
+        this.attachSessionSelectorHandlers(actualContainer, sessions);
+        this.attachNewQueueHandler(actualContainer);
         return;
       }
 
@@ -177,7 +181,7 @@
 
       const sessionSelector = this.renderSessionSelector(activeSession, sessions);
 
-      container.innerHTML = `
+      actualContainer.innerHTML = `
         <div class="session-tabs-section">
           <div class="section-title">Sessions</div>
           ${sessionSelector}
@@ -191,11 +195,11 @@
         <div id="queue-content"></div>
       `;
 
-      this.attachSessionSelectorHandlers(container, sessions);
-      const tabsContainer = container.querySelector('#queue-tabs');
+      this.attachSessionSelectorHandlers(actualContainer, sessions);
+      const tabsContainer = actualContainer.querySelector('#queue-tabs');
       this.renderQueueTabs(tabsContainer, queues);
 
-      const contentContainer = container.querySelector('#queue-content');
+      const contentContainer = actualContainer.querySelector('#queue-content');
       await this.renderQueueContent(contentContainer, this.currentQueueId);
     },
 
@@ -301,8 +305,9 @@
           await api('POST', '/api/queues', payload, { action: 'create queue' });
           Utils.showToast(`Queue created`, 'success');
           // Re-render the dashboard to show the new queue
-          if (this.pageContainer) {
-            this.render(this.pageContainer);
+          const pageContainer = document.getElementById('dashboard-page');
+          if (pageContainer) {
+            this.render(pageContainer);
           }
         } catch (err) {
           console.error('Failed to create queue:', err);
@@ -365,8 +370,9 @@
           await api('POST', '/api/queues', payload, { action: 'create queue' });
           Utils.showToast(`Queue created`, 'success');
           // Re-render the dashboard to show the new queue
-          if (this.pageContainer) {
-            this.render(this.pageContainer);
+          const pageContainer = document.getElementById('dashboard-page');
+          if (pageContainer) {
+            this.render(pageContainer);
           }
         } catch (err) {
           console.error('Failed to create queue:', err);
@@ -643,8 +649,9 @@
           try {
             await api('PUT', `/api/queues/${queueId}/archive`, null, { action: 'archive queue' });
             Utils.showToast(`Queue "${queueName}" archived`, 'success');
-            if (this.pageContainer) {
-              this.render(this.pageContainer);
+            const pageContainer = document.getElementById('dashboard-page');
+            if (pageContainer) {
+              this.render(pageContainer);
             }
           } catch (err) {
             console.error('Failed to archive queue:', err);
@@ -662,8 +669,9 @@
           try {
             await api('DELETE', `/api/queues/${queueId}`, null, { action: 'delete queue' });
             Utils.showToast(`Queue "${queueName}" deleted`, 'success');
-            if (this.pageContainer) {
-              this.render(this.pageContainer);
+            const pageContainer = document.getElementById('dashboard-page');
+            if (pageContainer) {
+              this.render(pageContainer);
             }
           } catch (err) {
             console.error('Failed to delete queue:', err);
