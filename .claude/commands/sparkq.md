@@ -1,58 +1,57 @@
 # Run SparkQueue Task Queue Runner
 
-You are helping the user run the SparkQueue task queue runner to process queued tasks interactively.
+You are helping the user run the SparkQueue task queue runner interactively.
 
 ## Your Job
 
-1. **Fetch available queues** by running: `python sparkq/queue_runner.py --list-queues`
-2. **Parse the output** and present a numbered list of queues with task counts
-3. **Prompt user** to select a queue by number or name
-4. **Run the queue runner** with their selection: `python sparkq/queue_runner.py --queue "<queue_name>" --drain`
-5. **Monitor execution** and provide feedback as tasks are processed
-6. **Report results** when the queue is drained
+1. **Fetch available queues** via API
+2. **Display numbered list** with task counts
+3. **Prompt user** to select a queue (number or name)
+4. **Run queue_runner** with `--queue` (runs once through the queue by default)
+5. **Monitor output** and report results
 
 ## Execution
 
-**Step 1: List available queues**
-Run this command to fetch all queues from the database:
-```bash
-python3 sparkq/queue_runner.py --help
-```
-
-Or fetch via API:
+**Step 1: Fetch queues from API**
 ```bash
 curl http://localhost:5005/api/queues
 ```
 
-Parse the JSON output and display queues like:
+Parse JSON and display:
 ```
 [queue-selector] Available Queues:
-  1. Back End (5 tasks)
-  2. Front End (2 tasks)
+  1. Back End (1 task queued)
+  2. Front End (0 tasks)
   3. APIs (0 tasks)
 
 [queue-selector] Select a queue (enter number or queue name):
 ```
 
-**Step 2: Process user selection**
-- Accept input as a number (1, 2, 3) or queue name ("Back End", "Front End", etc.)
-- Resolve to the actual queue name
+**Step 2: User selects queue**
+User types: `1` or `Back End`
 
-**Step 3: Run the queue runner**
-Once user selects a queue, execute:
+If the API call fails (network/server down), show an error and abort, or prompt the user to input a queue name manually and warn that queue existence is not validated.
+
+**Step 3: Run the queue runner in default mode**
 ```bash
-python3 sparkq/queue_runner.py --queue "<resolved_queue_name>" --run
+python3 sparkq/queue_runner.py --queue "<resolved_queue_name>"
 ```
 
-**Step 4: Monitor and provide feedback**
-- Display runner output as it processes each task
-- Show task IDs, prompts, and status
-- Report progress: "Queue '<name>': X/Y tasks completed"
-- Show final results: "Processed X tasks (X succeeded, 0 failed)"
+This runs in **default mode** (no extra flags needed):
+- Processes all queued tasks until queue is empty, then exits (--run is implicit)
+- Logs each prompt without executing it (dry-run behavior)
+- Auto-detects base URL from config or local IP
+- Auto-derives worker ID from hostname + queue name
+
+**Step 4: Monitor and report**
+- Show task IDs and prompts as they're processed
+- Report progress: "Queue 'Back End': 1/3 tasks completed"
+- Show final summary when queue is empty
 
 ## Notes
 
-- Always run in dry-run mode by default (no --execute flag)
-- Queue names come dynamically from the database via the runner
-- The runner handles task claiming, execution, and status updates
-- Exit when the queue is drained (runner exits with code 0)
+- Default mode is dry-run (safe preview)
+- `--run` is the default; no flag needed to process queue and exit
+- Worker ID is auto-generated for audit trail
+- Base URL auto-detected from local IP (works on network)
+- Execution happens later; this phase is dry-run only

@@ -37,3 +37,15 @@ tools:
   llm-codex:
     description: Codex
     task_class: LLM_HEAVY
+
+# Queue Runner configuration
+queue_runner:
+  # Base URL for SparkQ API
+  # If not specified, auto-detects using: http://{local_ip}:{server.port}
+  # Uncomment to override (e.g., if on a different machine)
+  # base_url: http://192.168.1.100:5005
+
+  # Polling interval (seconds) when idle
+  # Only used with --watch mode (continuous polling)
+  # Default: 30 seconds
+  poll_interval: 30
