@@ -285,19 +285,19 @@ def run(
 
         # Mirror pytest output to both console and log file.
         class _Tee:
-            def __init__(self, *streams):
-                self.streams = streams
+            def __init__(self, *queues):
+                self.queues = queues
 
             def write(self, data):
-                for stream in self.streams:
-                    stream.write(data)
+                for queue in self.queues:
+                    queue.write(data)
 
             def flush(self):
-                for stream in self.streams:
-                    stream.flush()
+                for queue in self.queues:
+                    queue.flush()
 
             def isatty(self):
-                return self.streams[0].isatty() if self.streams else False
+                return self.queues[0].isatty() if self.queues else False
 
         try:
             with open(log_file, "w") as log_handle:
@@ -483,10 +483,10 @@ def session_list(
     typer.echo("-" * 60)
 
     for s in sessions:
-        streams = get_storage().list_streams(session_id=s["id"])
-        stream_count = len(streams)
+        queues = get_storage().list_queues(session_id=s["id"])
+        queue_count = len(queues)
         typer.echo(
-            f"{s['name']:<20} {s['status']:<10} {s['started_at'][:19]:<20} {stream_count:<10}"
+            f"{s['name']:<20} {s['status']:<10} {s['started_at'][:19]:<20} {queue_count:<10}"
         )
 
 
@@ -495,7 +495,7 @@ def session_list(
 def session_end(
     name: str = typer.Argument(..., help="Session name to end"),
 ):
-    """End a session (marks it as ended, no new streams)."""
+    """End a session (marks it as ended, no new queues)."""
     if not name or not name.strip():
         _required_field("Session name")
 
@@ -514,20 +514,20 @@ def session_end(
 
 # === Stream Commands ===
 
-stream_app = typer.Typer(help="Manage feature streams within sessions")
-app.add_typer(stream_app, name="stream")
+queue_app = typer.Typer(help="Manage feature queues within sessions")
+app.add_typer(queue_app, name="queue")
 
 
-@stream_app.command("create", help="Create new stream in session")
+@queue_app.command("create", help="Create new queue in session")
 @cli_handler
-def stream_create(
+def queue_create(
     name: str = typer.Argument(..., help="Stream name"),
     session: str = typer.Option(..., "--session", "-s", help="Session name or ID"),
     instructions: Optional[str] = typer.Option(
-        None, "--instructions", "-i", help="Optional stream-specific instructions"
+        None, "--instructions", "-i", help="Optional queue-specific instructions"
     ),
 ):
-    """Create new stream in session."""
+    """Create new queue in session."""
     if not name or not name.strip():
         _required_field("Stream name")
 
@@ -543,27 +543,27 @@ def stream_create(
         _resource_missing("Session", session, "sparkq session list")
 
     if sess["status"] == "ended":
-        _state_error("Creating stream", "ended", "sparkq session create <name>")
+        _state_error("Creating queue", "ended", "sparkq session create <name>")
 
     # Check name not taken
-    existing = get_storage().get_stream_by_name(name)
+    existing = get_storage().get_queue_by_name(name)
     if existing:
-        _invalid_field("stream name", name, suggestion="Try: choose a unique stream name")
+        _invalid_field("queue name", name, suggestion="Try: choose a unique queue name")
 
-    stream = get_storage().create_stream(
+    queue = get_storage().create_queue(
         session_id=sess["id"],
         name=name,
         instructions=instructions,
     )
 
-    typer.echo(f"Created stream: {stream['name']} ({stream['id']})")
+    typer.echo(f"Created queue: {queue['name']} ({queue['id']})")
     if instructions:
         typer.echo(f"Instructions: {instructions[:50]}...")
 
 
-@stream_app.command("list", help="List all streams")
+@queue_app.command("list", help="List all queues")
 @cli_handler
-def stream_list(
+def queue_list(
     session: Optional[str] = typer.Option(
         None, "--session", "-s", help="Filter by session"
     ),
@@ -571,7 +571,7 @@ def stream_list(
         None, "--status", help="Filter by status (active, ended)"
     ),
 ):
-    """List all streams."""
+    """List all queues."""
     valid_status = {"active", "ended"}
     if status and status not in valid_status:
         _invalid_field("status", status, valid_options=sorted(valid_status))
@@ -586,22 +586,22 @@ def stream_list(
             _resource_missing("Session", session, "sparkq session list")
         session_id = sess["id"]
 
-    streams = get_storage().list_streams(session_id=session_id, status=status)
+    queues = get_storage().list_queues(session_id=session_id, status=status)
 
-    if not streams:
-        typer.echo("No streams found.")
+    if not queues:
+        typer.echo("No queues found.")
         return
 
     typer.echo(f"\n{'Name':<20} {'Session':<15} {'Status':<10} {'Tasks':<10}")
     typer.echo("-" * 55)
 
-    for st in streams:
+    for st in queues:
         # Get session name
         sess = get_storage().get_session(st["session_id"])
         sess_name = sess["name"] if sess else "?"
 
         # Count tasks (stub - returns 0 until Phase 2)
-        tasks = get_storage().list_tasks(stream_id=st["id"])
+        tasks = get_storage().list_tasks(queue_id=st["id"])
         task_count = len(tasks)
 
         typer.echo(
@@ -609,33 +609,33 @@ def stream_list(
         )
 
 
-@stream_app.command("end", help="End an active stream")
+@queue_app.command("end", help="End an active queue")
 @cli_handler
-def stream_end(
-    stream_id: str = typer.Argument(..., help="Stream ID to end")
+def queue_end(
+    queue_id: str = typer.Argument(..., help="Stream ID to end")
 ):
-    """End an active stream."""
-    if not stream_id or not stream_id.strip():
+    """End an active queue."""
+    if not queue_id or not queue_id.strip():
         _required_field("Stream ID")
 
-    stream_id = stream_id.strip()
-    stream = get_storage().get_stream(stream_id)
-    if not stream:
-        _resource_missing("Stream", stream_id, "sparkq stream list")
+    queue_id = queue_id.strip()
+    queue = get_storage().get_queue(queue_id)
+    if not queue:
+        _resource_missing("Stream", queue_id, "sparkq queue list")
 
-    if stream.get("status") == "ended":
-        _state_error("Ending stream", "ended", "sparkq stream list")
+    if queue.get("status") == "ended":
+        _state_error("Ending queue", "ended", "sparkq queue list")
 
-    get_storage().end_stream(stream_id)
-    typer.echo(f"Stream {stream_id} ended successfully")
+    get_storage().end_queue(queue_id)
+    typer.echo(f"Stream {queue_id} ended successfully")
 
 
 # === Task Commands (Stubs for Phase 2) ===
 
-@app.command(help="Enqueue task to stream")
+@app.command(help="Enqueue task to queue")
 @cli_handler
 def enqueue(
-    stream: str = typer.Option(..., "--stream", "-s", help="Target stream name"),
+    queue: str = typer.Option(..., "--queue", "-s", help="Target queue name"),
     tool: str = typer.Option(..., "--tool", "-t", help="Tool/script name"),
     task_class: str = typer.Option(
         "MEDIUM_SCRIPT",
@@ -646,18 +646,18 @@ def enqueue(
     prompt_file: Optional[str] = typer.Option(None, "--prompt-file", "-p", help="Path to prompt file"),
     metadata: Optional[str] = typer.Option(None, "--metadata", "-m", help="JSON metadata"),
 ):
-    """Enqueue task to stream."""
+    """Enqueue task to queue."""
     import json
     from pathlib import Path
     from .tools import get_registry
 
-    if not stream or not stream.strip():
-        _required_field("Stream", "Try: sparkq stream list")
+    if not queue or not queue.strip():
+        _required_field("Stream", "Try: sparkq queue list")
 
     if not tool or not tool.strip():
         _required_field("Tool", "List available: sparkq list tools")
 
-    stream = stream.strip()
+    queue = queue.strip()
     tool = tool.strip()
     task_class = task_class.strip() if task_class else task_class
 
@@ -665,13 +665,13 @@ def enqueue(
     if task_class not in valid_task_classes:
         _invalid_field("task_class", task_class, valid_options=sorted(valid_task_classes))
 
-    # Validate stream exists
-    st = get_storage().get_stream_by_name(stream)
+    # Validate queue exists
+    st = get_storage().get_queue_by_name(queue)
     if not st:
-        _resource_missing("Stream", stream, "sparkq stream list")
+        _resource_missing("Stream", queue, "sparkq queue list")
 
     if st.get("status") == "ended":
-        _state_error("Enqueue", "ended", "sparkq stream create <name>")
+        _state_error("Enqueue", "ended", "sparkq queue create <name>")
 
     # Get tool registry
     registry = get_registry()
@@ -713,7 +713,7 @@ def enqueue(
 
     # Create task
     task = get_storage().create_task(
-        stream_id=st['id'],
+        queue_id=st['id'],
         tool_name=tool,
         task_class=task_class,
         payload=payload_str,
@@ -722,24 +722,24 @@ def enqueue(
         metadata=metadata
     )
 
-    typer.echo(f"Task {task['id']} enqueued to stream '{stream}'")
+    typer.echo(f"Task {task['id']} enqueued to queue '{queue}'")
 
 
 @app.command(help="Check next task in queue")
 @cli_handler
 def peek(
-    stream: str = typer.Option(..., "--stream", "-s", help="Stream name"),
+    queue: str = typer.Option(..., "--queue", "-s", help="Stream name"),
 ):
     """Check next task in queue."""
-    if not stream or not stream.strip():
-        _required_field("Stream", "Try: sparkq stream list")
+    if not queue or not queue.strip():
+        _required_field("Stream", "Try: sparkq queue list")
 
-    stream = stream.strip()
+    queue = queue.strip()
 
-    # Find stream by name
-    st = get_storage().get_stream_by_name(stream)
+    # Find queue by name
+    st = get_storage().get_queue_by_name(queue)
     if not st:
-        _resource_missing("Stream", stream, "sparkq stream list")
+        _resource_missing("Stream", queue, "sparkq queue list")
 
     # Get oldest queued task
     task = get_storage().get_oldest_queued_task(st['id'])
@@ -763,45 +763,45 @@ def peek(
             pass
 
 
-@app.command(help="Claim next task in stream")
+@app.command(help="Claim next task in queue")
 @cli_handler
 def claim(
-    stream: Optional[str] = typer.Option(
-        None, "--stream", "-s", help="Stream name (optional - shows available if omitted)"
+    queue: Optional[str] = typer.Option(
+        None, "--queue", "-s", help="Stream name (optional - shows available if omitted)"
     ),
 ):
-    """Claim next task in stream."""
-    if not stream or not stream.strip():
-        available_streams = get_storage().list_streams(status="active")
-        if not available_streams:
-            _required_field("Stream", "Try: sparkq stream list")
+    """Claim next task in queue."""
+    if not queue or not queue.strip():
+        available_queues = get_storage().list_queues(status="active")
+        if not available_queues:
+            _required_field("Stream", "Try: sparkq queue list")
 
-        typer.echo("Available streams (specify with --stream):")
-        for st in available_streams:
+        typer.echo("Available queues (specify with --queue):")
+        for st in available_queues:
             typer.echo(f"- {st['name']} ({st['id']})")
         raise typer.Exit()
 
-    stream = stream.strip()
+    queue = queue.strip()
 
-    # Find stream by name
-    st = get_storage().get_stream_by_name(stream)
+    # Find queue by name
+    st = get_storage().get_queue_by_name(queue)
     if not st:
-        _resource_missing("Stream", stream, "sparkq stream list")
+        _resource_missing("Stream", queue, "sparkq queue list")
 
     if st.get("status") == "ended":
-        _state_error("Claim", "ended", "sparkq stream create <name>")
+        _state_error("Claim", "ended", "sparkq queue create <name>")
 
     # Get oldest queued task
     task = get_storage().get_oldest_queued_task(st['id'])
 
     if not task:
-        typer.echo(f"No queued tasks in stream '{stream}'")
+        typer.echo(f"No queued tasks in queue '{queue}'")
         return
 
     # Claim the task
     claimed_task = get_storage().claim_task(task['id'])
 
-    # Output task details with stream instructions
+    # Output task details with queue instructions
     typer.echo(f"Task {claimed_task['id']}: {claimed_task['tool_name']}")
     typer.echo(f"Stream: {st['name']}")
 
@@ -848,7 +848,7 @@ def complete(
 
     # Verify task is claimed (running status)
     if task['status'] != 'running':
-        _state_error("Complete task", task['status'], "sparkq claim --stream <name>")
+        _state_error("Complete task", task['status'], "sparkq claim --queue <name>")
 
     # Parse result (could be summary text, JSON, or file path)
     result_data = result
@@ -926,7 +926,7 @@ def fail(
         _required_field("Error message")
 
     if task['status'] != 'running':
-        _state_error("Fail task", task['status'], "sparkq claim --stream <name>")
+        _state_error("Fail task", task['status'], "sparkq claim --queue <name>")
 
     get_storage().fail_task(task_id, error, error_type=error_type, stdout=stdout, stderr=stderr)
 
@@ -939,8 +939,8 @@ def tasks(
     status: Optional[str] = typer.Option(
         None, "--status", "-s", help="Filter by status (queued, claimed, succeeded, failed)"
     ),
-    stream: Optional[str] = typer.Option(
-        None, "--stream", help="Filter by stream"
+    queue: Optional[str] = typer.Option(
+        None, "--queue", help="Filter by queue"
     ),
     stale: bool = typer.Option(False, "--stale", help="Show only stale (past timeout) tasks"),
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Limit number of results"),
@@ -958,19 +958,19 @@ def tasks(
             )
         status = normalized_status
 
-    # Resolve stream name to ID if provided
-    stream_id = None
-    if stream:
-        if not stream.strip():
-            _required_field("Stream", "Try: sparkq stream list")
-        stream = stream.strip()
-        st = get_storage().get_stream_by_name(stream)
+    # Resolve queue name to ID if provided
+    queue_id = None
+    if queue:
+        if not queue.strip():
+            _required_field("Stream", "Try: sparkq queue list")
+        queue = queue.strip()
+        st = get_storage().get_queue_by_name(queue)
         if not st:
-            _resource_missing("Stream", stream, "sparkq stream list")
-        stream_id = st['id']
+            _resource_missing("Stream", queue, "sparkq queue list")
+        queue_id = st['id']
 
     # Get tasks with filters
-    task_list = get_storage().list_tasks(stream_id=stream_id, status=status)
+    task_list = get_storage().list_tasks(queue_id=queue_id, status=status)
 
     if limit is not None:
         task_list = task_list[:limit]
@@ -985,14 +985,14 @@ def tasks(
     typer.echo("-" * 95)
 
     for t in task_list:
-        # Get stream name for display
-        task_stream = get_storage().get_stream(t['stream_id'])
-        stream_name = task_stream['name'] if task_stream else t['stream_id']
+        # Get queue name for display
+        task_queue = get_storage().get_queue(t['queue_id'])
+        queue_name = task_queue['name'] if task_queue else t['queue_id']
 
         # Truncate long tool names
         tool_display = t['tool_name'][:22] + "..." if len(t['tool_name']) > 25 else t['tool_name']
 
-        typer.echo(f"{t['id']:<15} {stream_name:<20} {tool_display:<25} {t['status']:<12} {t['created_at']:<20}")
+        typer.echo(f"{t['id']:<15} {queue_name:<20} {tool_display:<25} {t['status']:<12} {t['created_at']:<20}")
 
     typer.echo()
 

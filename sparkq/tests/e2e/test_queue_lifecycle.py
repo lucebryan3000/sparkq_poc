@@ -72,17 +72,17 @@ class TestQueueLifecycle:
         """Test full flow: enqueue → peek → claim → complete"""
         runner, storage = queue_runner
 
-        # Create session and stream
+        # Create session and queue
         run_cli(runner, ["session", "create", "test-session"])
-        run_cli(runner, ["stream", "create", "test-stream", "--session", "test-session"])
+        run_cli(runner, ["queue", "create", "test-queue", "--session", "test-session"])
 
         # Enqueue task
         enqueue_output = run_cli(
             runner,
             [
                 "enqueue",
-                "--stream",
-                "test-stream",
+                "--queue",
+                "test-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -98,7 +98,7 @@ class TestQueueLifecycle:
         assert task["tool_name"] == "run-bash"
 
         # Peek (should not change status)
-        peek_output = run_cli(runner, ["peek", "--stream", "test-stream"])
+        peek_output = run_cli(runner, ["peek", "--queue", "test-queue"])
         peek_id = extract_task_id(peek_output)
         assert peek_id == task_id
 
@@ -106,7 +106,7 @@ class TestQueueLifecycle:
         assert task["status"] == "queued", "Peek should not change status"
 
         # Claim (should mark as running)
-        claim_output = run_cli(runner, ["claim", "--stream", "test-stream"])
+        claim_output = run_cli(runner, ["claim", "--queue", "test-queue"])
         claim_id = extract_task_id(claim_output)
         assert claim_id == task_id
 
@@ -131,15 +131,15 @@ class TestQueueLifecycle:
         runner, storage = queue_runner
 
         run_cli(runner, ["session", "create", "fail-session"])
-        run_cli(runner, ["stream", "create", "fail-stream", "--session", "fail-session"])
+        run_cli(runner, ["queue", "create", "fail-queue", "--session", "fail-session"])
 
         # Enqueue task
         enqueue_output = run_cli(
             runner,
             [
                 "enqueue",
-                "--stream",
-                "fail-stream",
+                "--queue",
+                "fail-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -149,7 +149,7 @@ class TestQueueLifecycle:
         task_id = extract_task_id(enqueue_output)
 
         # Claim
-        run_cli(runner, ["claim", "--stream", "fail-stream"])
+        run_cli(runner, ["claim", "--queue", "fail-queue"])
 
         # Fail
         error_msg = "Simulated execution failure"
@@ -165,15 +165,15 @@ class TestQueueLifecycle:
         runner, storage = queue_runner
 
         run_cli(runner, ["session", "create", "requeue-session"])
-        run_cli(runner, ["stream", "create", "requeue-stream", "--session", "requeue-session"])
+        run_cli(runner, ["queue", "create", "requeue-queue", "--session", "requeue-session"])
 
         # Enqueue and fail
         enqueue_output = run_cli(
             runner,
             [
                 "enqueue",
-                "--stream",
-                "requeue-stream",
+                "--queue",
+                "requeue-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -182,7 +182,7 @@ class TestQueueLifecycle:
         )
         original_id = extract_task_id(enqueue_output)
 
-        run_cli(runner, ["claim", "--stream", "requeue-stream"])
+        run_cli(runner, ["claim", "--queue", "requeue-queue"])
         run_cli(runner, ["fail", original_id, "--error", "Transient error"])
 
         # Requeue
@@ -195,7 +195,7 @@ class TestQueueLifecycle:
         # Verify new task
         new_task = storage.get_task(new_id)
         assert new_task["status"] == "queued"
-        assert new_task["stream_id"] == storage.get_task(original_id)["stream_id"]
+        assert new_task["queue_id"] == storage.get_task(original_id)["queue_id"]
 
         payload = json.loads(new_task["payload"])
         assert payload["metadata"]["test"] == "requeue"
@@ -209,7 +209,7 @@ class TestQueueLifecycle:
         runner, storage = queue_runner
 
         run_cli(runner, ["session", "create", "fifo-session"])
-        run_cli(runner, ["stream", "create", "fifo-stream", "--session", "fifo-session"])
+        run_cli(runner, ["queue", "create", "fifo-queue", "--session", "fifo-session"])
 
         # Enqueue 5 tasks
         task_ids = []
@@ -218,8 +218,8 @@ class TestQueueLifecycle:
                 runner,
                 [
                     "enqueue",
-                    "--stream",
-                    "fifo-stream",
+                    "--queue",
+                    "fifo-queue",
                     "--tool",
                     "run-bash",
                     "--metadata",
@@ -232,53 +232,53 @@ class TestQueueLifecycle:
         # Claim all tasks
         claimed_ids = []
         for _ in range(5):
-            output = run_cli(runner, ["claim", "--stream", "fifo-stream"])
+            output = run_cli(runner, ["claim", "--queue", "fifo-queue"])
             claimed_ids.append(extract_task_id(output))
 
         # Verify FIFO order
         assert claimed_ids == task_ids, "Tasks should be claimed in FIFO order"
 
     def test_stream_isolation(self, queue_runner):
-        """Test that tasks are isolated by stream"""
+        """Test that tasks are isolated by queue"""
         runner, storage = queue_runner
 
         run_cli(runner, ["session", "create", "isolation-session"])
-        run_cli(runner, ["stream", "create", "stream-a", "--session", "isolation-session"])
-        run_cli(runner, ["stream", "create", "stream-b", "--session", "isolation-session"])
+        run_cli(runner, ["queue", "create", "queue-a", "--session", "isolation-session"])
+        run_cli(runner, ["queue", "create", "queue-b", "--session", "isolation-session"])
 
-        # Enqueue to stream A
+        # Enqueue to queue A
         output_a = run_cli(
             runner,
             [
                 "enqueue",
-                "--stream",
-                "stream-a",
+                "--queue",
+                "queue-a",
                 "--tool",
                 "run-bash",
                 "--metadata",
-                json.dumps({"stream": "a"}),
+                json.dumps({"queue": "a"}),
             ],
         )
         task_a = extract_task_id(output_a)
 
-        # Enqueue to stream B
+        # Enqueue to queue B
         output_b = run_cli(
             runner,
             [
                 "enqueue",
-                "--stream",
-                "stream-b",
+                "--queue",
+                "queue-b",
                 "--tool",
                 "run-bash",
                 "--metadata",
-                json.dumps({"stream": "b"}),
+                json.dumps({"queue": "b"}),
             ],
         )
         task_b = extract_task_id(output_b)
 
-        # Claim from each stream
-        claim_a = extract_task_id(run_cli(runner, ["claim", "--stream", "stream-a"]))
-        claim_b = extract_task_id(run_cli(runner, ["claim", "--stream", "stream-b"]))
+        # Claim from each queue
+        claim_a = extract_task_id(run_cli(runner, ["claim", "--queue", "queue-a"]))
+        claim_b = extract_task_id(run_cli(runner, ["claim", "--queue", "queue-b"]))
 
         # Verify isolation
         assert claim_a == task_a
@@ -287,17 +287,17 @@ class TestQueueLifecycle:
         # Verify they're in different streams
         task_a_data = storage.get_task(task_a)
         task_b_data = storage.get_task(task_b)
-        assert task_a_data["stream_id"] != task_b_data["stream_id"]
+        assert task_a_data["queue_id"] != task_b_data["queue_id"]
 
     def test_empty_queue_behavior(self, queue_runner):
         """Test behavior when claiming from empty queue"""
         runner, storage = queue_runner
 
         run_cli(runner, ["session", "create", "empty-session"])
-        run_cli(runner, ["stream", "create", "empty-stream", "--session", "empty-session"])
+        run_cli(runner, ["queue", "create", "empty-queue", "--session", "empty-session"])
 
         # Try to claim from empty queue (should fail gracefully)
-        result = runner.invoke(app, ["claim", "--stream", "empty-stream"])
+        result = runner.invoke(app, ["claim", "--queue", "empty-queue"])
 
         # Should contain "No tasks" message (exit code 0 is OK, it's a graceful message)
         assert "No" in result.stdout and "tasks" in result.stdout.lower()
@@ -307,7 +307,7 @@ class TestQueueLifecycle:
         runner, storage = queue_runner
 
         run_cli(runner, ["session", "create", "metadata-session"])
-        run_cli(runner, ["stream", "create", "metadata-stream", "--session", "metadata-session"])
+        run_cli(runner, ["queue", "create", "metadata-queue", "--session", "metadata-session"])
 
         # Enqueue with rich metadata
         metadata = {
@@ -321,8 +321,8 @@ class TestQueueLifecycle:
             runner,
             [
                 "enqueue",
-                "--stream",
-                "metadata-stream",
+                "--queue",
+                "metadata-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -332,7 +332,7 @@ class TestQueueLifecycle:
         task_id = extract_task_id(output)
 
         # Claim and complete
-        run_cli(runner, ["claim", "--stream", "metadata-stream"])
+        run_cli(runner, ["claim", "--queue", "metadata-queue"])
         run_cli(runner, ["complete", task_id, "--result", json.dumps({"status": "ok"})])
 
         # Verify metadata preserved

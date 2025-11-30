@@ -123,52 +123,52 @@ class TestSessionOperations:
 
 class TestStreamOperations:
     def test_create_stream_for_session(self, storage, session):
-        stream = storage.create_stream(
+        queue = storage.create_queue(
             session_id=session["id"],
-            name="stream-alpha",
+            name="queue-alpha",
             instructions="do something",
         )
 
-        assert stream["id"].startswith("str_")
-        assert stream["session_id"] == session["id"]
-        assert stream["status"] == "active"
+        assert queue["id"].startswith("str_")
+        assert queue["session_id"] == session["id"]
+        assert queue["status"] == "active"
 
         with storage.connection() as conn:
-            row = conn.execute("SELECT * FROM streams WHERE id = ?", (stream["id"],)).fetchone()
+            row = conn.execute("SELECT * FROM streams WHERE id = ?", (queue["id"],)).fetchone()
         assert row is not None
-        assert row["name"] == "stream-alpha"
+        assert row["name"] == "queue-alpha"
         assert row["session_id"] == session["id"]
 
     def test_stream_name_must_be_unique(self, storage, session):
-        storage.create_stream(session_id=session["id"], name="unique-stream")
+        storage.create_queue(session_id=session["id"], name="unique-queue")
         with pytest.raises(sqlite3.IntegrityError):
-            storage.create_stream(session_id=session["id"], name="unique-stream")
+            storage.create_queue(session_id=session["id"], name="unique-queue")
 
     def test_list_streams_filters_by_session(self, storage, project):
         session_one = storage.create_session(name="session-one")
         session_two = storage.create_session(name="session-two")
 
-        first_stream = storage.create_stream(session_id=session_one["id"], name="s-one")
-        storage.create_stream(session_id=session_two["id"], name="s-two")
-        second_stream = storage.create_stream(session_id=session_one["id"], name="s-three")
+        first_stream = storage.create_queue(session_id=session_one["id"], name="s-one")
+        storage.create_queue(session_id=session_two["id"], name="s-two")
+        second_stream = storage.create_queue(session_id=session_one["id"], name="s-three")
 
-        streams = storage.list_streams(session_id=session_one["id"])
+        streams = storage.list_queues(session_id=session_one["id"])
         stream_ids = {s["id"] for s in streams}
         assert stream_ids == {first_stream["id"], second_stream["id"]}
 
     def test_get_stream_by_name(self, storage, session):
-        stream = storage.create_stream(session_id=session["id"], name="lookup-stream")
+        queue = storage.create_queue(session_id=session["id"], name="lookup-queue")
 
-        retrieved = storage.get_stream_by_name("lookup-stream")
+        retrieved = storage.get_queue_by_name("lookup-queue")
         assert retrieved is not None
-        assert retrieved["id"] == stream["id"]
-        assert retrieved["name"] == "lookup-stream"
+        assert retrieved["id"] == queue["id"]
+        assert retrieved["name"] == "lookup-queue"
 
 
 class TestTaskOperations:
-    def test_create_task_stores_defaults(self, storage, stream):
+    def test_create_task_stores_defaults(self, storage, queue):
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-a",
             task_class="CLASS_A",
             payload="{}",
@@ -182,28 +182,28 @@ class TestTaskOperations:
         with storage.connection() as conn:
             row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task["id"],)).fetchone()
         assert row is not None
-        assert row["stream_id"] == stream["id"]
+        assert row["queue_id"] == queue["id"]
         assert row["task_class"] == "CLASS_A"
         assert row["status"] == "queued"
         assert row["attempts"] == 0
 
-    def test_get_oldest_queued_task_respects_fifo(self, storage, stream):
+    def test_get_oldest_queued_task_respects_fifo(self, storage, queue):
         first = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-a",
             task_class="FIRST",
             payload="{}",
             timeout=30,
         )
         second = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-b",
             task_class="SECOND",
             payload="{}",
             timeout=30,
         )
         third = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-c",
             task_class="THIRD",
             payload="{}",
@@ -224,14 +224,14 @@ class TestTaskOperations:
                 ("2024-01-01T00:00:02Z", third["id"]),
             )
 
-        oldest = storage.get_oldest_queued_task(stream["id"])
+        oldest = storage.get_oldest_queued_task(queue["id"])
         assert oldest is not None
         assert oldest["id"] == first["id"]
         assert oldest["status"] == "queued"
 
-    def test_claim_task_sets_running_status_and_attempts(self, storage, stream):
+    def test_claim_task_sets_running_status_and_attempts(self, storage, queue):
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-a",
             task_class="CLAIM",
             payload="{}",
@@ -249,13 +249,13 @@ class TestTaskOperations:
         assert row["status"] == "running"
         assert row["attempts"] == 1
 
-    def test_get_oldest_queued_task_returns_none_when_empty(self, storage, stream):
-        oldest = storage.get_oldest_queued_task(stream["id"])
+    def test_get_oldest_queued_task_returns_none_when_empty(self, storage, queue):
+        oldest = storage.get_oldest_queued_task(queue["id"])
         assert oldest is None
 
-    def test_complete_task_transitions_to_succeeded(self, storage, stream):
+    def test_complete_task_transitions_to_succeeded(self, storage, queue):
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-a",
             task_class="COMPLETE",
             payload="{}",
@@ -273,9 +273,9 @@ class TestTaskOperations:
         assert row["status"] == "succeeded"
         assert row["result"] == "details"
 
-    def test_fail_task_marks_failed_with_error(self, storage, stream):
+    def test_fail_task_marks_failed_with_error(self, storage, queue):
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-a",
             task_class="FAIL",
             payload="{}",
@@ -293,9 +293,9 @@ class TestTaskOperations:
         assert row["status"] == "failed"
         assert "IOError" in row["error"]
 
-    def test_requeue_task_clones_original(self, storage, stream):
+    def test_requeue_task_clones_original(self, storage, queue):
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-a",
             task_class="REQUEUE",
             payload="{}",
@@ -308,20 +308,20 @@ class TestTaskOperations:
         assert requeued["id"] != task["id"]
         assert requeued["status"] == "queued"
         assert requeued["attempts"] == 0
-        assert requeued["stream_id"] == task["stream_id"]
+        assert requeued["queue_id"] == task["queue_id"]
 
         with storage.connection() as conn:
             rows = conn.execute(
-                "SELECT status FROM tasks WHERE stream_id = ? ORDER BY created_at ASC",
-                (stream["id"],),
+                "SELECT status FROM tasks WHERE queue_id = ? ORDER BY created_at ASC",
+                (queue["id"],),
             ).fetchall()
         statuses = [row["status"] for row in rows]
         assert statuses.count("queued") == 1
         assert "failed" in statuses
 
-    def test_get_stale_tasks_detects_expired_claims(self, storage, stream):
+    def test_get_stale_tasks_detects_expired_claims(self, storage, queue):
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-a",
             task_class="STALE",
             payload="{}",
@@ -342,30 +342,30 @@ class TestTaskOperations:
 
 
 class TestTaskCounts:
-    def test_count_tasks_by_status(self, storage, stream):
+    def test_count_tasks_by_status(self, storage, queue):
         queued = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-a",
             task_class="QUEUED",
             payload="{}",
             timeout=10,
         )
         running = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-b",
             task_class="RUNNING",
             payload="{}",
             timeout=10,
         )
         succeeded = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-c",
             task_class="SUCCEEDED",
             payload="{}",
             timeout=10,
         )
         failed = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool-d",
             task_class="FAILED",
             payload="{}",

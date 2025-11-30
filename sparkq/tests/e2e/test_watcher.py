@@ -11,14 +11,14 @@ WATCHER_SCRIPT = Path(__file__).resolve().parents[2] / "sparkq-watcher.sh"
 @pytest.mark.e2e
 @pytest.mark.slow
 class TestWatcherBehavior:
-    def _lock_path(self, stream_name: str) -> Path:
-        return Path(f"/tmp/sparkq-{stream_name}.lock")
+    def _lock_path(self, queue_name: str) -> Path:
+        return Path(f"/tmp/sparkq-{queue_name}.lock")
 
-    def _start_watcher(self, stream_name: str):
-        lock_path = self._lock_path(stream_name)
+    def _start_watcher(self, queue_name: str):
+        lock_path = self._lock_path(queue_name)
         lock_path.unlink(missing_ok=True)
         process = subprocess.Popen(
-            [str(WATCHER_SCRIPT), stream_name],
+            [str(WATCHER_SCRIPT), queue_name],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -41,8 +41,8 @@ class TestWatcherBehavior:
             time.sleep(0.1)
 
     def test_watcher_starts_and_creates_lockfile(self):
-        stream_name = f"watcher-start-{int(time.time() * 1000)}"
-        process, lock_path = self._start_watcher(stream_name)
+        queue_name = f"watcher-start-{int(time.time() * 1000)}"
+        process, lock_path = self._start_watcher(queue_name)
         try:
             time.sleep(1)
             assert lock_path.exists(), "Watcher did not create lock file"
@@ -52,12 +52,12 @@ class TestWatcherBehavior:
             lock_path.unlink(missing_ok=True)
 
     def test_watcher_prevents_duplicate(self):
-        stream_name = f"watcher-duplicate-{int(time.time() * 1000)}"
-        primary_process, lock_path = self._start_watcher(stream_name)
+        queue_name = f"watcher-duplicate-{int(time.time() * 1000)}"
+        primary_process, lock_path = self._start_watcher(queue_name)
         try:
             time.sleep(1)
             duplicate_process = subprocess.Popen(
-                [str(WATCHER_SCRIPT), stream_name],
+                [str(WATCHER_SCRIPT), queue_name],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -76,8 +76,8 @@ class TestWatcherBehavior:
             lock_path.unlink(missing_ok=True)
 
     def test_watcher_cleanup_on_signal(self):
-        stream_name = f"watcher-cleanup-{int(time.time() * 1000)}"
-        process, lock_path = self._start_watcher(stream_name)
+        queue_name = f"watcher-cleanup-{int(time.time() * 1000)}"
+        process, lock_path = self._start_watcher(queue_name)
         try:
             time.sleep(1)
             assert lock_path.exists(), "Lock file missing before sending SIGTERM"

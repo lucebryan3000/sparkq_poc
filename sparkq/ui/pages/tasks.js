@@ -13,7 +13,7 @@
   const withButtonLoading = Utils.withButtonLoading;
 
   const taskFilters = {
-    streamId: '',
+    queueId: '',
     status: '',
   };
 
@@ -36,7 +36,7 @@
 
     let streams = [];
     try {
-      const response = await api('GET', '/api/streams', null, { action: 'load queues' });
+      const response = await api('GET', '/api/queues', null, { action: 'load queues' });
       streams = response?.streams || [];
     } catch (err) {
       handleApiError('load queues for filters', err);
@@ -45,8 +45,8 @@
     let tasks = [];
     try {
       const query = [];
-      if (taskFilters.streamId) {
-        query.push(`stream_id=${encodeURIComponent(taskFilters.streamId)}`);
+      if (taskFilters.queueId) {
+        query.push(`queue_id=${encodeURIComponent(taskFilters.queueId)}`);
       }
       if (taskFilters.status) {
         query.push(`status=${encodeURIComponent(taskFilters.status)}`);
@@ -67,15 +67,15 @@
       return;
     }
 
-    const streamsById = {};
-    streams.forEach((stream) => {
-      streamsById[stream.id] = stream.name || stream.id;
+    const queuesById = {};
+    streams.forEach((queue) => {
+      queuesById[queue.id] = queue.name || queue.id;
     });
 
     const streamOptions = streams
       .map(
-        (stream) =>
-          `<option value="${stream.id}" ${stream.id === taskFilters.streamId ? 'selected' : ''}>${stream.name || stream.id}</option>`,
+        (queue) =>
+          `<option value="${queue.id}" ${queue.id === taskFilters.queueId ? 'selected' : ''}>${queue.name || queue.id}</option>`,
       )
       .join('');
 
@@ -95,7 +95,7 @@
     const rows = tasks
       .map((task) => {
         const timeStatus = getTaskTimeStatus(task);
-        const streamName = streamsById[task.stream_id] || task.stream_id;
+        const queueName = queuesById[task.queue_id] || task.queue_id;
         const rowClass = timeStatus.isStale ? 'task-stale-error' : timeStatus.isWarned ? 'task-stale-warning' : '';
         const staleBadge = timeStatus.isStale
           ? `<span class="timeout-badge timeout-badge-error">⚠️ TIMEOUT</span>`
@@ -107,7 +107,7 @@
           <tr class="task-row ${rowClass}" data-task-id="${task.id}">
             <td style="width: 30px;"><input type="checkbox" class="task-checkbox" data-task-id="${task.id}" /></td>
             <td>${task.id}</td>
-            <td>${streamName}</td>
+            <td>${queueName}</td>
             <td>${task.tool_name}</td>
             <td>${task.status} ${staleBadge}</td>
             <td>${formatTimestamp(task.created_at)}</td>
@@ -145,8 +145,8 @@
       <div class="card">
         <div class="grid grid-2">
           <div class="input-group">
-            <label for="task-stream-filter">Queue</label>
-            <select id="task-stream-filter">
+            <label for="task-queue-filter">Queue</label>
+            <select id="task-queue-filter">
               <option value="">All queues</option>
               ${streamOptions}
             </select>
@@ -164,13 +164,13 @@
       </div>
     `;
 
-    const streamSelect = container.querySelector('#task-stream-filter');
+    const streamSelect = container.querySelector('#task-queue-filter');
     const statusSelect = container.querySelector('#task-status-filter');
 
     if (streamSelect) {
-      streamSelect.value = taskFilters.streamId;
+      streamSelect.value = taskFilters.queueId;
       streamSelect.addEventListener('change', () => {
-        taskFilters.streamId = streamSelect.value;
+        taskFilters.queueId = streamSelect.value;
         renderTasksPage(container);
       });
     }
@@ -357,7 +357,7 @@
         </div>
         <p class="muted">Status: ${task.status}</p>
         <div class="grid grid-2">
-          <div><strong>Queue</strong><div>${formatValue(task.stream_id, '—')}</div></div>
+          <div><strong>Queue</strong><div>${formatValue(task.queue_id, '—')}</div></div>
           <div><strong>Tool</strong><div>${formatValue(task.tool_name, '—')}</div></div>
           <div><strong>Created</strong><div>${formatTimestamp(task.created_at)}</div></div>
           <div><strong>Claimed</strong><div>${formatTimestamp(task.claimed_at)}</div></div>

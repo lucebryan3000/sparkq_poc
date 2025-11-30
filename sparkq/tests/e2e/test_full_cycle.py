@@ -62,24 +62,24 @@ def get_task(task_id: str) -> dict:
     return task
 
 
-def create_session_and_stream(runner: CliRunner, session_name: str, stream_name: str) -> None:
+def create_session_and_stream(runner: CliRunner, session_name: str, queue_name: str) -> None:
     run_cli(runner, ["session", "create", session_name])
-    run_cli(runner, ["stream", "create", stream_name, "--session", session_name])
+    run_cli(runner, ["queue", "create", queue_name, "--session", session_name])
 
 
 @pytest.mark.e2e
 class TestFullTaskLifecycle:
     def test_basic_lifecycle(self, cli_runner: CliRunner):
         session_name = "basic-session"
-        stream_name = "basic-stream"
-        create_session_and_stream(cli_runner, session_name, stream_name)
+        queue_name = "basic-queue"
+        create_session_and_stream(cli_runner, session_name, queue_name)
 
         enqueue_output = run_cli(
             cli_runner,
             [
                 "enqueue",
-                "--stream",
-                stream_name,
+                "--queue",
+                queue_name,
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -90,10 +90,10 @@ class TestFullTaskLifecycle:
         payload = json.loads(get_task(task_id)["payload"])
         assert payload["metadata"]["order"] == 1
 
-        peek_output = run_cli(cli_runner, ["peek", "--stream", stream_name])
+        peek_output = run_cli(cli_runner, ["peek", "--queue", queue_name])
         assert extract_task_id(peek_output) == task_id
 
-        claim_output = run_cli(cli_runner, ["claim", "--stream", stream_name])
+        claim_output = run_cli(cli_runner, ["claim", "--queue", queue_name])
         assert extract_task_id(claim_output) == task_id
         assert get_task(task_id)["status"] == "running"
 
@@ -107,15 +107,15 @@ class TestFullTaskLifecycle:
 
     def test_failure_and_requeue_lifecycle(self, cli_runner: CliRunner):
         session_name = "fail-session"
-        stream_name = "fail-stream"
-        create_session_and_stream(cli_runner, session_name, stream_name)
+        queue_name = "fail-queue"
+        create_session_and_stream(cli_runner, session_name, queue_name)
 
         enqueue_output = run_cli(
             cli_runner,
             [
                 "enqueue",
-                "--stream",
-                stream_name,
+                "--queue",
+                queue_name,
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -124,7 +124,7 @@ class TestFullTaskLifecycle:
         )
         task_id = extract_task_id(enqueue_output)
 
-        run_cli(cli_runner, ["claim", "--stream", stream_name])
+        run_cli(cli_runner, ["claim", "--queue", queue_name])
         assert get_task(task_id)["status"] == "running"
 
         run_cli(cli_runner, ["fail", task_id, "--error", "Injected failure"])
@@ -148,8 +148,8 @@ class TestFullTaskLifecycle:
 class TestFIFOOrdering:
     def test_fifo_order(self, cli_runner: CliRunner):
         session_name = "fifo-session"
-        stream_name = "fifo-stream"
-        create_session_and_stream(cli_runner, session_name, stream_name)
+        queue_name = "fifo-queue"
+        create_session_and_stream(cli_runner, session_name, queue_name)
 
         enqueued_ids: list[str] = []
         for order in [1, 2, 3]:
@@ -157,8 +157,8 @@ class TestFIFOOrdering:
                 cli_runner,
                 [
                     "enqueue",
-                    "--stream",
-                    stream_name,
+                    "--queue",
+                    queue_name,
                     "--tool",
                     "run-bash",
                     "--metadata",
@@ -168,7 +168,7 @@ class TestFIFOOrdering:
             enqueued_ids.append(extract_task_id(output))
 
         claimed_ids = [
-            extract_task_id(run_cli(cli_runner, ["claim", "--stream", stream_name]))
+            extract_task_id(run_cli(cli_runner, ["claim", "--queue", queue_name]))
             for _ in enqueued_ids
         ]
 
@@ -179,52 +179,52 @@ class TestFIFOOrdering:
 class TestMultiStreamIsolation:
     def test_stream_isolation(self, cli_runner: CliRunner):
         session_name = "multi-session"
-        primary_stream = "alpha-stream"
-        secondary_stream = "beta-stream"
+        primary_stream = "alpha-queue"
+        secondary_stream = "beta-queue"
         create_session_and_stream(cli_runner, session_name, primary_stream)
-        run_cli(cli_runner, ["stream", "create", secondary_stream, "--session", session_name])
+        run_cli(cli_runner, ["queue", "create", secondary_stream, "--session", session_name])
 
         enqueue_primary = run_cli(
             cli_runner,
             [
                 "enqueue",
-                "--stream",
+                "--queue",
                 primary_stream,
                 "--tool",
                 "run-bash",
                 "--metadata",
-                json.dumps({"stream": primary_stream}),
+                json.dumps({"queue": primary_stream}),
             ],
         )
         enqueue_secondary = run_cli(
             cli_runner,
             [
                 "enqueue",
-                "--stream",
+                "--queue",
                 secondary_stream,
                 "--tool",
                 "run-bash",
                 "--metadata",
-                json.dumps({"stream": secondary_stream}),
+                json.dumps({"queue": secondary_stream}),
             ],
         )
 
         primary_task_id = extract_task_id(enqueue_primary)
         secondary_task_id = extract_task_id(enqueue_secondary)
 
-        claim_primary = extract_task_id(run_cli(cli_runner, ["claim", "--stream", primary_stream]))
-        claim_secondary = extract_task_id(run_cli(cli_runner, ["claim", "--stream", secondary_stream]))
+        claim_primary = extract_task_id(run_cli(cli_runner, ["claim", "--queue", primary_stream]))
+        claim_secondary = extract_task_id(run_cli(cli_runner, ["claim", "--queue", secondary_stream]))
 
         assert claim_primary == primary_task_id
         assert claim_secondary == secondary_task_id
 
         primary_task = get_task(primary_task_id)
         secondary_task = get_task(secondary_task_id)
-        assert primary_task["stream_id"] != secondary_task["stream_id"]
+        assert primary_task["queue_id"] != secondary_task["queue_id"]
         assert primary_task["status"] == "running"
         assert secondary_task["status"] == "running"
 
         primary_payload = json.loads(primary_task["payload"])
         secondary_payload = json.loads(secondary_task["payload"])
-        assert primary_payload["metadata"]["stream"] == primary_stream
-        assert secondary_payload["metadata"]["stream"] == secondary_stream
+        assert primary_payload["metadata"]["queue"] == primary_stream
+        assert secondary_payload["metadata"]["queue"] == secondary_stream

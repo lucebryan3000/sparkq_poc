@@ -83,10 +83,10 @@ def extract_task_id(text: str) -> str:
     return match.group(0)
 
 
-def create_session_and_stream(runner: CliRunner, session_name: str, stream_name: str, instructions: str | None = None):
+def create_session_and_stream(runner: CliRunner, session_name: str, queue_name: str, instructions: str | None = None):
     session_result = runner.invoke(app, ["session", "create", session_name])
     assert session_result.exit_code == 0
-    stream_args = ["stream", "create", stream_name, "--session", session_name]
+    stream_args = ["queue", "create", queue_name, "--session", session_name]
     if instructions:
         stream_args.extend(["--instructions", instructions])
     stream_result = runner.invoke(app, stream_args)
@@ -132,47 +132,47 @@ class TestSessionCommands:
 
 class TestStreamCommands:
     def test_stream_create(self, cli_runner: CliRunner):
-        session_result = cli_runner.invoke(app, ["session", "create", "stream-session"])
+        session_result = cli_runner.invoke(app, ["session", "create", "queue-session"])
         assert session_result.exit_code == 0
 
         stream_result = cli_runner.invoke(
             app,
             [
-                "stream",
+                "queue",
                 "create",
-                "api-stream",
+                "api-queue",
                 "--session",
-                "stream-session",
+                "queue-session",
                 "--instructions",
                 "Build API layer",
             ],
         )
 
         assert stream_result.exit_code == 0
-        assert "Created stream: api-stream" in stream_result.stdout
+        assert "Created queue: api-queue" in stream_result.stdout
         assert STREAM_ID_RE.search(stream_result.stdout)
         assert "Instructions" in stream_result.stdout
 
     def test_stream_list(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "list-session", "list-stream")
+        create_session_and_stream(cli_runner, "list-session", "list-queue")
 
-        list_result = cli_runner.invoke(app, ["stream", "list"])
+        list_result = cli_runner.invoke(app, ["queue", "list"])
 
         assert list_result.exit_code == 0
-        assert "list-stream" in list_result.stdout
+        assert "list-queue" in list_result.stdout
         assert "list-session" in list_result.stdout
 
 
 class TestTaskCommands:
     def test_enqueue_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-stream")
+        create_session_and_stream(cli_runner, "task-session", "task-queue")
 
         result = cli_runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "task-stream",
+                "--queue",
+                "task-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -183,17 +183,17 @@ class TestTaskCommands:
         assert result.exit_code == 0
         task_id = extract_task_id(result.stdout)
         assert task_id.startswith("tsk_")
-        assert "task-stream" in result.stdout
+        assert "task-queue" in result.stdout
 
     def test_enqueue_invalid_tool(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-stream")
+        create_session_and_stream(cli_runner, "task-session", "task-queue")
 
         result = cli_runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "task-stream",
+                "--queue",
+                "task-queue",
                 "--tool",
                 "missing-tool",
             ],
@@ -204,14 +204,14 @@ class TestTaskCommands:
         assert "sparkq list tools" in result.stderr
 
     def test_enqueue_invalid_json(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-stream")
+        create_session_and_stream(cli_runner, "task-session", "task-queue")
 
         result = cli_runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "task-stream",
+                "--queue",
+                "task-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -224,20 +224,20 @@ class TestTaskCommands:
         assert "Provide valid JSON" in result.stderr
 
     def test_peek_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-stream")
+        create_session_and_stream(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "task-stream",
+                "--queue",
+                "task-queue",
                 "--tool",
                 "run-bash",
             ],
         )
         queued_id = extract_task_id(enqueue_result.stdout)
 
-        peek_result = cli_runner.invoke(app, ["peek", "--stream", "task-stream"])
+        peek_result = cli_runner.invoke(app, ["peek", "--queue", "task-queue"])
 
         assert peek_result.exit_code == 0
         peek_id = extract_task_id(peek_result.stdout)
@@ -245,47 +245,47 @@ class TestTaskCommands:
         assert "run-bash" in peek_result.stdout
 
     def test_claim_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-stream")
+        create_session_and_stream(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "task-stream",
+                "--queue",
+                "task-queue",
                 "--tool",
                 "run-bash",
             ],
         )
         queued_id = extract_task_id(enqueue_result.stdout)
 
-        claim_result = cli_runner.invoke(app, ["claim", "--stream", "task-stream"])
+        claim_result = cli_runner.invoke(app, ["claim", "--queue", "task-queue"])
 
         assert claim_result.exit_code == 0
         claimed_id = extract_task_id(claim_result.stdout)
         assert claimed_id == queued_id
-        assert "Stream: task-stream" in claim_result.stdout
+        assert "Stream: task-queue" in claim_result.stdout
 
     def test_claim_without_stream_errors(self, cli_runner: CliRunner):
         result = cli_runner.invoke(app, ["claim"])
 
         assert result.exit_code == 1
         assert "Stream is required" in result.stderr
-        assert "sparkq stream list" in result.stderr
+        assert "sparkq queue list" in result.stderr
 
     def test_complete_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-stream")
+        create_session_and_stream(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "task-stream",
+                "--queue",
+                "task-queue",
                 "--tool",
                 "run-bash",
             ],
         )
         task_id = extract_task_id(enqueue_result.stdout)
-        claim_result = cli_runner.invoke(app, ["claim", "--stream", "task-stream"])
+        claim_result = cli_runner.invoke(app, ["claim", "--queue", "task-queue"])
         assert claim_result.exit_code == 0
 
         complete_result = cli_runner.invoke(
@@ -304,19 +304,19 @@ class TestTaskCommands:
         assert task and task["status"] == "succeeded"
 
     def test_complete_missing_summary(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-stream")
+        create_session_and_stream(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "task-stream",
+                "--queue",
+                "task-queue",
                 "--tool",
                 "run-bash",
             ],
         )
         task_id = extract_task_id(enqueue_result.stdout)
-        claim_result = cli_runner.invoke(app, ["claim", "--stream", "task-stream"])
+        claim_result = cli_runner.invoke(app, ["claim", "--queue", "task-queue"])
         assert claim_result.exit_code == 0
 
         complete_result = cli_runner.invoke(
@@ -335,19 +335,19 @@ class TestTaskCommands:
         assert task and task["status"] == "running"
 
     def test_fail_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-stream")
+        create_session_and_stream(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "task-stream",
+                "--queue",
+                "task-queue",
                 "--tool",
                 "run-bash",
             ],
         )
         task_id = extract_task_id(enqueue_result.stdout)
-        claim_result = cli_runner.invoke(app, ["claim", "--stream", "task-stream"])
+        claim_result = cli_runner.invoke(app, ["claim", "--queue", "task-queue"])
         assert claim_result.exit_code == 0
 
         fail_result = cli_runner.invoke(
@@ -368,19 +368,19 @@ class TestTaskCommands:
         assert task and task["status"] == "failed"
 
     def test_requeue_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-stream")
+        create_session_and_stream(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "task-stream",
+                "--queue",
+                "task-queue",
                 "--tool",
                 "run-bash",
             ],
         )
         task_id = extract_task_id(enqueue_result.stdout)
-        claim_result = cli_runner.invoke(app, ["claim", "--stream", "task-stream"])
+        claim_result = cli_runner.invoke(app, ["claim", "--queue", "task-queue"])
         assert claim_result.exit_code == 0
         fail_result = cli_runner.invoke(
             app,

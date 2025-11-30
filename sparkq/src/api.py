@@ -130,19 +130,19 @@ class SessionUpdateRequest(BaseModel):
     description: Optional[str] = None
 
 
-class StreamCreateRequest(BaseModel):
+class QueueCreateRequest(BaseModel):
     session_id: str
     name: str
     instructions: Optional[str] = None
 
 
-class StreamUpdateRequest(BaseModel):
+class QueueUpdateRequest(BaseModel):
     name: Optional[str] = None
     instructions: Optional[str] = None
 
 
 class TaskCreateRequest(BaseModel):
-    stream_id: str
+    queue_id: str
     tool_name: str
     task_class: str
     timeout: Optional[int] = None
@@ -165,7 +165,7 @@ class TaskFailRequest(BaseModel):
 
 
 class QuickAddTaskRequest(BaseModel):
-    stream_id: str
+    queue_id: str
     mode: str  # 'llm' or 'script'
 
     # For LLM mode
@@ -234,7 +234,7 @@ async def stats():
     """Get dashboard statistics."""
     try:
         sessions = storage.list_sessions()
-        streams = storage.list_streams()
+        streams = storage.list_queues()
         tasks = storage.list_tasks()
 
         queued_count = sum(1 for t in tasks if t.get("status") == "queued")
@@ -333,26 +333,26 @@ async def end_session(session_id: str):
     return {"message": "Session ended", "session": session}
 
 
-@app.get("/api/streams")
-async def list_streams(
+@app.get("/api/queues")
+async def list_queues(
     session_id: Optional[str] = None,
     limit: int = Query(100, ge=0),
     offset: int = Query(0, ge=0),
 ):
-    streams = storage.list_streams(session_id=session_id)
+    streams = storage.list_queues(session_id=session_id)
 
     # Enhance with stats
-    for stream in streams:
-        stream_id = stream["id"]
+    for queue in streams:
+        queue_id = queue["id"]
 
         # Get task counts
-        all_tasks = storage.list_tasks(stream_id=stream_id)
+        all_tasks = storage.list_tasks(queue_id=queue_id)
         total = len(all_tasks)
         done = len([t for t in all_tasks if t.get("status") == "succeeded"])
         running = len([t for t in all_tasks if t.get("status") == "running"])
         queued = len([t for t in all_tasks if t.get("status") == "queued"])
 
-        stream["stats"] = {
+        queue["stats"] = {
             "total": total,
             "done": done,
             "running": running,
@@ -362,18 +362,18 @@ async def list_streams(
 
         # Determine status
         if running > 0:
-            stream["status"] = "active"
+            queue["status"] = "active"
         elif queued > 0:
-            stream["status"] = "planned"
+            queue["status"] = "planned"
         else:
-            stream["status"] = "idle"
+            queue["status"] = "idle"
 
     paginated_streams = streams[offset : offset + limit]
     return {"streams": paginated_streams}
 
 
-@app.post("/api/streams", status_code=201)
-async def create_stream(request: StreamCreateRequest):
+@app.post("/api/queues", status_code=201)
+async def create_queue(request: QueueCreateRequest):
     if not request.name or not request.name.strip():
         raise HTTPException(status_code=400, detail="Stream name is required")
 
@@ -382,7 +382,7 @@ async def create_stream(request: StreamCreateRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        stream = storage.create_stream(
+        queue = storage.create_queue(
             session_id=request.session_id,
             name=request.name.strip(),
             instructions=request.instructions,
@@ -390,23 +390,23 @@ async def create_stream(request: StreamCreateRequest):
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail="Stream name must be unique") from exc
 
-    return {"stream": stream}
+    return {"queue": queue}
 
 
-@app.get("/api/streams/{stream_id}")
-async def get_stream(stream_id: str):
-    stream = storage.get_stream(stream_id)
-    if not stream:
+@app.get("/api/queues/{queue_id}")
+async def get_queue(queue_id: str):
+    queue = storage.get_queue(queue_id)
+    if not queue:
         raise HTTPException(status_code=404, detail="Stream not found")
-    return {"stream": stream}
+    return {"queue": queue}
 
 
-@app.put("/api/streams/{stream_id}")
-async def update_stream(stream_id: str, request: StreamUpdateRequest):
+@app.put("/api/queues/{queue_id}")
+async def update_stream(queue_id: str, request: QueueUpdateRequest):
     if request.name is None and request.instructions is None:
-        raise HTTPException(status_code=400, detail="No fields provided to update stream")
+        raise HTTPException(status_code=400, detail="No fields provided to update queue")
 
-    existing = storage.get_stream(stream_id)
+    existing = storage.get_queue(queue_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Stream not found")
 
@@ -425,7 +425,7 @@ async def update_stream(stream_id: str, request: StreamUpdateRequest):
 
     updates.append("updated_at = ?")
     params.append(now_iso())
-    params.append(stream_id)
+    params.append(queue_id)
 
     try:
         with storage.connection() as conn:
@@ -438,33 +438,33 @@ async def update_stream(stream_id: str, request: StreamUpdateRequest):
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail="Stream name must be unique") from exc
 
-    updated_stream = storage.get_stream(stream_id)
-    return {"stream": updated_stream}
+    updated_stream = storage.get_queue(queue_id)
+    return {"queue": updated_stream}
 
 
-@app.put("/api/streams/{stream_id}/end")
-async def end_stream(stream_id: str):
-    ended = storage.end_stream(stream_id)
+@app.put("/api/queues/{queue_id}/end")
+async def end_queue(queue_id: str):
+    ended = storage.end_queue(queue_id)
     if not ended:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    stream = storage.get_stream(stream_id)
-    return {"message": "Stream ended", "stream": stream}
+    queue = storage.get_queue(queue_id)
+    return {"message": "Stream ended", "queue": queue}
 
 
-@app.put("/api/streams/{stream_id}/archive")
-async def archive_stream(stream_id: str):
-    archived = storage.archive_stream(stream_id)
+@app.put("/api/queues/{queue_id}/archive")
+async def archive_queue(queue_id: str):
+    archived = storage.archive_queue(queue_id)
     if not archived:
         raise HTTPException(status_code=404, detail="Stream not found")
 
-    stream = storage.get_stream(stream_id)
-    return {"message": "Stream archived", "stream": stream}
+    queue = storage.get_queue(queue_id)
+    return {"message": "Stream archived", "queue": queue}
 
 
-@app.delete("/api/streams/{stream_id}")
-async def delete_stream(stream_id: str):
-    deleted = storage.delete_stream(stream_id)
+@app.delete("/api/queues/{queue_id}")
+async def delete_queue(queue_id: str):
+    deleted = storage.delete_queue(queue_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Stream not found")
 
@@ -473,7 +473,7 @@ async def delete_stream(stream_id: str):
 
 @app.get("/api/tasks")
 async def list_tasks(
-    stream_id: Optional[str] = Query(None),
+    queue_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     limit: int = Query(100, ge=1),
     offset: int = Query(0, ge=0),
@@ -483,9 +483,9 @@ async def list_tasks(
         raise HTTPException(status_code=400, detail=f"Invalid status filter. Allowed values: {allowed_statuses}")
 
     if _LIST_HAS_OFFSET:
-        tasks = storage.list_tasks(stream_id=stream_id, status=status, limit=limit, offset=offset)
+        tasks = storage.list_tasks(queue_id=queue_id, status=status, limit=limit, offset=offset)
     else:
-        all_tasks = storage.list_tasks(stream_id=stream_id, status=status, limit=None)
+        all_tasks = storage.list_tasks(queue_id=queue_id, status=status, limit=None)
         start = offset or 0
         end = start + limit if limit is not None else None
         tasks = all_tasks[start:end]
@@ -495,8 +495,8 @@ async def list_tasks(
 
 @app.post("/api/tasks")
 async def create_task(request: TaskCreateRequest):
-    stream = storage.get_stream(request.stream_id)
-    if not stream:
+    queue = storage.get_queue(request.queue_id)
+    if not queue:
         raise HTTPException(status_code=404, detail="Stream not found")
 
     timeout = _resolve_timeout(request.task_class, request.timeout)
@@ -511,7 +511,7 @@ async def create_task(request: TaskCreateRequest):
             )
 
         task = storage.create_task(
-            stream_id=request.stream_id,
+            queue_id=request.queue_id,
             tool_name=request.tool_name,
             task_class=request.task_class,
             payload=payload_json,
@@ -521,7 +521,7 @@ async def create_task(request: TaskCreateRequest):
         )
     else:
         task = storage.create_task(
-            stream_id=request.stream_id,
+            queue_id=request.queue_id,
             tool_name=request.tool_name,
             task_class=request.task_class,
             timeout=timeout,
@@ -612,6 +612,28 @@ async def requeue_task(task_id: str):
     return {"task": _serialize_task(new_task)}
 
 
+@app.put("/api/tasks/{task_id}")
+async def update_task(task_id: str, request: Request):
+    """Update a task with new values"""
+    try:
+        body = await request.json()
+        updated_task = storage.update_task(task_id, **body)
+        if not updated_task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return {"task": _serialize_task(updated_task)}
+    except Exception as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@app.delete("/api/tasks/{task_id}")
+async def delete_task_endpoint(task_id: str):
+    """Delete a task"""
+    success = storage.delete_task(task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"deleted": True}
+
+
 @app.post("/api/tasks/quick-add")
 async def quick_add_task(request: QuickAddTaskRequest):
     """
@@ -619,10 +641,10 @@ async def quick_add_task(request: QuickAddTaskRequest):
     No JSON payload required from user - system builds it based on prompt/script.
     """
 
-    # Verify stream exists
-    stream = storage.get_stream(request.stream_id)
-    if not stream:
-        raise HTTPException(status_code=404, detail=f"Stream not found: {request.stream_id}")
+    # Verify queue exists
+    queue = storage.get_queue(request.queue_id)
+    if not queue:
+        raise HTTPException(status_code=404, detail=f"Stream not found: {request.queue_id}")
 
     if request.mode == 'llm':
         if not request.prompt:
@@ -671,7 +693,7 @@ async def quick_add_task(request: QuickAddTaskRequest):
 
     # Create task using storage layer
     task_dict = storage.create_task(
-        stream_id=request.stream_id,
+        queue_id=request.queue_id,
         tool_name=tool_name,
         task_class=task_class,
         payload=payload,

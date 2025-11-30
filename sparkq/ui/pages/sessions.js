@@ -171,7 +171,7 @@
     try {
       const sessResp = await api('GET', `/api/sessions/${sessionId}`, null, { action: 'load session' });
       session = sessResp?.session;
-      const streamsResp = await api('GET', '/api/streams', null, { action: 'load queues' });
+      const streamsResp = await api('GET', '/api/queues', null, { action: 'load queues' });
       streams = (streamsResp?.streams || []).filter((s) => s.session_id === sessionId);
     } catch (err) {
       handleApiError('load session', err);

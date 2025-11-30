@@ -309,19 +309,19 @@ class Storage:
             return cursor.rowcount > 0
 
     # === Stream CRUD ===
-    def create_stream(self, session_id: str, name: str, instructions: str = None) -> dict:
-        stream_id = gen_stream_id()
+    def create_queue(self, session_id: str, name: str, instructions: str = None) -> dict:
+        queue_id = gen_stream_id()
         now = now_iso()
 
         with self.connection() as conn:
             conn.execute(
-                """INSERT INTO streams (id, session_id, name, instructions, status, created_at, updated_at)
+                """INSERT INTO queues (id, session_id, name, instructions, status, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (stream_id, session_id, name, instructions, 'active', now, now)
+                (queue_id, session_id, name, instructions, 'active', now, now)
             )
 
         return {
-            'id': stream_id,
+            'id': queue_id,
             'session_id': session_id,
             'name': name,
             'instructions': instructions,
@@ -330,21 +330,21 @@ class Storage:
             'updated_at': now
         }
 
-    def get_stream(self, stream_id: str) -> Optional[dict]:
+    def get_queue(self, queue_id: str) -> Optional[dict]:
         with self.connection() as conn:
-            cursor = conn.execute("SELECT * FROM streams WHERE id = ?", (stream_id,))
+            cursor = conn.execute("SELECT * FROM queues WHERE id = ?", (queue_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def get_stream_by_name(self, name: str) -> Optional[dict]:
+    def get_queue_by_name(self, name: str) -> Optional[dict]:
         with self.connection() as conn:
-            cursor = conn.execute("SELECT * FROM streams WHERE name = ?", (name,))
+            cursor = conn.execute("SELECT * FROM queues WHERE name = ?", (name,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def list_streams(self, session_id: str = None, status: str = None) -> List[dict]:
+    def list_queues(self, session_id: str = None, status: str = None) -> List[dict]:
         with self.connection() as conn:
-            query = "SELECT * FROM streams WHERE 1=1"
+            query = "SELECT * FROM queues WHERE 1=1"
             params = []
 
             if session_id:
@@ -360,38 +360,38 @@ class Storage:
             cursor = conn.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
-    def end_stream(self, stream_id: str) -> bool:
+    def end_queue(self, queue_id: str) -> bool:
         now = now_iso()
         with self.connection() as conn:
             cursor = conn.execute(
-                "UPDATE streams SET status = 'ended', updated_at = ? WHERE id = ?",
-                (now, stream_id)
+                "UPDATE queues SET status = 'ended', updated_at = ? WHERE id = ?",
+                (now, queue_id)
             )
             return cursor.rowcount > 0
 
-    def archive_stream(self, stream_id: str) -> bool:
+    def archive_queue(self, queue_id: str) -> bool:
         now = now_iso()
         with self.connection() as conn:
             cursor = conn.execute(
-                "UPDATE streams SET status = 'archived', updated_at = ? WHERE id = ?",
-                (now, stream_id)
+                "UPDATE queues SET status = 'archived', updated_at = ? WHERE id = ?",
+                (now, queue_id)
             )
             return cursor.rowcount > 0
 
-    def delete_stream(self, stream_id: str) -> bool:
+    def delete_queue(self, queue_id: str) -> bool:
         with self.connection() as conn:
-            # Delete tasks associated with this stream first (cascade)
-            conn.execute("DELETE FROM tasks WHERE stream_id = ?", (stream_id,))
-            # Then delete the stream itself
+            # Delete tasks associated with this queue first (cascade)
+            conn.execute("DELETE FROM tasks WHERE queue_id = ?", (queue_id,))
+            # Then delete the queue itself
             cursor = conn.execute(
-                "DELETE FROM streams WHERE id = ?",
-                (stream_id,)
+                "DELETE FROM queues WHERE id = ?",
+                (queue_id,)
             )
             return cursor.rowcount > 0
 
     # === Task CRUD ===
     def create_task(
-        self, stream_id: str, tool_name: str, task_class: str, payload: str, timeout: int,
+        self, queue_id: str, tool_name: str, task_class: str, payload: str, timeout: int,
         prompt_path: str = None, metadata: str = None
     ) -> dict:
         task_id = gen_task_id()
@@ -399,14 +399,14 @@ class Storage:
 
         with self.connection() as conn:
             conn.execute(
-                """INSERT INTO tasks (id, stream_id, tool_name, task_class, payload, status, timeout, attempts, created_at, updated_at)
+                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, status, timeout, attempts, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (task_id, stream_id, tool_name, task_class, payload, 'queued', timeout, 0, now, now)
+                (task_id, queue_id, tool_name, task_class, payload, 'queued', timeout, 0, now, now)
             )
 
         return {
             'id': task_id,
-            'stream_id': stream_id,
+            'queue_id': queue_id,
             'tool_name': tool_name,
             'task_class': task_class,
             'payload': payload,
@@ -429,14 +429,14 @@ class Storage:
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def list_tasks(self, stream_id: str = None, status: str = None, limit: int = None) -> List[dict]:
+    def list_tasks(self, queue_id: str = None, status: str = None, limit: int = None) -> List[dict]:
         with self.connection() as conn:
             query = "SELECT * FROM tasks WHERE 1=1"
             params = []
 
-            if stream_id:
-                query += " AND stream_id = ?"
-                params.append(stream_id)
+            if queue_id:
+                query += " AND queue_id = ?"
+                params.append(queue_id)
 
             if status:
                 query += " AND status = ?"
@@ -451,12 +451,12 @@ class Storage:
             cursor = conn.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_oldest_queued_task(self, stream_id: str) -> Optional[dict]:
+    def get_oldest_queued_task(self, queue_id: str) -> Optional[dict]:
         """Get oldest queued task for a stream (FIFO ordering)"""
         with self.connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM tasks WHERE stream_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1",
-                (stream_id,)
+                "SELECT * FROM tasks WHERE queue_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1",
+                (queue_id,)
             )
             row = cursor.fetchone()
             return dict(row) if row else None
@@ -550,9 +550,9 @@ class Storage:
 
         with self.connection() as conn:
             conn.execute(
-                """INSERT INTO tasks (id, stream_id, tool_name, task_class, payload, status, timeout, attempts, created_at, updated_at)
+                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, status, timeout, attempts, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (new_task_id, original_task['stream_id'], original_task['tool_name'],
+                (new_task_id, original_task['queue_id'], original_task['tool_name'],
                  original_task['task_class'], original_task['payload'], 'queued',
                  original_task['timeout'], 0, now, now)
             )
@@ -561,6 +561,36 @@ class Storage:
             cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (new_task_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
+
+    def update_task(self, task_id: str, **updates) -> Optional[dict]:
+        """Update task fields. Allowed fields: tool_name, payload, timeout, status. Returns updated task or None if not found."""
+        existing = self.get_task(task_id)
+        if not existing:
+            return None
+
+        allowed = {'tool_name', 'payload', 'timeout', 'status'}
+        allowed_updates = {k: v for k, v in updates.items() if k in allowed}
+
+        if not allowed_updates:
+            return existing
+
+        allowed_updates['updated_at'] = now_iso()
+        set_clause = ', '.join([f"{k} = ?" for k in allowed_updates.keys()])
+        values = list(allowed_updates.values()) + [task_id]
+
+        with self.connection() as conn:
+            conn.execute(
+                f"UPDATE tasks SET {set_clause} WHERE id = ?",
+                values
+            )
+
+        return self.get_task(task_id)
+
+    def delete_task(self, task_id: str) -> bool:
+        """Delete a task. Returns True if successful, False if not found."""
+        with self.connection() as conn:
+            cursor = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            return cursor.rowcount > 0
 
     def purge_old_tasks(self, older_than_days: int = 3) -> int:
         """Delete old succeeded/failed tasks older than specified days"""

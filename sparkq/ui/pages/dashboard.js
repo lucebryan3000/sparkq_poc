@@ -25,7 +25,7 @@
     return `${done}/${denominator || 0}`;
   }
 
-  function formatStreamStatus(status) {
+  function formatQueueStatus(status) {
     if (!status) {
       return 'Unknown';
     }
@@ -38,7 +38,7 @@
     return lower === 'active' ? 'active' : 'planned';
   }
 
-  function streamBadgeClass(status) {
+  function queueBadgeClass(status) {
     const lower = String(status || '').toLowerCase();
     if (lower === 'active' || lower === 'running') {
       return 'badge-active';
@@ -79,7 +79,11 @@
       <div class="task-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px;">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
           <div style="font-weight: 600;">Task #${task?.id || '—'}</div>
-          <span class="badge ${badgeClass}">${status}</span>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <span class="badge ${badgeClass}">${status}</span>
+            <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task" style="padding: 4px 8px; font-size: 12px;">✏️</button>
+            <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task" style="padding: 4px 8px; font-size: 12px;">🗑️</button>
+          </div>
         </div>
         <div class="muted" style="margin-top: 6px;">${task?.tool_name || '—'}</div>
         <div style="display: flex; gap: 12px; color: var(--subtle); font-size: 12px; margin-top: 8px; flex-wrap: wrap;">
@@ -91,8 +95,8 @@
   }
 
   Pages.Dashboard = {
-    currentStreamId: null,
-    streamsCache: [],
+    currentQueueId: null,
+    queuesCache: [],
     quickAddInstance: null,
 
     async render(container) {
@@ -118,13 +122,13 @@
       }
 
       try {
-        const response = await api('GET', '/api/streams', null, { action: 'load queues' });
+        const response = await api('GET', '/api/queues', null, { action: 'load queues' });
         streams = response?.streams || [];
       } catch (err) {
         showError(`Failed to load queues: ${err.message || err}`, err);
       }
 
-      this.streamsCache = streams;
+      this.queuesCache = streams;
 
       if (!streams.length) {
         // Get the first session or use a placeholder
@@ -148,11 +152,11 @@
         return;
       }
 
-      if (!this.currentStreamId || !streams.some((stream) => stream.id === this.currentStreamId)) {
-        this.currentStreamId = streams[0].id;
+      if (!this.currentQueueId || !streams.some((queue) => queue.id === this.currentQueueId)) {
+        this.currentQueueId = streams[0].id;
       }
 
-      // Get the session for the first stream
+      // Get the session for the first queue
       if (streams.length > 0) {
         activeSession = sessions.find((s) => s.id === streams[0].session_id) || sessions[0];
       }
@@ -174,7 +178,7 @@
       this.renderQueueTabs(tabsContainer, streams);
 
       const contentContainer = container.querySelector('#queue-content');
-      await this.renderQueueContent(contentContainer, this.currentStreamId);
+      await this.renderQueueContent(contentContainer, this.currentQueueId);
     },
 
     renderQueueTabs(container, streams) {
@@ -183,17 +187,17 @@
       }
 
       const tabsHtml = streams
-        .map((stream) => {
-          const isActive = stream.id === this.currentStreamId;
-          const progress = formatProgress(stream.stats);
-          const statusLabel = formatStreamStatus(stream.status);
-          const dotClass = statusDotClass(stream.status);
+        .map((queue) => {
+          const isActive = queue.id === this.currentQueueId;
+          const progress = formatProgress(queue.stats);
+          const statusLabel = formatQueueStatus(queue.status);
+          const dotClass = statusDotClass(queue.status);
 
           return `
-            <div class="queue-tab ${isActive ? 'active' : ''}" data-stream-id="${stream.id}">
+            <div class="queue-tab ${isActive ? 'active' : ''}" data-queue-id="${queue.id}">
               <div class="tab-header">
                 <span class="status-dot ${dotClass}"></span>
-                <span>${stream.name || stream.id}</span>
+                <span>${queue.name || queue.id}</span>
               </div>
               <div class="tab-progress">${progress}</div>
               <div class="tab-status">${statusLabel}</div>
@@ -210,13 +214,13 @@
       const tabs = container.querySelectorAll('.queue-tab');
       tabs.forEach((tab) => {
         tab.addEventListener('click', () => {
-          const selectedId = tab.getAttribute('data-stream-id');
-          if (!selectedId || selectedId === this.currentStreamId) {
+          const selectedId = tab.getAttribute('data-queue-id');
+          if (!selectedId || selectedId === this.currentQueueId) {
             return;
           }
 
-          this.currentStreamId = selectedId;
-          this.renderQueueTabs(container, this.streamsCache);
+          this.currentQueueId = selectedId;
+          this.renderQueueTabs(container, this.queuesCache);
 
           const contentContainer = document.getElementById('queue-content');
           if (contentContainer) {
@@ -284,7 +288,7 @@
           if (instructions && instructions.trim()) {
             payload.instructions = instructions;
           }
-          await api('POST', '/api/streams', payload, { action: 'create queue' });
+          await api('POST', '/api/queues', payload, { action: 'create queue' });
           Utils.showToast(`Queue "${queueName}" created`, 'success');
           // Re-render the dashboard to show the new queue
           this.render(root);
@@ -295,22 +299,22 @@
       });
     },
 
-    async renderQueueContent(container, streamId) {
+    async renderQueueContent(container, queueId) {
       if (!container) {
         return;
       }
 
-      const stream = this.streamsCache.find((s) => s.id === streamId) || {};
-      const streamName = stream.name || stream.id || 'Queue';
-      const progress = formatProgress(stream.stats);
-      const statusLabel = formatStreamStatus(stream.status);
-      const badgeClass = streamBadgeClass(stream.status);
+      const queue = this.queuesCache.find((s) => s.id === queueId) || {};
+      const queueName = queue.name || queue.id || 'Queue';
+      const progress = formatProgress(queue.stats);
+      const statusLabel = formatQueueStatus(queue.status);
+      const badgeClass = queueBadgeClass(queue.status);
 
       container.innerHTML = `
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
             <div>
-              <h2 style="margin: 0;">${streamName}</h2>
+              <h2 style="margin: 0;">${queueName}</h2>
               <div class="muted" style="font-size: 13px;">${progress} • ${statusLabel}</div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
@@ -325,16 +329,16 @@
         <div id="dashboard-tasks" style="margin-top: 16px;"></div>
       `;
 
-      this.attachQueueActionHandlers(container, streamId, stream);
-      this.renderQuickAdd(streamId, streamName);
+      this.attachQueueActionHandlers(container, queueId, queue);
+      this.renderQuickAdd(queueId, queueName);
 
       const tasksContainer = container.querySelector('#dashboard-tasks');
       if (tasksContainer) {
-        await this.renderTasks(tasksContainer, streamId);
+        await this.renderTasks(tasksContainer, queueId);
       }
     },
 
-    renderQuickAdd(streamId, streamName) {
+    renderQuickAdd(queueId, queueName) {
       const quickAddContainer = document.getElementById('dashboard-quick-add');
 
       if (!quickAddContainer) {
@@ -347,23 +351,23 @@
       }
 
       if (!this.quickAddInstance) {
-        this.quickAddInstance = new QuickAdd('dashboard-quick-add', streamId, streamName);
+        this.quickAddInstance = new QuickAdd('dashboard-quick-add', queueId, queueName);
         window.quickAdd = this.quickAddInstance;
       } else {
-        this.quickAddInstance.setStream(streamId, streamName);
+        this.quickAddInstance.setStream(queueId, queueName);
       }
 
       this.quickAddInstance.setRefreshCallback(() => {
         const tasksContainer = document.getElementById('dashboard-tasks');
         if (tasksContainer) {
-          this.renderTasks(tasksContainer, streamId);
+          this.renderTasks(tasksContainer, queueId);
         }
       });
 
       this.quickAddInstance.render();
     },
 
-    async renderTasks(container, streamId) {
+    async renderTasks(container, queueId) {
       if (!container) {
         return;
       }
@@ -377,7 +381,7 @@
       let tasks = [];
 
       try {
-        const response = await api('GET', `/api/tasks?stream_id=${encodeURIComponent(streamId)}`, null, { action: 'load tasks' });
+        const response = await api('GET', `/api/tasks?queue_id=${encodeURIComponent(queueId)}`, null, { action: 'load tasks' });
         tasks = response?.tasks || [];
       } catch (err) {
         container.innerHTML = `
@@ -404,6 +408,91 @@
           </div>
         </div>
       `;
+
+      this.attachTaskActionHandlers(container, tasks, queueId);
+    },
+
+    async attachTaskActionHandlers(container, tasks, queueId) {
+      // Attach edit button handlers
+      container.querySelectorAll('.task-edit-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const taskId = btn.dataset.taskId;
+          const task = tasks.find(t => t.id === taskId);
+          if (task) {
+            await this.showEditTaskDialog(task, queueId);
+          }
+        });
+      });
+
+      // Attach delete button handlers
+      container.querySelectorAll('.task-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const taskId = btn.dataset.taskId;
+          const confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${taskId}? This cannot be undone.`);
+          if (!confirmed) return;
+
+          try {
+            await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });
+            Utils.showToast(`Task ${taskId} deleted`, 'success');
+            const tasksContainer = document.getElementById('dashboard-tasks');
+            if (tasksContainer) {
+              this.renderTasks(tasksContainer, queueId);
+            }
+          } catch (err) {
+            console.error('Failed to delete task:', err);
+            Utils.showToast('Failed to delete task', 'error');
+          }
+        });
+      });
+    },
+
+    async showEditTaskDialog(task, queueId) {
+      const html = `
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <div>
+            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Tool Name</label>
+            <input type="text" id="edit-tool-name" value="${task.tool_name || ''}" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text);">
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Timeout (seconds)</label>
+            <input type="number" id="edit-timeout" value="${task.timeout || 3600}" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text);">
+          </div>
+          <div>
+            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Status</label>
+            <select id="edit-status" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text);">
+              <option value="queued" ${task.status === 'queued' ? 'selected' : ''}>Queued</option>
+              <option value="claimed" ${task.status === 'claimed' ? 'selected' : ''}>Claimed</option>
+              <option value="completed" ${task.status === 'completed' ? 'selected' : ''}>Completed</option>
+              <option value="failed" ${task.status === 'failed' ? 'selected' : ''}>Failed</option>
+            </select>
+          </div>
+        </div>
+      `;
+
+      const result = await Utils.showDialog('Edit Task', html, ['Cancel', 'Save']);
+      if (result !== 'Save') return;
+
+      const toolName = document.getElementById('edit-tool-name').value;
+      const timeout = parseInt(document.getElementById('edit-timeout').value) || 3600;
+      const status = document.getElementById('edit-status').value;
+
+      try {
+        await api('PUT', `/api/tasks/${encodeURIComponent(task.id)}`, {
+          tool_name: toolName,
+          timeout: timeout,
+          status: status
+        }, { action: 'update task' });
+        Utils.showToast('Task updated successfully', 'success');
+        const tasksContainer = document.getElementById('dashboard-tasks');
+        if (tasksContainer) {
+          this.renderTasks(tasksContainer, queueId);
+        }
+      } catch (err) {
+        console.error('Failed to update task:', err);
+        Utils.showToast('Failed to update task', 'error');
+      }
     },
 
     renderSessionSelector(activeSession, sessions) {
@@ -426,18 +515,18 @@
       `;
     },
 
-    attachQueueActionHandlers(container, streamId, stream) {
+    attachQueueActionHandlers(container, queueId, queue) {
       const archiveBtn = container?.querySelector('#dashboard-archive-btn');
       const deleteBtn = container?.querySelector('#dashboard-delete-btn');
 
       if (archiveBtn) {
         archiveBtn.addEventListener('click', async () => {
-          const queueName = stream.name || stream.id || 'Queue';
+          const queueName = queue.name || queue.id || 'Queue';
           const confirmed = await Utils.showConfirm('Archive Queue', `Archive "${queueName}"?`);
           if (!confirmed) return;
 
           try {
-            await api('PUT', `/api/streams/${streamId}`, { archived: true }, { action: 'archive queue' });
+            await api('PUT', `/api/queues/${queueId}`, { archived: true }, { action: 'archive queue' });
             Utils.showToast(`Queue "${queueName}" archived`, 'success');
             this.render(container);
           } catch (err) {
@@ -449,12 +538,12 @@
 
       if (deleteBtn) {
         deleteBtn.addEventListener('click', async () => {
-          const queueName = stream.name || stream.id || 'Queue';
+          const queueName = queue.name || queue.id || 'Queue';
           const confirmed = await Utils.showConfirm('Delete Queue', `Are you sure you want to delete "${queueName}"? This cannot be undone.`);
           if (!confirmed) return;
 
           try {
-            await api('DELETE', `/api/streams/${streamId}`, null, { action: 'delete queue' });
+            await api('DELETE', `/api/queues/${queueId}`, null, { action: 'delete queue' });
             Utils.showToast(`Queue "${queueName}" deleted`, 'success');
             this.render(container);
           } catch (err) {

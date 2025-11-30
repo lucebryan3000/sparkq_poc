@@ -27,49 +27,56 @@
   --tools-btn-hover: rgba(255, 255, 255, 0.1);
 }
 
-/* Light mode theme (Phase 10) */
+/* Light mode theme - Anthropic Design Language */
 :root:not([data-theme="dark"]) {
+  /* Base colors - Clean white with subtle warm undertones */
   --bg: #ffffff;
-  --surface: #f8f9fa;
-  --muted: #f0f2f5;
-  --text: #1a1a1a;
-  --subtle: #666666;
-  --accent: #0066cc;
-  --border: #d0d4d8;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  --surface: #fafbfc;
+  --muted: #f3f4f6;
+  --text: #0f172a;
+  --subtle: #64748b;
+  --accent: #3b82f6;
+  --border: #e2e8f0;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+
   /* Light mode overrides for additional colors */
-  --navbar-bg: rgba(255, 255, 255, 0.98);
+  --navbar-bg: rgba(255, 255, 255, 0.99);
   --tab-hover-text: var(--text);
   --tab-active-text: #ffffff;
   --button-primary-text: #ffffff;
-  --highlight-overlay: rgba(0, 0, 0, 0.03);
-  --highlight-overlay-hover: rgba(0, 0, 0, 0.06);
-  --table-row-alt: rgba(0, 0, 0, 0.02);
-  --loading-ring: rgba(0, 0, 0, 0.15);
+  --highlight-overlay: rgba(59, 130, 246, 0.04);
+  --highlight-overlay-hover: rgba(59, 130, 246, 0.08);
+  --table-row-alt: rgba(59, 130, 246, 0.02);
+  --loading-ring: rgba(59, 130, 246, 0.2);
+
+  /* Input and interactive elements */
   --queue-tab-bg: #ffffff;
-  --queue-tab-hover: #f0f2f5;
-  --mode-btn-bg: #f0f2f5;
-  --mode-btn-hover: #e8eaef;
-  --tools-btn-bg: #f0f2f5;
-  --tools-btn-hover: #e8eaef;
-  /* Status colors for light mode */
-  --status-success: #059669;
-  --status-warning: #d97706;
-  --status-error: #dc2626;
-  --status-planned: #6b7280;
-  /* Badge backgrounds for light mode */
-  --badge-active-bg: #dcfce7;
-  --badge-active-text: #15803d;
+  --queue-tab-hover: #f8fafc;
+  --mode-btn-bg: #f1f5f9;
+  --mode-btn-hover: #e2e8f0;
+  --tools-btn-bg: #f1f5f9;
+  --tools-btn-hover: #e2e8f0;
+
+  /* Status colors - Anthropic palette */
+  --status-success: #10b981;
+  --status-warning: #f59e0b;
+  --status-error: #ef4444;
+  --status-planned: #8b5cf6;
+
+  /* Badge backgrounds - Vibrant, clear colors */
+  --badge-active-bg: #d1fae5;
+  --badge-active-text: #047857;
   --badge-ended-bg: #fee2e2;
   --badge-ended-text: #991b1b;
-  --badge-running-bg: #dcfce7;
-  --badge-running-text: #15803d;
+  --badge-running-bg: #d1fae5;
+  --badge-running-text: #047857;
   --badge-queued-bg: #fef3c7;
   --badge-queued-text: #92400e;
-  /* Popup menu background for light mode */
+
+  /* Popup menu */
   --popup-bg: #ffffff;
-  --popup-border: #d0d4d8;
-  --popup-hover: #f0f2f5;
+  --popup-border: #e2e8f0;
+  --popup-hover: #f8fafc;
 }
 
 * {
@@ -350,11 +357,22 @@ a {
 .input-group input,
 .input-group select,
 .input-group textarea {
-  background: var(--muted);
+  background: #fafbfc;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
   padding: 10px 12px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.input-group input:focus,
+.input-group select:focus,
+.input-group textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  background: #ffffff;
 }
 
 .form-group {

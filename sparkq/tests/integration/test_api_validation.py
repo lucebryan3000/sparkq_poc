@@ -119,24 +119,24 @@ class TestStreamsAPI:
 
     @pytest.fixture
     def session_id(self, client):
-        """Get a session ID for stream tests"""
-        resp = client.post("/api/sessions", json={"name": "stream-session"})
+        """Get a session ID for queue tests"""
+        resp = client.post("/api/sessions", json={"name": "queue-session"})
         return resp.json()["session"]["id"]
 
     def test_create_stream(self, client, session_id):
-        """POST /api/streams - Create new stream"""
+        """POST /api/streams - Create new queue"""
         response = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "test-stream"},
+            json={"session_id": session_id, "name": "test-queue"},
         )
         assert response.status_code == 201
-        stream = response.json()["stream"]
-        assert stream["session_id"] == session_id
-        assert stream["name"] == "test-stream"
+        queue = response.json()["queue"]
+        assert queue["session_id"] == session_id
+        assert queue["name"] == "test-queue"
 
     def test_list_streams(self, client, session_id):
         """GET /api/streams - List streams"""
-        # Create stream
+        # Create queue
         client.post("/api/streams", json={"session_id": session_id, "name": "stream1"})
 
         # List
@@ -155,69 +155,69 @@ class TestStreamsAPI:
         assert all(s["session_id"] == session_id for s in streams)
 
     def test_get_stream(self, client, session_id):
-        """GET /api/streams/{id} - Get specific stream"""
+        """GET /api/streams/{id} - Get specific queue"""
         create_resp = client.post(
             "/api/streams",
             json={"session_id": session_id, "name": "get-test"},
         )
-        stream_id = create_resp.json()["stream"]["id"]
+        queue_id = create_resp.json()["queue"]["id"]
 
-        response = client.get(f"/api/streams/{stream_id}")
+        response = client.get(f"/api/streams/{queue_id}")
         assert response.status_code == 200
-        stream = response.json()["stream"]
-        assert stream["id"] == stream_id
+        queue = response.json()["queue"]
+        assert queue["id"] == queue_id
 
     def test_update_stream(self, client, session_id):
-        """PUT /api/streams/{id} - Update stream"""
+        """PUT /api/streams/{id} - Update queue"""
         create_resp = client.post(
             "/api/streams",
             json={"session_id": session_id, "name": "original"},
         )
-        stream_id = create_resp.json()["stream"]["id"]
+        queue_id = create_resp.json()["queue"]["id"]
 
         response = client.put(
-            f"/api/streams/{stream_id}",
+            f"/api/streams/{queue_id}",
             json={"name": "updated"},
         )
         assert response.status_code == 200
-        stream = response.json()["stream"]
-        assert stream["name"] == "updated"
+        queue = response.json()["queue"]
+        assert queue["name"] == "updated"
 
     def test_end_stream(self, client, session_id):
-        """PUT /api/streams/{id}/end - End stream"""
+        """PUT /api/streams/{id}/end - End queue"""
         create_resp = client.post(
             "/api/streams",
             json={"session_id": session_id, "name": "to-end"},
         )
-        stream_id = create_resp.json()["stream"]["id"]
+        queue_id = create_resp.json()["queue"]["id"]
 
-        response = client.put(f"/api/streams/{stream_id}/end")
+        response = client.put(f"/api/streams/{queue_id}/end")
         assert response.status_code == 200
-        stream = response.json()["stream"]
-        assert stream["status"] == "ended"
+        queue = response.json()["queue"]
+        assert queue["status"] == "ended"
 
 
 class TestTasksAPI:
     """Test Tasks REST endpoints"""
 
     @pytest.fixture
-    def stream_id(self, client):
-        """Get a stream ID for task tests"""
+    def queue_id(self, client):
+        """Get a queue ID for task tests"""
         session_resp = client.post("/api/sessions", json={"name": "task-session"})
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "task-stream"},
+            json={"session_id": session_id, "name": "task-queue"},
         )
-        return stream_resp.json()["stream"]["id"]
+        return stream_resp.json()["queue"]["id"]
 
-    def test_create_task(self, client, stream_id):
+    def test_create_task(self, client, queue_id):
         """POST /api/tasks - Create new task"""
         response = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "test-tool",
                 "task_class": "test-class",
                 "timeout": 300,
@@ -225,15 +225,15 @@ class TestTasksAPI:
         )
         assert response.status_code == 200
         task = response.json()["task"]
-        assert task["stream_id"] == stream_id
+        assert task["queue_id"] == queue_id
         assert task["status"] == "queued"
 
-    def test_list_tasks(self, client, stream_id):
+    def test_list_tasks(self, client, queue_id):
         """GET /api/tasks - List tasks"""
         client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "tool",
                 "task_class": "class",
                 "timeout": 300,
@@ -246,36 +246,36 @@ class TestTasksAPI:
         tasks = data.get("tasks", [])
         assert len(tasks) > 0
 
-    def test_list_tasks_by_stream(self, client, stream_id):
-        """GET /api/tasks?stream_id=xxx - Filter by stream"""
+    def test_list_tasks_by_stream(self, client, queue_id):
+        """GET /api/tasks?queue_id=xxx - Filter by queue"""
         client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "tool",
                 "task_class": "class",
                 "timeout": 300,
             },
         )
 
-        response = client.get(f"/api/tasks?stream_id={stream_id}")
+        response = client.get(f"/api/tasks?queue_id={queue_id}")
         assert response.status_code == 200
         tasks = response.json()["tasks"]
-        assert all(t["stream_id"] == stream_id for t in tasks)
+        assert all(t["queue_id"] == queue_id for t in tasks)
 
-    def test_list_tasks_by_status(self, client, stream_id):
+    def test_list_tasks_by_status(self, client, queue_id):
         """GET /api/tasks?status=queued - Filter by status"""
         response = client.get("/api/tasks?status=queued")
         assert response.status_code == 200
         tasks = response.json()["tasks"]
         assert all(t["status"] == "queued" for t in tasks)
 
-    def test_get_task(self, client, stream_id):
+    def test_get_task(self, client, queue_id):
         """GET /api/tasks/{id} - Get specific task"""
         create_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "tool",
                 "task_class": "class",
                 "timeout": 300,
@@ -288,12 +288,12 @@ class TestTasksAPI:
         task = response.json()["task"]
         assert task["id"] == task_id
 
-    def test_claim_task(self, client, stream_id):
+    def test_claim_task(self, client, queue_id):
         """POST /api/tasks/{id}/claim - Claim task"""
         create_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "tool",
                 "task_class": "class",
                 "timeout": 300,
@@ -307,12 +307,12 @@ class TestTasksAPI:
         assert task["status"] == "running"
         assert task["started_at"]
 
-    def test_complete_task(self, client, stream_id):
+    def test_complete_task(self, client, queue_id):
         """POST /api/tasks/{id}/complete - Complete task"""
         create_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "tool",
                 "task_class": "class",
                 "timeout": 300,
@@ -332,12 +332,12 @@ class TestTasksAPI:
         task = response.json()["task"]
         assert task["status"] == "succeeded"
 
-    def test_fail_task(self, client, stream_id):
+    def test_fail_task(self, client, queue_id):
         """POST /api/tasks/{id}/fail - Fail task"""
         create_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "tool",
                 "task_class": "class",
                 "timeout": 300,
@@ -357,12 +357,12 @@ class TestTasksAPI:
         task = response.json()["task"]
         assert task["status"] == "failed"
 
-    def test_requeue_task(self, client, stream_id):
+    def test_requeue_task(self, client, queue_id):
         """POST /api/tasks/{id}/requeue - Requeue task"""
         create_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "tool",
                 "task_class": "class",
                 "timeout": 300,
@@ -412,37 +412,37 @@ class TestResponseConsistency:
         assert required.issubset(set(session.keys()))
 
     def test_stream_has_required_fields(self, client):
-        """Verify stream response has required fields"""
+        """Verify queue response has required fields"""
         # Create session
         session_resp = client.post("/api/sessions", json={"name": "test"})
         session_id = session_resp.json()["session"]["id"]
 
-        # Create stream
+        # Create queue
         stream_resp = client.post(
             "/api/streams",
             json={"session_id": session_id, "name": "test"},
         )
-        stream = stream_resp.json()["stream"]
+        queue = stream_resp.json()["queue"]
 
         required = {"id", "session_id", "name", "status", "created_at"}
-        assert required.issubset(set(stream.keys()))
+        assert required.issubset(set(queue.keys()))
 
     def test_task_has_required_fields(self, client):
         """Verify task response has required fields"""
-        # Create session and stream
+        # Create session and queue
         session_resp = client.post("/api/sessions", json={"name": "test"})
         session_id = session_resp.json()["session"]["id"]
         stream_resp = client.post(
             "/api/streams",
             json={"session_id": session_id, "name": "test"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create task
         task_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "test",
                 "task_class": "test",
                 "timeout": 300,
@@ -450,5 +450,5 @@ class TestResponseConsistency:
         )
         task = task_resp.json()["task"]
 
-        required = {"id", "stream_id", "tool_name", "task_class", "status"}
+        required = {"id", "queue_id", "tool_name", "task_class", "status"}
         assert required.issubset(set(task.keys()))

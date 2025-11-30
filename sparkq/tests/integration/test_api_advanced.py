@@ -29,12 +29,12 @@ def api_client(storage):
 @pytest.fixture
 def session_with_stream(storage):
     session = storage.create_session("test-session", "Test session")
-    stream = storage.create_stream(
+    queue = storage.create_queue(
         session_id=session["id"],
-        name="test-stream",
+        name="test-queue",
         instructions="Test instructions",
     )
-    return {"storage": storage, "session": session, "stream": stream}
+    return {"storage": storage, "session": session, "queue": queue}
 
 
 class TestStatsEndpoint:
@@ -42,10 +42,10 @@ class TestStatsEndpoint:
 
     def test_stats_returns_summary(self, api_client, session_with_stream):
         storage = session_with_stream["storage"]
-        stream = session_with_stream["stream"]
+        queue = session_with_stream["queue"]
 
         storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test-tool",
             task_class="FAST_SCRIPT",
             payload="{}",
@@ -64,10 +64,10 @@ class TestStatsEndpoint:
 
     def test_stats_counts_by_status(self, api_client, session_with_stream):
         storage = session_with_stream["storage"]
-        stream = session_with_stream["stream"]
+        queue = session_with_stream["queue"]
 
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test-tool",
             task_class="FAST_SCRIPT",
             payload="{}",
@@ -110,31 +110,31 @@ class TestSessionUpdateEndpoint:
 
 
 class TestStreamUpdateEndpoint:
-    """Test PUT /api/streams/{stream_id}"""
+    """Test PUT /api/streams/{queue_id}"""
 
     def test_update_stream_name(self, api_client, session_with_stream):
-        stream = session_with_stream["stream"]
+        queue = session_with_stream["queue"]
 
         response = api_client.put(
-            f"/api/streams/{stream['id']}",
-            json={"name": "updated-stream"},
+            f"/api/streams/{queue['id']}",
+            json={"name": "updated-queue"},
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["stream"]["name"] == "updated-stream"
+        assert data["queue"]["name"] == "updated-queue"
 
     def test_update_stream_instructions(self, api_client, session_with_stream):
-        stream = session_with_stream["stream"]
+        queue = session_with_stream["queue"]
 
         response = api_client.put(
-            f"/api/streams/{stream['id']}",
+            f"/api/streams/{queue['id']}",
             json={"instructions": "New instructions"},
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["stream"]["instructions"] == "New instructions"
+        assert data["queue"]["instructions"] == "New instructions"
 
 
 class TestTaskClaimEndpoint:
@@ -142,10 +142,10 @@ class TestTaskClaimEndpoint:
 
     def test_claim_task(self, api_client, session_with_stream):
         storage = session_with_stream["storage"]
-        stream = session_with_stream["stream"]
+        queue = session_with_stream["queue"]
 
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test-tool",
             task_class="FAST_SCRIPT",
             payload="{}",
@@ -165,10 +165,10 @@ class TestTaskCompleteEndpoint:
 
     def test_complete_task(self, api_client, session_with_stream):
         storage = session_with_stream["storage"]
-        stream = session_with_stream["stream"]
+        queue = session_with_stream["queue"]
 
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test-tool",
             task_class="FAST_SCRIPT",
             payload="{}",
@@ -192,10 +192,10 @@ class TestTaskFailEndpoint:
 
     def test_fail_task(self, api_client, session_with_stream):
         storage = session_with_stream["storage"]
-        stream = session_with_stream["stream"]
+        queue = session_with_stream["queue"]
 
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test-tool",
             task_class="FAST_SCRIPT",
             payload="{}",

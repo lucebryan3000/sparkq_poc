@@ -5,10 +5,10 @@
   const Utils = window.Utils;
 
   class QuickAdd {
-    constructor(containerId, streamId, streamName) {
+    constructor(containerId, queueId, queueName) {
       this.containerId = containerId;
-      this.streamId = streamId;
-      this.streamName = streamName;
+      this.queueId = queueId;
+      this.queueName = queueName;
       this.mode = 'llm';  // Default mode
       this.refreshCallback = null;
 
@@ -21,9 +21,9 @@
       this.documentClickHandler = null;
     }
 
-    setStream(streamId, streamName) {
-      this.streamId = streamId;
-      this.streamName = streamName;
+    setStream(queueId, queueName) {
+      this.queueId = queueId;
+      this.queueName = queueName;
       this.render();
     }
 
@@ -43,7 +43,7 @@
       container.innerHTML = `
         <div class="quick-add-bar" style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
           <div class="queue-indicator" style="font-size: 12px; color: #888; margin-bottom: 12px;">
-            Add to queue: <strong style="color: #3b82f6;">${this.streamName || 'Select a queue'}</strong>
+            Add to queue: <strong style="color: #3b82f6;">${this.queueName || 'Select a queue'}</strong>
           </div>
 
           <div class="mode-toggle" style="display: flex; gap: 8px; margin-bottom: 12px;">
@@ -254,14 +254,14 @@
         return;
       }
 
-      if (!this.streamId) {
+      if (!this.queueId) {
         Utils.showToast('No queue selected', 'error');
         return;
       }
 
       try {
         const response = await API.api('POST', '/api/tasks/quick-add', {
-          stream_id: this.streamId,
+          queue_id: this.queueId,
           mode: 'llm',
           prompt: prompt
         }, { action: 'add task' });
@@ -297,14 +297,14 @@
         return;
       }
 
-      if (!this.streamId) {
+      if (!this.queueId) {
         Utils.showToast('No queue selected', 'error');
         return;
       }
 
       try {
         const response = await API.api('POST', '/api/tasks/quick-add', {
-          stream_id: this.streamId,
+          queue_id: this.queueId,
           mode: 'script',
           script_path: scriptPath,
           script_args: args

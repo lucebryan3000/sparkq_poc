@@ -90,7 +90,7 @@ class TestDatabaseSchema:
 
         required_cols = {
             "id": "TEXT",
-            "stream_id": "TEXT",
+            "queue_id": "TEXT",
             "tool_name": "TEXT",
             "task_class": "TEXT",
             "payload": "TEXT",
@@ -132,13 +132,13 @@ class TestDatabaseSchema:
                 for fk in fk_list
             ), "streams.session_id should reference sessions.id"
 
-            # Check tasks.stream_id references streams.id
+            # Check tasks.queue_id references streams.id
             cursor = conn.execute("PRAGMA foreign_key_list(tasks)")
             fk_list = cursor.fetchall()
             assert any(
-                fk[2] == "streams" and fk[3] == "stream_id" and fk[4] == "id"
+                fk[2] == "streams" and fk[3] == "queue_id" and fk[4] == "id"
                 for fk in fk_list
-            ), "tasks.stream_id should reference streams.id"
+            ), "tasks.queue_id should reference streams.id"
 
     def test_indexes_exist(self, storage):
         """Verify all performance indexes are created"""
@@ -237,52 +237,52 @@ class TestCRUDOperations:
         assert updated["ended_at"] is not None
 
     def test_create_stream(self, storage, session):
-        """Test stream creation"""
-        stream = storage.create_stream(
+        """Test queue creation"""
+        queue = storage.create_queue(
             session_id=session["id"],
-            name="test-stream",
-            instructions="Test stream instructions",
+            name="test-queue",
+            instructions="Test queue instructions",
         )
 
-        assert stream["id"].startswith("str_")
-        assert stream["session_id"] == session["id"]
-        assert stream["name"] == "test-stream"
-        assert stream["instructions"] == "Test stream instructions"
-        assert stream["status"] == "active"
-        assert stream["created_at"]
+        assert queue["id"].startswith("str_")
+        assert queue["session_id"] == session["id"]
+        assert queue["name"] == "test-queue"
+        assert queue["instructions"] == "Test queue instructions"
+        assert queue["status"] == "active"
+        assert queue["created_at"]
 
-    def test_read_stream(self, storage, stream):
-        """Test stream retrieval"""
-        retrieved = storage.get_stream(stream["id"])
+    def test_read_stream(self, storage, queue):
+        """Test queue retrieval"""
+        retrieved = storage.get_queue(queue["id"])
         assert retrieved is not None
-        assert retrieved["id"] == stream["id"]
-        assert retrieved["name"] == stream["name"]
+        assert retrieved["id"] == queue["id"]
+        assert retrieved["name"] == queue["name"]
 
-    def test_read_stream_by_name(self, storage, stream):
-        """Test stream retrieval by name"""
-        retrieved = storage.get_stream_by_name(stream["name"])
+    def test_read_stream_by_name(self, storage, queue):
+        """Test queue retrieval by name"""
+        retrieved = storage.get_queue_by_name(queue["name"])
         assert retrieved is not None
-        assert retrieved["id"] == stream["id"]
+        assert retrieved["id"] == queue["id"]
 
-    def test_list_streams(self, storage, session, stream):
+    def test_list_streams(self, storage, session, queue):
         """Test listing streams"""
-        streams = storage.list_streams(session_id=session["id"])
+        streams = storage.list_queues(session_id=session["id"])
         assert len(streams) > 0
-        assert any(s["id"] == stream["id"] for s in streams)
+        assert any(s["id"] == queue["id"] for s in streams)
 
-    def test_end_stream(self, storage, stream):
-        """Test ending a stream"""
-        result = storage.end_stream(stream["id"])
+    def test_end_stream(self, storage, queue):
+        """Test ending a queue"""
+        result = storage.end_queue(queue["id"])
         assert result is True
 
-        # Verify stream status changed
-        updated = storage.get_stream(stream["id"])
+        # Verify queue status changed
+        updated = storage.get_queue(queue["id"])
         assert updated["status"] == "ended"
 
-    def test_create_task(self, storage, stream):
+    def test_create_task(self, storage, queue):
         """Test task creation"""
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test-tool",
             task_class="test-class",
             payload='{"key": "value"}',
@@ -290,7 +290,7 @@ class TestCRUDOperations:
         )
 
         assert task["id"].startswith("tsk_")
-        assert task["stream_id"] == stream["id"]
+        assert task["queue_id"] == queue["id"]
         assert task["tool_name"] == "test-tool"
         assert task["task_class"] == "test-class"
         assert task["payload"] == '{"key": "value"}'
@@ -305,20 +305,20 @@ class TestCRUDOperations:
         assert retrieved["id"] == task["id"]
         assert retrieved["status"] == "queued"
 
-    def test_list_tasks(self, storage, stream, task):
+    def test_list_tasks(self, storage, queue, task):
         """Test listing tasks"""
-        tasks = storage.list_tasks(stream_id=stream["id"])
+        tasks = storage.list_tasks(queue_id=queue["id"])
         assert len(tasks) > 0
         assert any(t["id"] == task["id"] for t in tasks)
 
-    def test_list_tasks_by_status(self, storage, stream, task):
+    def test_list_tasks_by_status(self, storage, queue, task):
         """Test filtering tasks by status"""
-        queued_tasks = storage.list_tasks(stream_id=stream["id"], status="queued")
+        queued_tasks = storage.list_tasks(queue_id=queue["id"], status="queued")
         assert len(queued_tasks) > 0
         assert any(t["id"] == task["id"] for t in queued_tasks)
 
         # No running tasks yet
-        running_tasks = storage.list_tasks(stream_id=stream["id"], status="running")
+        running_tasks = storage.list_tasks(queue_id=queue["id"], status="running")
         assert all(t["id"] != task["id"] for t in running_tasks)
 
     def test_claim_task(self, storage, task):
@@ -378,7 +378,7 @@ class TestCRUDOperations:
         assert requeued["id"] != failed["id"]
         assert requeued["status"] == "queued"
         assert requeued["attempts"] == 0
-        assert requeued["stream_id"] == task["stream_id"]
+        assert requeued["queue_id"] == task["queue_id"]
 
 
 class TestDataIntegrity:
@@ -397,22 +397,22 @@ class TestDataIntegrity:
         assert ses1["id"] != ses2["id"]
 
     def test_stream_id_uniqueness(self, storage, session):
-        """Verify stream IDs are unique"""
-        str1 = storage.create_stream(session_id=session["id"], name="stream1")
-        str2 = storage.create_stream(session_id=session["id"], name="stream2")
+        """Verify queue IDs are unique"""
+        str1 = storage.create_queue(session_id=session["id"], name="stream1")
+        str2 = storage.create_queue(session_id=session["id"], name="stream2")
         assert str1["id"] != str2["id"]
 
-    def test_task_id_uniqueness(self, storage, stream):
+    def test_task_id_uniqueness(self, storage, queue):
         """Verify task IDs are unique"""
         tsk1 = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool1",
             task_class="class1",
             payload="{}",
             timeout=300,
         )
         tsk2 = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool1",
             task_class="class1",
             payload="{}",
@@ -420,12 +420,12 @@ class TestDataIntegrity:
         )
         assert tsk1["id"] != tsk2["id"]
 
-    def test_tasks_reference_valid_stream(self, storage, stream, task):
-        """Verify task references valid stream"""
-        assert task["stream_id"] == stream["id"]
+    def test_tasks_reference_valid_stream(self, storage, queue, task):
+        """Verify task references valid queue"""
+        assert task["queue_id"] == queue["id"]
 
         retrieved = storage.get_task(task["id"])
-        assert retrieved["stream_id"] == stream["id"]
+        assert retrieved["queue_id"] == queue["id"]
 
     def test_sessions_reference_valid_project(self, storage, project, session):
         """Verify session references valid project"""
@@ -434,23 +434,23 @@ class TestDataIntegrity:
         retrieved = storage.get_session(session["id"])
         assert retrieved["project_id"] == "prj_default"
 
-    def test_streams_reference_valid_session(self, storage, session, stream):
-        """Verify stream references valid session"""
-        assert stream["session_id"] == session["id"]
+    def test_streams_reference_valid_session(self, storage, session, queue):
+        """Verify queue references valid session"""
+        assert queue["session_id"] == session["id"]
 
-        retrieved = storage.get_stream(stream["id"])
+        retrieved = storage.get_queue(queue["id"])
         assert retrieved["session_id"] == session["id"]
 
 
 class TestConcurrentAccess:
     """Test concurrent operations and thread safety"""
 
-    def test_concurrent_task_creation(self, storage, stream):
+    def test_concurrent_task_creation(self, storage, queue):
         """Test creating tasks concurrently"""
         tasks = []
         for i in range(10):
             task = storage.create_task(
-                stream_id=stream["id"],
+                queue_id=queue["id"],
                 tool_name=f"tool-{i}",
                 task_class="test",
                 payload=f'{{"index": {i}}}',
@@ -463,13 +463,13 @@ class TestConcurrentAccess:
         assert len(set(t["id"] for t in tasks)) == 10  # All unique
 
         # Verify all are queued
-        retrieved_tasks = storage.list_tasks(stream_id=stream["id"])
+        retrieved_tasks = storage.list_tasks(queue_id=queue["id"])
         assert len(retrieved_tasks) >= 10
 
-    def test_claim_task_prevents_duplicates(self, storage, stream):
+    def test_claim_task_prevents_duplicates(self, storage, queue):
         """Test that concurrent claims don't result in duplicate claims"""
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test",
             task_class="test",
             payload="{}",
@@ -485,10 +485,10 @@ class TestConcurrentAccess:
         with pytest.raises(ValueError, match="not found or already claimed"):
             storage.claim_task(task["id"])
 
-    def test_task_status_transitions(self, storage, stream):
+    def test_task_status_transitions(self, storage, queue):
         """Test valid task status transitions"""
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test",
             task_class="test",
             payload="{}",
@@ -505,10 +505,10 @@ class TestConcurrentAccess:
         assert completed["status"] == "succeeded"
         assert completed["finished_at"] is not None
 
-    def test_task_status_failed_transition(self, storage, stream):
+    def test_task_status_failed_transition(self, storage, queue):
         """Test failed task status transition"""
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test",
             task_class="test",
             payload="{}",
@@ -527,18 +527,18 @@ class TestConcurrentAccess:
 class TestOldestTaskRetrieval:
     """Test FIFO task claiming"""
 
-    def test_get_oldest_queued_task(self, storage, stream):
+    def test_get_oldest_queued_task(self, storage, queue):
         """Test retrieving oldest queued task (FIFO)"""
         # Create multiple tasks
         task1 = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool1",
             task_class="test",
             payload="{}",
             timeout=300,
         )
         task2 = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="tool2",
             task_class="test",
             payload="{}",
@@ -546,7 +546,7 @@ class TestOldestTaskRetrieval:
         )
 
         # Get oldest - should be task1
-        oldest = storage.get_oldest_queued_task(stream["id"])
+        oldest = storage.get_oldest_queued_task(queue["id"])
         assert oldest is not None
         assert oldest["id"] == task1["id"]
 
@@ -554,7 +554,7 @@ class TestOldestTaskRetrieval:
         storage.claim_task(task1["id"])
 
         # Get oldest again - should be task2
-        oldest = storage.get_oldest_queued_task(stream["id"])
+        oldest = storage.get_oldest_queued_task(queue["id"])
         assert oldest is not None
         assert oldest["id"] == task2["id"]
 
@@ -562,10 +562,10 @@ class TestOldestTaskRetrieval:
 class TestTaskAttempts:
     """Test task attempt tracking"""
 
-    def test_task_attempts_increment(self, storage, stream):
+    def test_task_attempts_increment(self, storage, queue):
         """Test that attempts increment on each claim"""
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="test",
             task_class="test",
             payload="{}",

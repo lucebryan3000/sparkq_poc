@@ -15,7 +15,7 @@ const pages = {};
 let currentPage = 'dashboard';
 let statusErrorNotified = false;
 const taskFilters = {
-  streamId: '',
+  queueId: '',
   status: '',
 };
 let scriptIndexCache = [];

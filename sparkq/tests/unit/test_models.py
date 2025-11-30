@@ -135,7 +135,7 @@ class TestSessionModel:
 class TestStreamModel:
     def test_stream_creation_with_instructions(self):
         timestamp = datetime.utcnow()
-        stream = Stream(
+        queue = Stream(
             id="str_deadbeef",
             session_id="ses_deadbeef",
             name="Stream With Instructions",
@@ -144,12 +144,12 @@ class TestStreamModel:
             updated_at=timestamp,
         )
 
-        assert stream.instructions == "Be thorough and concise."
-        assert stream.status == StreamStatus.ACTIVE
+        assert queue.instructions == "Be thorough and concise."
+        assert queue.status == StreamStatus.ACTIVE
 
     def test_stream_allows_optional_instructions(self):
         timestamp = datetime.utcnow()
-        stream = Stream(
+        queue = Stream(
             id="str_feedbabe",
             session_id="ses_feedbabe",
             name="Instructionless Stream",
@@ -157,8 +157,8 @@ class TestStreamModel:
             updated_at=timestamp,
         )
 
-        assert stream.instructions is None
-        assert stream.status == StreamStatus.ACTIVE
+        assert queue.instructions is None
+        assert queue.status == StreamStatus.ACTIVE
 
 
 class TestTaskModel:
@@ -166,7 +166,7 @@ class TestTaskModel:
         timestamp = datetime.utcnow()
         task = Task(
             id="tsk_deadbeef",
-            stream_id="str_deadbeef",
+            queue_id="str_deadbeef",
             tool_name="echo",
             task_class=TaskClass.FAST_SCRIPT,
             payload='{"echo": "hello"}',
@@ -185,7 +185,7 @@ class TestTaskModel:
         timestamp = datetime.utcnow()
         task = Task(
             id="tsk_feedbabe",
-            stream_id="str_feedbabe",
+            queue_id="str_feedbabe",
             tool_name="echo",
             task_class=TaskClass.MEDIUM_SCRIPT,
             payload="{}",
@@ -213,7 +213,7 @@ class TestTaskModel:
         payload_json = json.dumps(payload)
         task = Task(
             id="tsk_cafed00d",
-            stream_id="str_cafed00d",
+            queue_id="str_cafed00d",
             tool_name="sql_runner",
             task_class=TaskClass.LLM_LITE,
             payload=payload_json,

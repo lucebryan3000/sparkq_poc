@@ -84,7 +84,7 @@ class TestToolInvocation:
         runner, storage = tool_runner
 
         run_cli(runner, ["session", "create", "tool-session"])
-        run_cli(runner, ["stream", "create", "tool-stream", "--session", "tool-session"])
+        run_cli(runner, ["queue", "create", "tool-queue", "--session", "tool-session"])
 
         # Enqueue with valid payload
         valid_payload = {
@@ -97,8 +97,8 @@ class TestToolInvocation:
             runner,
             [
                 "enqueue",
-                "--stream",
-                "tool-stream",
+                "--queue",
+                "tool-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -116,11 +116,11 @@ class TestToolInvocation:
         assert payload["metadata"]["script"] == "echo 'hello'"
 
     def test_multiple_tools_in_same_stream(self, tool_runner):
-        """Test that different tools can be used in same stream"""
+        """Test that different tools can be used in same queue"""
         runner, storage = tool_runner
 
         run_cli(runner, ["session", "create", "multi-tool-session"])
-        run_cli(runner, ["stream", "create", "multi-tool-stream", "--session", "multi-tool-session"])
+        run_cli(runner, ["queue", "create", "multi-tool-queue", "--session", "multi-tool-session"])
 
         # Enqueue tasks with different tools
         tools = ["run-bash", "run-python", "quick-check"]
@@ -131,8 +131,8 @@ class TestToolInvocation:
                 runner,
                 [
                     "enqueue",
-                    "--stream",
-                    "multi-tool-stream",
+                    "--queue",
+                    "multi-tool-queue",
                     "--tool",
                     tool,
                     "--metadata",
@@ -172,15 +172,15 @@ class TestToolInvocation:
         runner, storage = tool_runner
 
         run_cli(runner, ["session", "create", "invalid-session"])
-        run_cli(runner, ["stream", "create", "invalid-stream", "--session", "invalid-session"])
+        run_cli(runner, ["queue", "create", "invalid-queue", "--session", "invalid-session"])
 
         # Try to enqueue with non-existent tool
         output, exit_code = run_cli(
             runner,
             [
                 "enqueue",
-                "--stream",
-                "invalid-stream",
+                "--queue",
+                "invalid-queue",
                 "--tool",
                 "non-existent-tool",
                 "--metadata",
@@ -197,15 +197,15 @@ class TestToolInvocation:
         runner, storage = tool_runner
 
         run_cli(runner, ["session", "create", "empty-session"])
-        run_cli(runner, ["stream", "create", "empty-stream", "--session", "empty-session"])
+        run_cli(runner, ["queue", "create", "empty-queue", "--session", "empty-session"])
 
         # Enqueue without --metadata flag
         output, _ = run_cli(
             runner,
             [
                 "enqueue",
-                "--stream",
-                "empty-stream",
+                "--queue",
+                "empty-queue",
                 "--tool",
                 "run-bash",
             ],
@@ -225,7 +225,7 @@ class TestToolInvocation:
         runner, storage = tool_runner
 
         run_cli(runner, ["session", "create", "large-session"])
-        run_cli(runner, ["stream", "create", "large-stream", "--session", "large-session"])
+        run_cli(runner, ["queue", "create", "large-queue", "--session", "large-session"])
 
         # Create large metadata (but reasonable size)
         large_metadata = {
@@ -238,8 +238,8 @@ class TestToolInvocation:
             runner,
             [
                 "enqueue",
-                "--stream",
-                "large-stream",
+                "--queue",
+                "large-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -267,15 +267,15 @@ class TestToolValidation:
         runner, storage = tool_runner
 
         run_cli(runner, ["session", "create", "json-session"])
-        run_cli(runner, ["stream", "create", "json-stream", "--session", "json-session"])
+        run_cli(runner, ["queue", "create", "json-queue", "--session", "json-session"])
 
         # Try invalid JSON (should be caught by CLI before reaching storage)
         result = runner.invoke(
             app,
             [
                 "enqueue",
-                "--stream",
-                "json-stream",
+                "--queue",
+                "json-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -291,7 +291,7 @@ class TestToolValidation:
         runner, storage = tool_runner
 
         run_cli(runner, ["session", "create", "special-session"])
-        run_cli(runner, ["stream", "create", "special-stream", "--session", "special-session"])
+        run_cli(runner, ["queue", "create", "special-queue", "--session", "special-session"])
 
         # Metadata with special characters
         special_metadata = {
@@ -304,8 +304,8 @@ class TestToolValidation:
             runner,
             [
                 "enqueue",
-                "--stream",
-                "special-stream",
+                "--queue",
+                "special-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -325,7 +325,7 @@ class TestToolValidation:
         runner, storage = tool_runner
 
         run_cli(runner, ["session", "create", "nested-session"])
-        run_cli(runner, ["stream", "create", "nested-stream", "--session", "nested-session"])
+        run_cli(runner, ["queue", "create", "nested-queue", "--session", "nested-session"])
 
         nested_metadata = {
             "level1": {
@@ -344,8 +344,8 @@ class TestToolValidation:
             runner,
             [
                 "enqueue",
-                "--stream",
-                "nested-stream",
+                "--queue",
+                "nested-queue",
                 "--tool",
                 "run-bash",
                 "--metadata",
@@ -402,15 +402,15 @@ class TestToolExecution:
         runner, storage = tool_runner
 
         run_cli(runner, ["session", "create", "claim-session"])
-        run_cli(runner, ["stream", "create", "claim-stream", "--session", "claim-session"])
+        run_cli(runner, ["queue", "create", "claim-queue", "--session", "claim-session"])
 
         # Enqueue with specific tool
         output, _ = run_cli(
             runner,
             [
                 "enqueue",
-                "--stream",
-                "claim-stream",
+                "--queue",
+                "claim-queue",
                 "--tool",
                 "quick-check",
                 "--metadata",
@@ -420,7 +420,7 @@ class TestToolExecution:
         task_id = extract_task_id(output)
 
         # Claim
-        run_cli(runner, ["claim", "--stream", "claim-stream"])
+        run_cli(runner, ["claim", "--queue", "claim-queue"])
 
         # Verify tool preserved
         task = storage.get_task(task_id)

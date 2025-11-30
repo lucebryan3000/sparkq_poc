@@ -85,7 +85,7 @@
 
     let streams = [];
     try {
-      const response = await api('GET', '/api/streams', null, { action: 'load queues' });
+      const response = await api('GET', '/api/queues', null, { action: 'load queues' });
       streams = response?.streams || [];
     } catch (err) {
       handleApiError('load queues for enqueue', err);
@@ -99,9 +99,9 @@
     }
 
     const streamOptions = streams
-      .map((stream) => {
-        const label = stream.name && stream.name !== stream.id ? `${stream.name} (${stream.id})` : stream.name || stream.id;
-        return `<option value="${stream.id}">${label}</option>`;
+      .map((queue) => {
+        const label = queue.name && queue.name !== queue.id ? `${queue.name} (${queue.id})` : queue.name || queue.id;
+        return `<option value="${queue.id}">${label}</option>`;
       })
       .join('');
 
@@ -114,9 +114,9 @@
         <form id="enqueue-form" novalidate>
           <div class="grid grid-2">
             <div class="input-group">
-              <label for="enqueue-stream">Queue</label>
-              <input id="enqueue-stream" list="enqueue-stream-options" placeholder="Enter or choose a queue ID" required />
-              <datalist id="enqueue-stream-options">
+              <label for="enqueue-queue">Queue</label>
+              <input id="enqueue-queue" list="enqueue-queue-options" placeholder="Enter or choose a queue ID" required />
+              <datalist id="enqueue-queue-options">
                 ${streamOptions}
               </datalist>
             </div>
@@ -171,7 +171,7 @@
     const timeoutInput = form.querySelector('#enqueue-timeout');
     const taskClassSelect = form.querySelector('#enqueue-task-class');
     const enqueueBtn = form.querySelector('#enqueue-submit');
-    const streamInput = form.querySelector('#enqueue-stream');
+    const streamInput = form.querySelector('#enqueue-queue');
     const promptInput = form.querySelector('#enqueue-prompt-path');
     const metadataInput = form.querySelector('#enqueue-metadata');
 
@@ -340,7 +340,7 @@
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       clearFormErrors(form);
-      const streamId = (streamInput?.value || '').trim();
+      const queueId = (streamInput?.value || '').trim();
       const toolName = (toolInput?.value || '').trim();
       const taskClass = (taskClassSelect?.value || '').trim();
       const timeoutVal = Number(timeoutInput?.value);
@@ -364,7 +364,7 @@
       }
 
       const payload = {
-        stream_id: streamId,
+        queue_id: queueId,
         tool_name: toolName,
         task_class: taskClass,
       };

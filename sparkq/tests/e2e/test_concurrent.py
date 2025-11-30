@@ -7,7 +7,7 @@ from src.storage import Storage
 
 
 def _bootstrap_storage(tmp_path, prefix: str):
-    """Create an isolated database with a project/session/stream for testing."""
+    """Create an isolated database with a project/session/queue for testing."""
     db_path = tmp_path / f"{prefix}.db"
     storage = Storage(str(db_path))
     storage.init_db()
@@ -17,21 +17,21 @@ def _bootstrap_storage(tmp_path, prefix: str):
         prd_path=None,
     )
     session = storage.create_session(name=f"{prefix}-session")
-    stream = storage.create_stream(session_id=session["id"], name=f"{prefix}-stream")
-    return storage, stream
+    queue = storage.create_queue(session_id=session["id"], name=f"{prefix}-queue")
+    return storage, queue
 
 
 @pytest.mark.e2e
 class TestConcurrentAccess:
     def test_concurrent_enqueue(self, tmp_path):
-        storage, stream = _bootstrap_storage(tmp_path, "enqueue")
+        storage, queue = _bootstrap_storage(tmp_path, "enqueue")
 
         created_ids = []
         lock = threading.Lock()
 
         def enqueue_task(idx: int):
             task = storage.create_task(
-                stream_id=stream["id"],
+                queue_id=queue["id"],
                 tool_name="worker",
                 task_class="concurrent",
                 payload=f"payload-{idx}",
@@ -50,9 +50,9 @@ class TestConcurrentAccess:
         assert len(set(created_ids)) == 20
 
     def test_atomic_claim(self, tmp_path):
-        storage, stream = _bootstrap_storage(tmp_path, "claim")
+        storage, queue = _bootstrap_storage(tmp_path, "claim")
         task = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="worker",
             task_class="concurrent",
             payload="single",
@@ -82,10 +82,10 @@ class TestConcurrentAccess:
         assert len(claimed_tasks) == 1
 
     def test_concurrent_complete(self, tmp_path):
-        storage, stream = _bootstrap_storage(tmp_path, "complete")
+        storage, queue = _bootstrap_storage(tmp_path, "complete")
         tasks = [
             storage.create_task(
-                stream_id=stream["id"],
+                queue_id=queue["id"],
                 tool_name="worker",
                 task_class="concurrent",
                 payload=f"payload-{i}",
@@ -111,6 +111,6 @@ class TestConcurrentAccess:
                 completed_task = future.result()
                 assert completed_task["status"] == "succeeded"
 
-        all_tasks = storage.list_tasks(stream_id=stream["id"])
+        all_tasks = storage.list_tasks(queue_id=queue["id"])
         assert len(completed_ids) == 10
         assert all(task["status"] == "succeeded" for task in all_tasks)

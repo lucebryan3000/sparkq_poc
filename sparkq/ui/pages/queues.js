@@ -6,8 +6,8 @@
   const formatDuration = Utils.formatDuration;
   const showToast = Utils.showToast;
 
-  let currentStreamId = null;
-  let currentStreamName = null;
+  let currentQueueId = null;
+  let currentQueueName = null;
   let quickAdd = null;
 
   async function renderStreamsPage(container) {
@@ -33,7 +33,7 @@
     }
 
     try {
-      const streamsResponse = await api('GET', '/api/streams', null, { action: 'load queues' });
+      const streamsResponse = await api('GET', '/api/queues', null, { action: 'load queues' });
       streams = streamsResponse?.streams || [];
     } catch (err) {
       console.error('Failed to load queues:', err);
@@ -46,13 +46,13 @@
     });
 
     const rows = streams
-      .map((stream) => `
+      .map((queue) => `
         <tr>
-          <td><a href="#" class="stream-link" data-stream-id="${stream.id}" data-stream-name="${stream.name || stream.id}">${stream.id}</a></td>
-          <td>${stream.name || '—'}</td>
-          <td>${sessionsById[stream.session_id] || stream.session_id || '—'}</td>
-          <td>${stream.status || '—'}</td>
-          <td>${formatTimestamp(stream.created_at)}</td>
+          <td><a href="#" class="queue-link" data-queue-id="${queue.id}" data-queue-name="${queue.name || queue.id}">${queue.id}</a></td>
+          <td>${queue.name || '—'}</td>
+          <td>${sessionsById[queue.session_id] || queue.session_id || '—'}</td>
+          <td>${queue.status || '—'}</td>
+          <td>${formatTimestamp(queue.created_at)}</td>
         </tr>
       `)
       .join('');
@@ -83,29 +83,29 @@
           <div style="display: flex; gap: 8px; align-items: center;">
             <span id="refresh-counter" class="muted" style="font-size: 12px;">—</span>
             <button class="button secondary" id="refresh-btn" title="Refresh now" style="padding: 6px 12px; font-size: 16px;">⟳</button>
-            <button class="button primary" id="create-stream-btn">Create Queue</button>
+            <button class="button primary" id="create-queue-btn">Create Queue</button>
           </div>
         </div>
         ${table}
       </div>
 
-      <div id="stream-details-container" style="margin-top: 24px;"></div>
+      <div id="queue-details-container" style="margin-top: 24px;"></div>
     `;
 
-    // Attach stream link handlers
-    const streamLinks = container.querySelectorAll('.stream-link');
+    // Attach queue link handlers
+    const streamLinks = container.querySelectorAll('.queue-link');
     streamLinks.forEach((link) => {
       link.addEventListener('click', (e) => {
         e.preventDefault();
-        const streamId = link.getAttribute('data-stream-id');
-        const streamName = link.getAttribute('data-stream-name');
-        loadStreamDetails(container, streamId, streamName);
+        const queueId = link.getAttribute('data-queue-id');
+        const queueName = link.getAttribute('data-queue-name');
+        loadQueueDetails(container, queueId, queueName);
       });
     });
 
-    const createBtn = container.querySelector('#create-stream-btn');
+    const createBtn = container.querySelector('#create-queue-btn');
     if (createBtn) {
-      createBtn.addEventListener('click', () => handleCreateStream(container, sessions));
+      createBtn.addEventListener('click', () => handleCreateQueue(container, sessions));
     }
 
     const refreshBtn = container.querySelector('#refresh-btn');
@@ -117,20 +117,20 @@
       });
     }
 
-    // If a stream was previously selected, reload it
-    if (currentStreamId) {
-      loadStreamDetails(container, currentStreamId, currentStreamName);
+    // If a queue was previously selected, reload it
+    if (currentQueueId) {
+      loadQueueDetails(container, currentQueueId, currentQueueName);
     }
   }
 
-  async function handleCreateStream(container, sessions) {
+  async function handleCreateQueue(container, sessions) {
     if (!sessions.length) {
       showToast('No sessions available. Create a session first.', 'warning');
       return;
     }
 
-    const streamName = await Utils.showPrompt('Create Queue', 'Enter queue name:');
-    if (!streamName || !streamName.trim()) {
+    const queueName = await Utils.showPrompt('Create Queue', 'Enter queue name:');
+    if (!queueName || !queueName.trim()) {
       return;
     }
 
@@ -145,13 +145,13 @@
     try {
       const payload = {
         session_id: sessionId.trim(),
-        name: streamName.trim(),
+        name: queueName.trim(),
       };
       if (instructions && instructions.trim()) {
         payload.instructions = instructions;
       }
-      await api('POST', '/api/streams', payload, { action: 'create queue' });
-      showToast(`Queue "${streamName}" created`, 'success');
+      await api('POST', '/api/queues', payload, { action: 'create queue' });
+      showToast(`Queue "${queueName}" created`, 'success');
       renderStreamsPage(container);
     } catch (err) {
       console.error('Failed to create queue:', err);
@@ -159,15 +159,15 @@
     }
   }
 
-  async function handleArchiveStream(container, streamId, streamName) {
-    const confirmed = await Utils.showPrompt('Archive Queue', `Are you sure you want to archive "${streamName}"? This keeps the history but marks it as archived.`, 'no');
+  async function handleArchiveQueue(container, queueId, queueName) {
+    const confirmed = await Utils.showPrompt('Archive Queue', `Are you sure you want to archive "${queueName}"? This keeps the history but marks it as archived.`, 'no');
     if (confirmed !== 'yes') {
       return;
     }
 
     try {
-      await api('PUT', `/api/streams/${streamId}/archive`, null, { action: 'archive queue' });
-      showToast(`Queue "${streamName}" archived`, 'success');
+      await api('PUT', `/api/queues/${queueId}/archive`, null, { action: 'archive queue' });
+      showToast(`Queue "${queueName}" archived`, 'success');
       renderStreamsPage(container);
     } catch (err) {
       console.error('Failed to archive queue:', err);
@@ -175,15 +175,15 @@
     }
   }
 
-  async function handleDeleteStream(container, streamId, streamName) {
-    const confirmed = await Utils.showPrompt('Delete Queue', `Are you sure you want to permanently delete "${streamName}"? This will remove all history and cannot be undone.`, 'no');
+  async function handleDeleteQueue(container, queueId, queueName) {
+    const confirmed = await Utils.showPrompt('Delete Queue', `Are you sure you want to permanently delete "${queueName}"? This will remove all history and cannot be undone.`, 'no');
     if (confirmed !== 'yes') {
       return;
     }
 
     try {
-      await api('DELETE', `/api/streams/${streamId}`, null, { action: 'delete queue' });
-      showToast(`Queue "${streamName}" deleted`, 'success');
+      await api('DELETE', `/api/queues/${queueId}`, null, { action: 'delete queue' });
+      showToast(`Queue "${queueName}" deleted`, 'success');
       renderStreamsPage(container);
     } catch (err) {
       console.error('Failed to delete queue:', err);
@@ -191,11 +191,11 @@
     }
   }
 
-  async function loadStreamDetails(container, streamId, streamName) {
-    currentStreamId = streamId;
-    currentStreamName = streamName;
+  async function loadQueueDetails(container, queueId, queueName) {
+    currentQueueId = queueId;
+    currentQueueName = queueName;
 
-    const detailsContainer = container.querySelector('#stream-details-container');
+    const detailsContainer = container.querySelector('#queue-details-container');
     if (!detailsContainer) return;
 
     detailsContainer.innerHTML = `
@@ -207,7 +207,7 @@
     let tasks = [];
 
     try {
-      const tasksResponse = await api('GET', `/api/streams/${streamId}/tasks`, null, { action: 'load tasks' });
+      const tasksResponse = await api('GET', `/api/queues/${queueId}/tasks`, null, { action: 'load tasks' });
       tasks = tasksResponse?.tasks || [];
     } catch (err) {
       console.error('Failed to load tasks:', err);
@@ -254,7 +254,7 @@
     detailsContainer.innerHTML = `
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h3 style="margin: 0;">Queue: ${streamName}</h3>
+          <h3 style="margin: 0;">Queue: ${queueName}</h3>
           <div style="display: flex; gap: 8px;">
             <button class="button secondary" id="archive-btn" title="Archive this queue">📦 Archive</button>
             <button class="button error" id="delete-btn" title="Permanently delete this queue">🗑️ Delete</button>
@@ -268,18 +268,18 @@
     // Attach action buttons
     const archiveBtn = detailsContainer.querySelector('#archive-btn');
     if (archiveBtn) {
-      archiveBtn.addEventListener('click', () => handleArchiveStream(container, streamId, streamName));
+      archiveBtn.addEventListener('click', () => handleArchiveQueue(container, queueId, queueName));
     }
 
     const deleteBtn = detailsContainer.querySelector('#delete-btn');
     if (deleteBtn) {
-      deleteBtn.addEventListener('click', () => handleDeleteStream(container, streamId, streamName));
+      deleteBtn.addEventListener('click', () => handleDeleteQueue(container, queueId, queueName));
     }
 
     // Initialize QuickAdd component
     if (window.QuickAdd) {
-      quickAdd = new window.QuickAdd('quick-add-container', streamId, streamName);
-      quickAdd.setRefreshCallback(() => loadStreamDetails(container, streamId, streamName));
+      quickAdd = new window.QuickAdd('quick-add-container', queueId, queueName);
+      quickAdd.setRefreshCallback(() => loadQueueDetails(container, queueId, queueName));
       quickAdd.render();
     }
   }

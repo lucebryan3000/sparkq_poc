@@ -51,7 +51,7 @@ class Session(BaseModel):
     updated_at: datetime
 
 
-class Stream(BaseModel):
+class Queue(BaseModel):
     id: str
     session_id: str
     name: str
@@ -63,7 +63,7 @@ class Stream(BaseModel):
 
 class Task(BaseModel):
     id: str
-    stream_id: str
+    queue_id: str
     tool_name: str
     task_class: TaskClass
     payload: str  # JSON string

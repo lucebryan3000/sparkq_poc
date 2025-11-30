@@ -52,18 +52,18 @@ def session(storage, project):
 
 
 @pytest.fixture
-def stream(storage, session):
-    return storage.create_stream(
+def queue(storage, session):
+    return storage.create_queue(
         session_id=session["id"],
-        name="unit-test-stream",
+        name="unit-test-queue",
         instructions="Stream used in storage unit tests",
     )
 
 
 @pytest.fixture
-def task(storage, stream):
+def task(storage, queue):
     return storage.create_task(
-        stream_id=stream["id"],
+        queue_id=queue["id"],
         tool_name="unit-test-tool",
         task_class="unit-test-class",
         payload='{"test": true}',

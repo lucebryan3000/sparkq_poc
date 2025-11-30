@@ -32,20 +32,20 @@ def api_client(storage):
 @pytest.fixture
 def storage_with_stream(storage):
     session = storage.create_session("integration-session", "Integration test session")
-    stream = storage.create_stream(
+    queue = storage.create_queue(
         session_id=session["id"],
-        name="integration-stream",
-        instructions="Test stream for integration cases",
+        name="integration-queue",
+        instructions="Test queue for integration cases",
     )
-    return {"storage": storage, "session": session, "stream": stream}
+    return {"storage": storage, "session": session, "queue": queue}
 
 
 @pytest.fixture
 def queued_task(storage_with_stream):
     storage = storage_with_stream["storage"]
-    stream = storage_with_stream["stream"]
+    queue = storage_with_stream["queue"]
     task = storage.create_task(
-        stream_id=stream["id"],
+        queue_id=queue["id"],
         tool_name="echo",
         task_class="FAST_SCRIPT",
         payload=_payload(),
@@ -59,9 +59,9 @@ def queued_task(storage_with_stream):
 @pytest.fixture
 def running_task(storage_with_stream):
     storage = storage_with_stream["storage"]
-    stream = storage_with_stream["stream"]
+    queue = storage_with_stream["queue"]
     task = storage.create_task(
-        stream_id=stream["id"],
+        queue_id=queue["id"],
         tool_name="echo",
         task_class="FAST_SCRIPT",
         payload=_payload({"source": "running"}),
@@ -155,19 +155,19 @@ class TestStreamEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert "streams" in data
-        assert any(stream["id"] == storage_with_stream["stream"]["id"] for stream in data["streams"])
+        assert any(queue["id"] == storage_with_stream["queue"]["id"] for queue in data["streams"])
 
     def test_create_stream(self, api_client, storage_with_stream):
         session = storage_with_stream["session"]
-        stream_name = f"stream-{uuid4().hex[:8]}"
-        payload = {"session_id": session["id"], "name": stream_name, "instructions": "New stream"}
+        queue_name = f"queue-{uuid4().hex[:8]}"
+        payload = {"session_id": session["id"], "name": queue_name, "instructions": "New queue"}
 
         response = api_client.post("/api/streams", json=payload)
         assert response.status_code == 201
         data = response.json()
-        assert "stream" in data
-        assert data["stream"]["session_id"] == session["id"]
-        assert data["stream"]["name"] == stream_name
+        assert "queue" in data
+        assert data["queue"]["session_id"] == session["id"]
+        assert data["queue"]["name"] == queue_name
 
 
 class TestTaskEndpoints:
@@ -179,9 +179,9 @@ class TestTaskEndpoints:
         assert any(task["id"] == queued_task["id"] for task in data["tasks"])
 
     def test_create_task(self, api_client, storage_with_stream):
-        stream = storage_with_stream["stream"]
+        queue = storage_with_stream["queue"]
         payload = {
-            "stream_id": stream["id"],
+            "queue_id": queue["id"],
             "tool_name": "echo",
             "task_class": "FAST_SCRIPT",
             "metadata": {"origin": "test"},
@@ -190,7 +190,7 @@ class TestTaskEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert "task" in data
-        assert data["task"]["stream_id"] == stream["id"]
+        assert data["task"]["queue_id"] == queue["id"]
         assert data["task"]["tool_name"] == payload["tool_name"]
         assert data["task"]["task_class"] == payload["task_class"]
         assert data["task"]["timeout"] == api.DEFAULT_TASK_TIMEOUTS["FAST_SCRIPT"]
@@ -211,9 +211,9 @@ class TestTaskEndpoints:
 
     def test_requeue_task(self, api_client, storage_with_stream):
         storage = storage_with_stream["storage"]
-        stream = storage_with_stream["stream"]
+        queue = storage_with_stream["queue"]
         original = storage.create_task(
-            stream_id=stream["id"],
+            queue_id=queue["id"],
             tool_name="echo",
             task_class="FAST_SCRIPT",
             payload=_payload({"source": "requeue"}),
@@ -227,7 +227,7 @@ class TestTaskEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["task"]["status"] == "queued"
-        assert data["task"]["stream_id"] == original["stream_id"]
+        assert data["task"]["queue_id"] == original["queue_id"]
         assert data["task"]["id"] != original["id"]
 
     def test_handle_task_errors(self, api_client):

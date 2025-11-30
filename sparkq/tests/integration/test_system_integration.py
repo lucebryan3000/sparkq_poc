@@ -29,8 +29,8 @@ class TestCompleteSessionWorkflow:
         """
         Complete workflow:
         1. Create session
-        2. Create stream under session
-        3. Create task under stream
+        2. Create queue under session
+        3. Create task under queue
         4. Claim task
         5. Complete task
         6. Verify task marked as succeeded
@@ -44,20 +44,20 @@ class TestCompleteSessionWorkflow:
         session_id = session_resp.json()["session"]["id"]
         assert session_resp.json()["session"]["status"] == "active"
 
-        # Step 2: Create stream under session
+        # Step 2: Create queue under session
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "workflow-stream"},
+            json={"session_id": session_id, "name": "workflow-queue"},
         )
         assert stream_resp.status_code == 201
-        stream_id = stream_resp.json()["stream"]["id"]
-        assert stream_resp.json()["stream"]["session_id"] == session_id
+        queue_id = stream_resp.json()["queue"]["id"]
+        assert stream_resp.json()["queue"]["session_id"] == session_id
 
-        # Step 3: Create task under stream
+        # Step 3: Create task under queue
         task_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "workflow-tool",
                 "task_class": "workflow-class",
                 "timeout": 300,
@@ -94,14 +94,14 @@ class TestCompleteSessionWorkflow:
     def test_task_failure_workflow(self, client):
         """
         Test failure and requeue workflow:
-        1. Create session/stream/task
+        1. Create session/queue/task
         2. Claim task
         3. Fail task with error message
         4. Verify task marked as failed
         5. Requeue task (creates new task)
         6. Verify new task is in queued state
         """
-        # Setup: Create session, stream, task
+        # Setup: Create session, queue, task
         session_resp = client.post(
             "/api/sessions", json={"name": "failure-session"}
         )
@@ -109,14 +109,14 @@ class TestCompleteSessionWorkflow:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "failure-stream"},
+            json={"session_id": session_id, "name": "failure-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "failure-tool",
                 "task_class": "failure-class",
                 "timeout": 300,
@@ -157,13 +157,13 @@ class TestCompleteSessionWorkflow:
 
     def test_multiple_task_completion_in_stream(self, client):
         """
-        Test multiple tasks within single stream:
-        1. Create stream
+        Test multiple tasks within single queue:
+        1. Create queue
         2. Create 3 tasks
         3. Complete tasks with different results
         4. Verify task states
         """
-        # Step 1: Create session and stream
+        # Step 1: Create session and queue
         session_resp = client.post(
             "/api/sessions", json={"name": "multi-task-session"}
         )
@@ -171,9 +171,9 @@ class TestCompleteSessionWorkflow:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "multi-stream"},
+            json={"session_id": session_id, "name": "multi-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Step 2: Create 3 tasks
         task_ids = []
@@ -181,7 +181,7 @@ class TestCompleteSessionWorkflow:
             task_resp = client.post(
                 "/api/tasks",
                 json={
-                    "stream_id": stream_id,
+                    "queue_id": queue_id,
                     "tool_name": f"tool-{i}",
                     "task_class": f"class-{i}",
                     "timeout": 300,
@@ -203,7 +203,7 @@ class TestCompleteSessionWorkflow:
         # Task 2: Still queued (not claimed)
 
         # Step 4: Verify task states
-        tasks_resp = client.get(f"/api/tasks?stream_id={stream_id}")
+        tasks_resp = client.get(f"/api/tasks?queue_id={queue_id}")
         tasks = {t["id"]: t for t in tasks_resp.json()["tasks"]}
 
         assert tasks[task_ids[0]]["status"] == "succeeded"
@@ -217,11 +217,11 @@ class TestMultiStreamIsolation:
 
     def test_multi_stream_isolation(self, client):
         """
-        Test stream isolation:
+        Test queue isolation:
         1. Create session with multiple streams
-        2. Create tasks in each stream
-        3. Filter tasks by stream
-        4. Verify tasks are isolated per stream
+        2. Create tasks in each queue
+        3. Filter tasks by queue
+        4. Verify tasks are isolated per queue
         """
         # Step 1: Create session
         session_resp = client.post(
@@ -234,37 +234,37 @@ class TestMultiStreamIsolation:
         for i in range(3):
             stream_resp = client.post(
                 "/api/streams",
-                json={"session_id": session_id, "name": f"stream-{i}"},
+                json={"session_id": session_id, "name": f"queue-{i}"},
             )
-            stream_ids.append(stream_resp.json()["stream"]["id"])
+            stream_ids.append(stream_resp.json()["queue"]["id"])
 
-        # Step 3: Create tasks in each stream
+        # Step 3: Create tasks in each queue
         stream_task_map = {}
-        for stream_idx, stream_id in enumerate(stream_ids):
+        for stream_idx, queue_id in enumerate(stream_ids):
             task_ids = []
             for task_idx in range(2):
                 task_resp = client.post(
                     "/api/tasks",
                     json={
-                        "stream_id": stream_id,
-                        "tool_name": f"stream-{stream_idx}-task-{task_idx}",
+                        "queue_id": queue_id,
+                        "tool_name": f"queue-{stream_idx}-task-{task_idx}",
                         "task_class": "test-class",
                         "timeout": 300,
                     },
                 )
                 task_ids.append(task_resp.json()["task"]["id"])
-            stream_task_map[stream_id] = task_ids
+            stream_task_map[queue_id] = task_ids
 
-        # Step 4: Filter tasks by stream and verify isolation
-        for stream_id, expected_task_ids in stream_task_map.items():
-            tasks_resp = client.get(f"/api/tasks?stream_id={stream_id}")
+        # Step 4: Filter tasks by queue and verify isolation
+        for queue_id, expected_task_ids in stream_task_map.items():
+            tasks_resp = client.get(f"/api/tasks?queue_id={queue_id}")
             tasks = tasks_resp.json()["tasks"]
 
             # Verify correct number of tasks
             assert len(tasks) == 2
 
-            # Verify all tasks belong to this stream
-            assert all(t["stream_id"] == stream_id for t in tasks)
+            # Verify all tasks belong to this queue
+            assert all(t["queue_id"] == queue_id for t in tasks)
 
             # Verify task IDs match
             actual_task_ids = {t["id"] for t in tasks}
@@ -289,10 +289,10 @@ class TestMultiStreamIsolation:
         for session_id in session_ids:
             stream_resp = client.post(
                 "/api/streams",
-                json={"session_id": session_id, "name": f"stream-for-{session_id}"},
+                json={"session_id": session_id, "name": f"queue-for-{session_id}"},
             )
-            stream_id = stream_resp.json()["stream"]["id"]
-            session_stream_map[session_id] = stream_id
+            queue_id = stream_resp.json()["queue"]["id"]
+            session_stream_map[session_id] = queue_id
 
         # Step 3: Verify streams are isolated by session
         for session_id, expected_stream_id in session_stream_map.items():
@@ -302,7 +302,7 @@ class TestMultiStreamIsolation:
             # All streams should belong to this session
             assert all(s["session_id"] == session_id for s in streams)
 
-            # Should find our stream
+            # Should find our queue
             assert any(s["id"] == expected_stream_id for s in streams)
 
 
@@ -312,7 +312,7 @@ class TestDataConsistency:
     def test_data_persistence_after_api_calls(self, client):
         """
         Test that data persists correctly after API operations:
-        1. Create session, stream, task via API
+        1. Create session, queue, task via API
         2. Modify task status through lifecycle
         3. Verify data persists correctly
         """
@@ -324,14 +324,14 @@ class TestDataConsistency:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "persist-stream"},
+            json={"session_id": session_id, "name": "persist-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "persist-tool",
                 "task_class": "persist-class",
                 "timeout": 300,
@@ -349,9 +349,9 @@ class TestDataConsistency:
         assert session_check.status_code == 200
         assert session_check.json()["session"]["name"] == "persist-session"
 
-        stream_check = client.get(f"/api/streams/{stream_id}")
+        stream_check = client.get(f"/api/streams/{queue_id}")
         assert stream_check.status_code == 200
-        assert stream_check.json()["stream"]["name"] == "persist-stream"
+        assert stream_check.json()["queue"]["name"] == "persist-queue"
 
         task_check = client.get(f"/api/tasks/{task_id}")
         assert task_check.status_code == 200
@@ -376,15 +376,15 @@ class TestDataConsistency:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "transition-stream"},
+            json={"session_id": session_id, "name": "transition-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Test path 1: queued → running → succeeded
         task1_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "tool1",
                 "task_class": "class1",
                 "timeout": 300,
@@ -409,7 +409,7 @@ class TestDataConsistency:
         task2_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "tool2",
                 "task_class": "class2",
                 "timeout": 300,
@@ -429,12 +429,12 @@ class TestDataConsistency:
 
     def test_stream_with_tasks_query(self, client):
         """
-        Test that stream and task queries show correct relationships:
-        1. Create session with stream and tasks
-        2. Query stream and verify it exists
-        3. Query tasks and verify they belong to stream
+        Test that queue and task queries show correct relationships:
+        1. Create session with queue and tasks
+        2. Query queue and verify it exists
+        3. Query tasks and verify they belong to queue
         """
-        # Step 1: Create session with stream and tasks
+        # Step 1: Create session with queue and tasks
         session_resp = client.post(
             "/api/sessions", json={"name": "query-test-session"}
         )
@@ -442,14 +442,14 @@ class TestDataConsistency:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "query-test-stream"},
+            json={"session_id": session_id, "name": "query-test-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "query-tool",
                 "task_class": "query-class",
                 "timeout": 300,
@@ -459,19 +459,19 @@ class TestDataConsistency:
 
         # Step 2: Verify all exist
         assert client.get(f"/api/sessions/{session_id}").status_code == 200
-        assert client.get(f"/api/streams/{stream_id}").status_code == 200
+        assert client.get(f"/api/streams/{queue_id}").status_code == 200
         assert client.get(f"/api/tasks/{task_id}").status_code == 200
 
-        # Step 3: Query stream and verify it has correct session_id
-        stream_get = client.get(f"/api/streams/{stream_id}")
-        assert stream_get.json()["stream"]["session_id"] == session_id
+        # Step 3: Query queue and verify it has correct session_id
+        stream_get = client.get(f"/api/streams/{queue_id}")
+        assert stream_get.json()["queue"]["session_id"] == session_id
 
-        # Step 4: Query tasks and verify they belong to stream
+        # Step 4: Query tasks and verify they belong to queue
         task_get = client.get(f"/api/tasks/{task_id}")
-        assert task_get.json()["task"]["stream_id"] == stream_id
+        assert task_get.json()["task"]["queue_id"] == queue_id
 
-        # Query by stream_id and verify we get it
-        tasks_resp = client.get(f"/api/tasks?stream_id={stream_id}")
+        # Query by queue_id and verify we get it
+        tasks_resp = client.get(f"/api/tasks?queue_id={queue_id}")
         tasks = tasks_resp.json()["tasks"]
         assert any(t["id"] == task_id for t in tasks)
 
@@ -481,7 +481,7 @@ class TestErrorRecovery:
 
     def test_invalid_stream_id_returns_404(self, client):
         """
-        Test that accessing invalid stream returns 404
+        Test that accessing invalid queue returns 404
         """
         response = client.get("/api/streams/invalid-id")
         assert response.status_code == 404
@@ -513,14 +513,14 @@ class TestErrorRecovery:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "unclaimed-stream"},
+            json={"session_id": session_id, "name": "unclaimed-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "unclaimed-tool",
                 "task_class": "unclaimed-class",
                 "timeout": 300,
@@ -550,14 +550,14 @@ class TestErrorRecovery:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "fail-test-stream"},
+            json={"session_id": session_id, "name": "fail-test-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "fail-test-tool",
                 "task_class": "fail-test-class",
                 "timeout": 300,
@@ -578,7 +578,7 @@ class TestErrorRecovery:
 
     def test_create_task_with_missing_stream_id(self, client):
         """
-        Test creating task with missing stream_id returns 400
+        Test creating task with missing queue_id returns 400
         """
         response = client.post(
             "/api/tasks",
@@ -592,11 +592,11 @@ class TestErrorRecovery:
 
     def test_create_stream_with_missing_session_id(self, client):
         """
-        Test creating stream with missing session_id returns 400
+        Test creating queue with missing session_id returns 400
         """
         response = client.post(
             "/api/streams",
-            json={"name": "test-stream"},
+            json={"name": "test-queue"},
         )
         assert response.status_code == 400
 

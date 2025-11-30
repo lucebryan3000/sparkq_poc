@@ -38,9 +38,9 @@ class TestThroughput:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "bulk-stream"},
+            json={"session_id": session_id, "name": "bulk-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create 50 tasks
         task_ids = []
@@ -49,7 +49,7 @@ class TestThroughput:
             task_resp = client.post(
                 "/api/tasks",
                 json={
-                    "stream_id": stream_id,
+                    "queue_id": queue_id,
                     "tool_name": f"tool-{i}",
                     "task_class": f"class-{i}",
                     "timeout": 300,
@@ -61,7 +61,7 @@ class TestThroughput:
         creation_time = time.time() - start_time
 
         # Verify all tasks exist
-        list_resp = client.get(f"/api/tasks?stream_id={stream_id}")
+        list_resp = client.get(f"/api/tasks?queue_id={queue_id}")
         tasks = list_resp.json()["tasks"]
         assert len(tasks) == 50
 
@@ -80,9 +80,9 @@ class TestThroughput:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "load-stream"},
+            json={"session_id": session_id, "name": "load-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create 20 tasks
         task_ids = []
@@ -90,7 +90,7 @@ class TestThroughput:
             task_resp = client.post(
                 "/api/tasks",
                 json={
-                    "stream_id": stream_id,
+                    "queue_id": queue_id,
                     "tool_name": f"load-tool-{i}",
                     "task_class": f"load-class-{i}",
                     "timeout": 300,
@@ -108,7 +108,7 @@ class TestThroughput:
         claim_time = time.time() - start_time
 
         # Verify all claimed
-        list_resp = client.get(f"/api/tasks?stream_id={stream_id}")
+        list_resp = client.get(f"/api/tasks?queue_id={queue_id}")
         tasks = list_resp.json()["tasks"]
         running_count = sum(1 for t in tasks if t["status"] == "running")
         assert running_count == 20
@@ -128,9 +128,9 @@ class TestThroughput:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "complete-load-stream"},
+            json={"session_id": session_id, "name": "complete-load-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create and claim 15 tasks
         task_ids = []
@@ -138,7 +138,7 @@ class TestThroughput:
             task_resp = client.post(
                 "/api/tasks",
                 json={
-                    "stream_id": stream_id,
+                    "queue_id": queue_id,
                     "tool_name": f"complete-tool-{i}",
                     "task_class": f"complete-class-{i}",
                     "timeout": 300,
@@ -161,7 +161,7 @@ class TestThroughput:
         complete_time = time.time() - start_time
 
         # Verify all completed
-        list_resp = client.get(f"/api/tasks?stream_id={stream_id}")
+        list_resp = client.get(f"/api/tasks?queue_id={queue_id}")
         tasks = list_resp.json()["tasks"]
         succeeded_count = sum(1 for t in tasks if t["status"] == "succeeded")
         assert succeeded_count == 15
@@ -185,16 +185,16 @@ class TestQueryPerformance:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "query-perf-stream"},
+            json={"session_id": session_id, "name": "query-perf-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create 30 tasks
         for i in range(30):
             client.post(
                 "/api/tasks",
                 json={
-                    "stream_id": stream_id,
+                    "queue_id": queue_id,
                     "tool_name": f"perf-tool-{i}",
                     "task_class": f"perf-class-{i}",
                     "timeout": 300,
@@ -203,7 +203,7 @@ class TestQueryPerformance:
 
         # Test list performance
         start_time = time.time()
-        list_resp = client.get(f"/api/tasks?stream_id={stream_id}")
+        list_resp = client.get(f"/api/tasks?queue_id={queue_id}")
         query_time = time.time() - start_time
 
         assert list_resp.status_code == 200
@@ -224,14 +224,14 @@ class TestQueryPerformance:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "single-task-stream"},
+            json={"session_id": session_id, "name": "single-task-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "single-tool",
                 "task_class": "single-class",
                 "timeout": 300,
@@ -262,16 +262,16 @@ class TestQueryPerformance:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "filter-stream"},
+            json={"session_id": session_id, "name": "filter-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create tasks with different statuses
         for i in range(10):
             task_resp = client.post(
                 "/api/tasks",
                 json={
-                    "stream_id": stream_id,
+                    "queue_id": queue_id,
                     "tool_name": f"filter-tool-{i}",
                     "task_class": f"filter-class-{i}",
                     "timeout": 300,
@@ -330,9 +330,9 @@ class TestConcurrentOperations:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "concurrent-stream"},
+            json={"session_id": session_id, "name": "concurrent-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create multiple tasks
         task_ids = []
@@ -340,7 +340,7 @@ class TestConcurrentOperations:
             task_resp = client.post(
                 "/api/tasks",
                 json={
-                    "stream_id": stream_id,
+                    "queue_id": queue_id,
                     "tool_name": f"concurrent-tool-{i}",
                     "task_class": f"concurrent-class-{i}",
                     "timeout": 300,
@@ -355,7 +355,7 @@ class TestConcurrentOperations:
             assert claim_resp.json()["task"]["status"] == "running"
 
         # Verify all are running
-        list_resp = client.get(f"/api/tasks?stream_id={stream_id}")
+        list_resp = client.get(f"/api/tasks?queue_id={queue_id}")
         tasks = list_resp.json()["tasks"]
         assert all(t["status"] == "running" for t in tasks)
 
@@ -371,15 +371,15 @@ class TestConcurrentOperations:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "mixed-stream"},
+            json={"session_id": session_id, "name": "mixed-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create first task
         task1_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "mixed-tool-1",
                 "task_class": "mixed-class",
                 "timeout": 300,
@@ -394,7 +394,7 @@ class TestConcurrentOperations:
         task2_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "mixed-tool-2",
                 "task_class": "mixed-class",
                 "timeout": 300,
@@ -433,15 +433,15 @@ class TestDataIntegrityUnderLoad:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "attempt-stream"},
+            json={"session_id": session_id, "name": "attempt-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create task
         task_resp = client.post(
             "/api/tasks",
             json={
-                "stream_id": stream_id,
+                "queue_id": queue_id,
                 "tool_name": "attempt-tool",
                 "task_class": "attempt-class",
                 "timeout": 300,
@@ -477,9 +477,9 @@ class TestDataIntegrityUnderLoad:
 
         stream_resp = client.post(
             "/api/streams",
-            json={"session_id": session_id, "name": "count-stream"},
+            json={"session_id": session_id, "name": "count-queue"},
         )
-        stream_id = stream_resp.json()["stream"]["id"]
+        queue_id = stream_resp.json()["queue"]["id"]
 
         # Create tasks in batches
         total_created = 0
@@ -488,7 +488,7 @@ class TestDataIntegrityUnderLoad:
                 client.post(
                     "/api/tasks",
                     json={
-                        "stream_id": stream_id,
+                        "queue_id": queue_id,
                         "tool_name": f"count-tool-{batch}-{i}",
                         "task_class": "count-class",
                         "timeout": 300,
@@ -497,7 +497,7 @@ class TestDataIntegrityUnderLoad:
                 total_created += 1
 
             # Verify count after each batch
-            list_resp = client.get(f"/api/tasks?stream_id={stream_id}")
+            list_resp = client.get(f"/api/tasks?queue_id={queue_id}")
             tasks = list_resp.json()["tasks"]
             assert len(tasks) == total_created
-            assert all(t["stream_id"] == stream_id for t in tasks)
+            assert all(t["queue_id"] == queue_id for t in tasks)
