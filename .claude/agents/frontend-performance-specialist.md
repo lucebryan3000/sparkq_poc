@@ -427,7 +427,7 @@ DELIVERABLES:
 ## PHASE 1: SERVER-SIDE VERIFICATION (10% confidence in diagnosis)
 1. VERIFY_SERVER_STATE
    - [ ] Confirm server is serving correct files
-   - [ ] Tool: `Bash "curl -s http://localhost:8000/ui/config.js | md5sum"`
+   - [ ] Tool: `Bash "curl -s http://localhost:<PORT>/ui/config.js | md5sum"`
    - [ ] Check file modification times
    - [ ] Tool: `Bash "stat sparkq/ui/config.js | grep Modify"`
    - [ ] Verify source files are correct
@@ -437,9 +437,9 @@ DELIVERABLES:
 
 2. CHECK_HTTP_HEADERS
    - [ ] Inspect current cache control headers
-   - [ ] Tool: `Bash "curl -I http://localhost:8000/ui/config.js | grep -i cache"`
+   - [ ] Tool: `Bash "curl -I http://localhost:<PORT>/ui/config.js | grep -i cache"`
    - [ ] Check for ETag/Last-Modified headers
-   - [ ] Tool: `Bash "curl -I http://localhost:8000/ui/config.js | grep -E 'ETag|Last-Modified'"`
+   - [ ] Tool: `Bash "curl -I http://localhost:<PORT>/ui/config.js | grep -E 'ETag|Last-Modified'"`
    - [ ] Review server cache configuration
    - [ ] Tool: `Grep "cache-control|Cache-Control" sparkq/src/api.py -B2 -A2`
    - [ ] ⚠️ Note: HTTP headers alone are INSUFFICIENT for cache busting
@@ -453,7 +453,7 @@ DELIVERABLES:
    - [ ] Detect reverse proxy configs
    - [ ] Tool: `Bash "which nginx && nginx -T 2>/dev/null | grep -i cache || echo 'No nginx'"`
    - [ ] Check for CDN/edge caching (Cloudflare, etc.)
-   - [ ] Tool: `Bash "curl -I http://localhost:8000 | grep -i 'cf-cache-status\\|x-cache\\|x-cdn'"`
+   - [ ] Tool: `Bash "curl -I http://localhost:<PORT> | grep -i 'cf-cache-status\\|x-cache\\|x-cdn'"`
    - [ ] Identify static file serving mechanism
    - [ ] Tool: `Grep "StaticFiles|static_files|send_static" sparkq/src/api.py -B3 -A3`
    - [ ] 🔍 Priority: Service workers are MOST common cache culprit
@@ -530,7 +530,7 @@ DELIVERABLES:
    - [ ] Simulate slow network conditions
    - [ ] Tool: `Bash "node test-cache-busting.js --throttle 3G"`
    - [ ] Validate HTTP headers in response
-   - [ ] Tool: `Bash "curl -I http://localhost:8000/ui/config.js | tee cache-headers.log"`
+   - [ ] Tool: `Bash "curl -I http://localhost:<PORT>/ui/config.js | tee cache-headers.log"`
    - [ ] ✅ SUCCESS CRITERIA: All automated tests pass
    - [ ] 🚨 BLOCKER: If ANY test fails, continue debugging (DO NOT proceed to user testing)
 
@@ -599,7 +599,7 @@ const puppeteer = require('puppeteer');
     console.log(`[HEADERS] ${JSON.stringify(res.headers())}`);
   });
 
-  await page.goto('http://localhost:8000');
+  await page.goto('http://localhost:<PORT>');
 
   // Verify expected DOM elements exist (proves new JS loaded)
   const hasNewFeature = await page.evaluate(() => {
