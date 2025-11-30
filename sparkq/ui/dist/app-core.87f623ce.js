@@ -15,7 +15,7 @@ const pages = {};
 let currentPage = 'dashboard';
 let statusErrorNotified = false;
 const taskFilters = {
-  queueId: '',
+  streamId: '',
   status: '',
 };
 let scriptIndexCache = [];
@@ -529,6 +529,7 @@ function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   const next = current === 'dark' ? 'light' : 'dark';
   applyTheme(next);
+  showSuccess(`Theme changed to ${next} mode`);
 }
 
 // ===== MAIN APP =====
@@ -559,43 +560,8 @@ function setupNavTabs() {
       const tabName = tab.dataset.tab;
       currentPage = tabName;
       router(currentPage);
-      closeHamburgerMenu();
     });
   });
-}
-
-function setupHamburgerMenu() {
-  const menuToggle = document.getElementById('menu-toggle');
-  const navMenu = document.getElementById('nav-menu');
-
-  if (!menuToggle || !navMenu) return;
-
-  // Toggle menu on button click
-  menuToggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    navMenu.classList.toggle('open');
-  });
-
-  // Close menu when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!navMenu.contains(e.target) && e.target !== menuToggle) {
-      navMenu.classList.remove('open');
-    }
-  });
-
-  // Close menu on Escape key
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      navMenu.classList.remove('open');
-    }
-  });
-}
-
-function closeHamburgerMenu() {
-  const navMenu = document.getElementById('nav-menu');
-  if (navMenu) {
-    navMenu.classList.remove('open');
-  }
 }
 
 function router(page = currentPage) {
@@ -690,13 +656,6 @@ function updateThemeButtonIcon() {
   themeBtn.setAttribute('title', isDark ? 'Switch to light mode' : 'Switch to dark mode');
 }
 
-function attachThemeButtonListener() {
-  const themeBtn = document.getElementById('theme-toggle-btn');
-  if (themeBtn) {
-    themeBtn.addEventListener('click', toggleTheme);
-  }
-}
-
 // ===== EXPORTS =====
 
 window.API = { api };
@@ -737,10 +696,8 @@ window.Utils = {
 document.addEventListener('DOMContentLoaded', () => {
   cachePages();
   setupNavTabs();
-  setupHamburgerMenu();
   router(currentPage);
   initTheme();
   setupKeyboardShortcuts();
   updateThemeButtonIcon();
-  attachThemeButtonListener();
 });

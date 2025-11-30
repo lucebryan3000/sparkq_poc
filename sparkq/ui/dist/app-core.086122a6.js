@@ -529,6 +529,7 @@ function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   const next = current === 'dark' ? 'light' : 'dark';
   applyTheme(next);
+  showSuccess(`Theme changed to ${next} mode`);
 }
 
 // ===== MAIN APP =====

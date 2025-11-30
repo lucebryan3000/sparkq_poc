@@ -1,0 +1,15 @@
+{
+  "files": {
+    "config.js": "dist/config.2295bafe.js",
+    "dashboard.js": "dist/dashboard.2295bafe.js",
+    "enqueue.js": "dist/enqueue.2295bafe.js",
+    "queues.js": "dist/queues.2295bafe.js",
+    "scripts.js": "dist/scripts.2295bafe.js",
+    "sessions.js": "dist/sessions.2295bafe.js",
+    "tasks.js": "dist/tasks.2295bafe.js",
+    "app-core.js": "dist/app-core.2295bafe.js",
+    "quick-add.js": "dist/quick-add.2295bafe.js"
+  },
+  "hash": "2295bafe",
+  "timestamp": "2025-11-29T20:30:53.596323-06:00"
+}
