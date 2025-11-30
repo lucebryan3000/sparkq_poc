@@ -535,14 +535,13 @@ function toggleTheme() {
 
 function cachePages() {
   pages.dashboard = document.getElementById('dashboard-page');
-  pages.sparkqueue = document.getElementById('sparkqueue-page');
   pages.enqueue = document.getElementById('enqueue-page');
   pages.config = document.getElementById('config-page');
   pages.scripts = document.getElementById('scripts-page');
 
   // Verify all pages were cached
   const missing = [];
-  ['dashboard', 'sparkqueue', 'enqueue', 'config', 'scripts'].forEach(name => {
+  ['dashboard', 'enqueue', 'config', 'scripts'].forEach(name => {
     if (!pages[name]) {
       missing.push(name);
     }

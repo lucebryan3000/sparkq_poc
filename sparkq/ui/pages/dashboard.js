@@ -514,7 +514,7 @@
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const taskId = btn.dataset.taskId;
-          const task = tasks.find(t => t.id === taskId);
+          const task = tasks.find(t => String(t.id) === String(taskId));
           if (task) {
             await this.showEditTaskDialog(task, queueId);
           }
@@ -545,40 +545,32 @@
     },
 
     async showEditTaskDialog(task, queueId) {
-      const html = `
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-          <div>
-            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Tool Name</label>
-            <input type="text" id="edit-tool-name" value="${task.tool_name || ''}" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text);">
-          </div>
-          <div>
-            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Timeout (seconds)</label>
-            <input type="number" id="edit-timeout" value="${task.timeout || 3600}" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text);">
-          </div>
-          <div>
-            <label style="display: block; margin-bottom: 4px; font-weight: 500;">Status</label>
-            <select id="edit-status" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text);">
-              <option value="queued" ${task.status === 'queued' ? 'selected' : ''}>Queued</option>
-              <option value="claimed" ${task.status === 'claimed' ? 'selected' : ''}>Claimed</option>
-              <option value="completed" ${task.status === 'completed' ? 'selected' : ''}>Completed</option>
-              <option value="failed" ${task.status === 'failed' ? 'selected' : ''}>Failed</option>
-            </select>
-          </div>
-        </div>
-      `;
+      const toolName = await Utils.showPrompt('Edit Task', 'Tool name:', task.tool_name || '');
+      if (toolName === null || toolName === undefined) return;
 
-      const result = await Utils.showDialog('Edit Task', html, ['Cancel', 'Save']);
-      if (result !== 'Save') return;
+      const status = await Utils.showPrompt(
+        'Edit Task Status',
+        'Status (queued | claimed | running | completed | failed):',
+        task.status || 'queued'
+      );
+      if (status === null || status === undefined) return;
 
-      const toolName = document.getElementById('edit-tool-name').value;
-      const timeout = parseInt(document.getElementById('edit-timeout').value) || 3600;
-      const status = document.getElementById('edit-status').value;
+      const timeoutInput = await Utils.showPrompt(
+        'Edit Task Timeout',
+        'Timeout in seconds:',
+        String(task.timeout || 3600),
+        { type: 'number' }
+      );
+      if (timeoutInput === null || timeoutInput === undefined) return;
+
+      const timeout = parseInt(timeoutInput, 10) || 3600;
+      const normalizedStatus = (status || '').trim().toLowerCase() || 'queued';
 
       try {
         await api('PUT', `/api/tasks/${encodeURIComponent(task.id)}`, {
           tool_name: toolName,
-          timeout: timeout,
-          status: status
+          timeout,
+          status: normalizedStatus
         }, { action: 'update task' });
         Utils.showToast('Task updated successfully', 'success');
         const tasksContainer = document.getElementById('dashboard-tasks');
