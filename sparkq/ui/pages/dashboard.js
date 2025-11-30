@@ -38,6 +38,20 @@
     return lower === 'active' ? 'active' : 'planned';
   }
 
+  function tabStatusClass(status) {
+    const lower = String(status || '').toLowerCase();
+    if (lower === 'active' || lower === 'running') {
+      return 'status-active';
+    }
+    if (lower === 'idle') {
+      return 'status-idle';
+    }
+    if (lower === 'ended' || lower === 'failed') {
+      return 'status-ended';
+    }
+    return 'status-planned';
+  }
+
   function queueBadgeClass(status) {
     const lower = String(status || '').toLowerCase();
     if (lower === 'active' || lower === 'running') {
@@ -69,26 +83,57 @@
     return 'badge';
   }
 
-  function renderTaskCard(task) {
+  function slugifyName(name) {
+    const base = (name || 'Task').toString().trim();
+    const slug = base.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return slug ? slug.toUpperCase() : 'TASK';
+  }
+
+  function taskPreview(task) {
+    if (!task) return '—';
+    const payload = task.payload;
+    let prompt = '';
+    if (typeof payload === 'string') {
+      const trimmed = payload.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          prompt = typeof parsed.prompt === 'string' ? parsed.prompt : '';
+        } catch (_) {
+          prompt = trimmed;
+        }
+      } else {
+        prompt = trimmed;
+      }
+    } else if (payload && typeof payload === 'object') {
+      if (typeof payload.prompt === 'string') {
+        prompt = payload.prompt;
+      } else {
+        prompt = JSON.stringify(payload);
+      }
+    }
+    if (!prompt) return '—';
+    const clean = prompt.replace(/\s+/g, ' ').trim();
+    return clean.length > 80 ? `${clean.slice(0, 80)}…` : clean;
+  }
+
+  function renderTaskRow(task, displayId) {
     const status = String(task?.status || 'queued').toLowerCase();
     const badgeClass = taskBadgeClass(status);
     const timestamp = formatTimestamp(task?.created_at);
-    const duration = task?.duration ? formatDuration(task.duration) : '';
+    const label = displayId || `Task #${task?.id || '—'}`;
+    const preview = taskPreview(task);
 
     return `
-      <div class="task-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-          <div style="font-weight: 600;">Task #${task?.id || '—'}</div>
-          <div style="display: flex; gap: 6px; align-items: center;">
-            <span class="badge ${badgeClass}">${status}</span>
-            <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task" style="padding: 4px 8px; font-size: 12px;">✏️</button>
-            <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task" style="padding: 4px 8px; font-size: 12px;">🗑️</button>
-          </div>
-        </div>
-        <div class="muted" style="margin-top: 6px;">${task?.tool_name || '—'}</div>
-        <div style="display: flex; gap: 12px; color: var(--subtle); font-size: 12px; margin-top: 8px; flex-wrap: wrap;">
-          <span>Created ${timestamp}</span>
-          ${duration ? `<span>Duration: ${duration}</span>` : ''}
+      <div class="task-row" data-task-id="${task?.id || ''}">
+        <div class="task-cell status"><span class="badge ${badgeClass}">${status}</span></div>
+        <div class="task-cell id">${label}</div>
+        <div class="task-cell tool">${task?.tool_name || '—'}</div>
+        <div class="task-cell preview" title="${preview}">${preview}</div>
+        <div class="task-cell created">${timestamp}</div>
+        <div class="task-cell actions">
+          <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task">✏️</button>
+          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task">🗑️</button>
         </div>
       </div>
     `;
@@ -233,6 +278,7 @@
           const progress = formatProgress(queue.stats);
           const statusLabel = formatQueueStatus(queue.status);
           const dotClass = statusDotClass(queue.status);
+          const statusClass = tabStatusClass(queue.status);
 
           return `
             <div class="queue-tab ${isActive ? 'active' : ''}" data-queue-id="${queue.id}">
@@ -241,7 +287,7 @@
                 <span>${queue.name || queue.id}</span>
               </div>
               <div class="tab-progress">${progress}</div>
-              <div class="tab-status">${statusLabel}</div>
+              <div class="tab-status ${statusClass}">${statusLabel}</div>
             </div>
           `;
         })
@@ -357,18 +403,14 @@
       const queue = this.queuesCache.find((s) => s.id === queueId) || {};
       const queueName = queue.name || queue.id || 'Queue';
       const progress = formatProgress(queue.stats);
-      const statusLabel = formatQueueStatus(queue.status);
-      const badgeClass = queueBadgeClass(queue.status);
 
       container.innerHTML = `
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
             <div>
               <h2 style="margin: 0;">${queueName}</h2>
-              <div class="muted" style="font-size: 13px;">${progress} • ${statusLabel}</div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
-              <span class="badge ${badgeClass}">${statusLabel}</span>
               <button id="dashboard-edit-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Edit queue">✏️ Edit</button>
               <button id="dashboard-archive-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Archive queue">📦 Archive</button>
               <button id="dashboard-delete-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Delete queue">🗑️ Delete</button>
@@ -489,8 +531,18 @@
         return;
       }
 
-      const taskCards = tasks.length
-        ? tasks.map((task) => renderTaskCard(task)).join('')
+      const queue = this.queuesCache.find((q) => q.id === queueId) || {};
+      const prefix = slugifyName(queue.name || queue.id || 'Task');
+      const friendlyIds = new Map();
+      [...tasks].reverse().forEach((task, idx) => {
+        friendlyIds.set(String(task.id), `${prefix}-${String(idx + 1).padStart(2, '0')}`);
+      });
+
+      const taskRows = tasks.length
+        ? tasks.map((task) => {
+            task.friendlyLabel = friendlyIds.get(String(task.id));
+            return renderTaskRow(task, task.friendlyLabel);
+          }).join('')
         : '<p class="muted">No tasks found for this queue.</p>';
 
       container.innerHTML = `
@@ -499,8 +551,16 @@
             <h3 style="margin: 0;">Tasks</h3>
             <span class="muted" style="font-size: 13px;">${tasks.length} total</span>
           </div>
-          <div class="grid" style="gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
-            ${taskCards}
+          <div class="task-table">
+            <div class="task-row head">
+              <div class="task-cell status">Status</div>
+              <div class="task-cell id">Task</div>
+              <div class="task-cell tool">Tool</div>
+              <div class="task-cell preview">Preview</div>
+              <div class="task-cell created">Created</div>
+              <div class="task-cell actions">Actions</div>
+            </div>
+            ${taskRows}
           </div>
         </div>
       `;
@@ -509,6 +569,20 @@
     },
 
     async attachTaskActionHandlers(container, tasks, queueId) {
+      // Row click -> edit
+      container.querySelectorAll('.task-row').forEach(row => {
+        const taskId = row.dataset.taskId;
+        if (!taskId) return;
+        row.addEventListener('click', async (e) => {
+          // Avoid double-trigger when clicking buttons
+          if (e.target.closest('button')) return;
+          const task = tasks.find(t => String(t.id) === String(taskId));
+          if (task) {
+            await this.showEditTaskDialog(task, queueId);
+          }
+        });
+      });
+
       // Attach edit button handlers
       container.querySelectorAll('.task-edit-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
@@ -545,33 +619,128 @@
     },
 
     async showEditTaskDialog(task, queueId) {
-      const toolName = await Utils.showPrompt('Edit Task', 'Tool name:', task.tool_name || '');
-      if (toolName === null || toolName === undefined) return;
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+        display: flex; align-items: center; justify-content: center; z-index: 9999;
+        backdrop-filter: blur(2px);
+      `;
 
-      const status = await Utils.showPrompt(
-        'Edit Task Status',
-        'Status (queued | claimed | running | completed | failed):',
-        task.status || 'queued'
-      );
-      if (status === null || status === undefined) return;
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        background: var(--surface, #111);
+        color: var(--text, #fff);
+        border: 1px solid var(--border, #333);
+        border-radius: 12px;
+        padding: 16px;
+        width: min(420px, 92vw);
+        box-shadow: var(--shadow, 0 10px 40px rgba(0,0,0,0.35));
+      `;
 
-      const timeoutInput = await Utils.showPrompt(
-        'Edit Task Timeout',
-        'Timeout in seconds:',
-        String(task.timeout || 3600),
-        { type: 'number' }
-      );
-      if (timeoutInput === null || timeoutInput === undefined) return;
+      let payloadText = '';
+      let originalPayload = task.payload;
+      if (typeof task.payload === 'string') {
+        const trimmed = task.payload.trim();
+        if (trimmed.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            originalPayload = parsed;
+            if (parsed && typeof parsed.prompt === 'string') {
+              payloadText = parsed.prompt;
+            } else {
+              payloadText = '';
+            }
+          } catch (_) {
+            payloadText = '';
+          }
+        } else {
+          payloadText = task.payload;
+        }
+      } else if (task.payload && typeof task.payload.prompt === 'string') {
+        payloadText = task.payload.prompt;
+      } else if (task.payload && typeof task.payload === 'object') {
+        payloadText = '';
+      }
+      const statusLabel = (task.status || 'queued').toString();
 
-      const timeout = parseInt(timeoutInput, 10) || 3600;
-      const normalizedStatus = (status || '').trim().toLowerCase() || 'queued';
+      const friendlyLabel = task.friendlyLabel || `Task #${task.id}`;
+      modal.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:18px;">Edit ${friendlyLabel}</h3>
+          <button id="edit-task-close" style="border:none;background:none;color:var(--text);font-size:18px;cursor:pointer;">✕</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label style="display:block;font-weight:600;margin-bottom:4px;">Tool Name</label>
+            <input id="edit-task-tool" type="text" value="${task.tool_name || ''}" disabled style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, #151515);color:var(--text);opacity:0.75;">
+          </div>
+          <div>
+            <label style="display:block;font-weight:600;margin-bottom:4px;">Status</label>
+            <div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, #151515);color:var(--text);opacity:0.85;">${statusLabel}</div>
+          </div>
+          <div>
+            <label style="display:block;font-weight:600;margin-bottom:4px;">Prompt / Payload</label>
+            <textarea id="edit-task-payload" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, #151515);color:var(--text);min-height:140px;font-family:inherit;">${payloadText}</textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+          <button id="edit-task-cancel" class="button secondary" style="padding:8px 14px;">Cancel</button>
+          <button id="edit-task-save" class="button primary" style="padding:8px 14px;">Save</button>
+        </div>
+      `;
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      const cleanup = (result) => {
+        document.body.removeChild(overlay);
+        document.removeEventListener('keydown', onKeyDown);
+        return result;
+      };
+
+      const onKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          cleanup(null);
+        }
+        if (e.key === 'Enter' && document.activeElement?.tagName !== 'TEXTAREA') {
+          e.preventDefault();
+          saveBtn.click();
+        }
+      };
+      document.addEventListener('keydown', onKeyDown);
+
+      const toolInput = modal.querySelector('#edit-task-tool');
+      const payloadInput = modal.querySelector('#edit-task-payload');
+      const cancelBtn = modal.querySelector('#edit-task-cancel');
+      const saveBtn = modal.querySelector('#edit-task-save');
+      const closeBtn = modal.querySelector('#edit-task-close');
+      if (toolInput) {
+        toolInput.focus();
+        toolInput.select();
+      }
+
+      const getPayload = () => {
+        const promptText = payloadInput?.value ?? '';
+        let payload = promptText;
+        if (originalPayload && typeof originalPayload === 'object') {
+          payload = { ...originalPayload, prompt: promptText };
+        }
+        return { payload };
+      };
+
+      const result = await new Promise((resolve) => {
+        const handleSave = () => resolve(getPayload());
+        const handleCancel = () => resolve(null);
+        cancelBtn?.addEventListener('click', handleCancel);
+        closeBtn?.addEventListener('click', handleCancel);
+        saveBtn?.addEventListener('click', handleSave);
+      });
+
+      const payload = cleanup(result);
+      if (!payload) return;
 
       try {
-        await api('PUT', `/api/tasks/${encodeURIComponent(task.id)}`, {
-          tool_name: toolName,
-          timeout,
-          status: normalizedStatus
-        }, { action: 'update task' });
+        await api('PUT', `/api/tasks/${encodeURIComponent(task.id)}`, payload, { action: 'update task' });
         Utils.showToast('Task updated successfully', 'success');
         const tasksContainer = document.getElementById('dashboard-tasks');
         if (tasksContainer) {
