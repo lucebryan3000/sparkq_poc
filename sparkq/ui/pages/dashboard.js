@@ -98,6 +98,7 @@
     currentQueueId: null,
     currentSessionId: null,
     queuesCache: [],
+    sessionsCache: [],
     quickAddInstance: null,
 
     async render(container) {
@@ -137,6 +138,7 @@
       }
 
       this.queuesCache = queues;
+      this.sessionsCache = sessions;
 
       if (!queues.length) {
         // Get the first session or use a placeholder
@@ -201,6 +203,51 @@
 
       const contentContainer = actualContainer.querySelector('#queue-content');
       await this.renderQueueContent(contentContainer, this.currentQueueId);
+    },
+
+    async refreshData() {
+      // Reload queues and sessions data
+      try {
+        const [queuesResponse, sessionsResponse] = await Promise.all([
+          api('GET', '/api/queues', null, { action: 'load queues' }),
+          api('GET', '/api/sessions', null, { action: 'load sessions' })
+        ]);
+        this.queuesCache = queuesResponse?.queues || [];
+        this.sessionsCache = sessionsResponse?.sessions || [];
+      } catch (err) {
+        console.error('Failed to refresh data:', err);
+      }
+    },
+
+    async refocusQueue() {
+      // Ensure currentQueueId still exists, otherwise pick first available
+      if (!this.currentQueueId || !this.queuesCache.some((q) => q.id === this.currentQueueId)) {
+        if (this.queuesCache.length > 0) {
+          this.currentQueueId = this.queuesCache[0].id;
+        } else {
+          this.currentQueueId = null;
+        }
+      }
+    },
+
+    async reloadQueueSection() {
+      // Reload only the queue tabs and content sections without full page re-render
+      await this.refreshData();
+      await this.refocusQueue();
+
+      const tabsContainer = document.getElementById('queue-tabs');
+      const contentContainer = document.getElementById('queue-content');
+
+      if (tabsContainer) {
+        this.renderQueueTabs(tabsContainer, this.queuesCache);
+      }
+
+      if (contentContainer && this.currentQueueId) {
+        await this.renderQueueContent(contentContainer, this.currentQueueId);
+      } else if (contentContainer && this.queuesCache.length === 0) {
+        // No queues left - show empty state
+        contentContainer.innerHTML = '';
+      }
     },
 
     renderQueueTabs(container, queues) {
@@ -304,11 +351,7 @@
           };
           await api('POST', '/api/queues', payload, { action: 'create queue' });
           Utils.showToast(`Queue created`, 'success');
-          // Re-render the dashboard to show the new queue
-          const pageContainer = document.getElementById('dashboard-page');
-          if (pageContainer) {
-            this.render(pageContainer);
-          }
+          await this.reloadQueueSection();
         } catch (err) {
           console.error('Failed to create queue:', err);
           Utils.showToast('Failed to create queue', 'error');
@@ -369,11 +412,7 @@
           };
           await api('POST', '/api/queues', payload, { action: 'create queue' });
           Utils.showToast(`Queue created`, 'success');
-          // Re-render the dashboard to show the new queue
-          const pageContainer = document.getElementById('dashboard-page');
-          if (pageContainer) {
-            this.render(pageContainer);
-          }
+          await this.reloadQueueSection();
         } catch (err) {
           console.error('Failed to create queue:', err);
           Utils.showToast('Failed to create queue', 'error');
@@ -649,10 +688,7 @@
           try {
             await api('PUT', `/api/queues/${queueId}/archive`, null, { action: 'archive queue' });
             Utils.showToast(`Queue "${queueName}" archived`, 'success');
-            const pageContainer = document.getElementById('dashboard-page');
-            if (pageContainer) {
-              this.render(pageContainer);
-            }
+            await this.reloadQueueSection();
           } catch (err) {
             console.error('Failed to archive queue:', err);
             Utils.showToast('Failed to archive queue', 'error');
@@ -669,10 +705,7 @@
           try {
             await api('DELETE', `/api/queues/${queueId}`, null, { action: 'delete queue' });
             Utils.showToast(`Queue "${queueName}" deleted`, 'success');
-            const pageContainer = document.getElementById('dashboard-page');
-            if (pageContainer) {
-              this.render(pageContainer);
-            }
+            await this.reloadQueueSection();
           } catch (err) {
             console.error('Failed to delete queue:', err);
             Utils.showToast('Failed to delete queue', 'error');
