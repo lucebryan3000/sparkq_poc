@@ -246,6 +246,9 @@
           }
         });
       });
+
+      // Attach handler to the new queue button created in this render
+      this.attachNewQueueButtonHandler(container);
     },
 
     attachNewQueueHandler(root) {
@@ -255,6 +258,70 @@
       }
 
       newQueueBtn.addEventListener('click', async () => {
+        // Load sessions for queue creation
+        let sessions = [];
+        try {
+          const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
+          sessions = sessionsResponse?.sessions || [];
+        } catch (err) {
+          console.error('Failed to load sessions:', err);
+          return;
+        }
+
+        if (!sessions.length) {
+          // Auto-create a session when none exist
+          const sessionName = await Utils.showPrompt('Create Session', 'Enter session name:');
+          if (!sessionName || !sessionName.trim()) {
+            return;
+          }
+
+          try {
+            const sessionResponse = await api('POST', '/api/sessions', { name: sessionName.trim() }, { action: 'create session' });
+            const newSession = sessionResponse?.session || sessionResponse;
+            sessions = [newSession];
+          } catch (err) {
+            console.error('Failed to create session:', err);
+            Utils.showToast('Failed to create session', 'error');
+            return;
+          }
+        }
+
+        // Auto-select session or use first available
+        const sessionId = sessions[0].id;
+
+        // Generate a simple queue name with timestamp
+        const timestamp = new Date().toISOString().substring(0, 10).replace(/-/g, '');
+        const queueName = `Queue ${timestamp}`;
+
+        try {
+          const payload = {
+            session_id: sessionId,
+            name: queueName,
+          };
+          await api('POST', '/api/queues', payload, { action: 'create queue' });
+          Utils.showToast(`Queue created`, 'success');
+          // Re-render the dashboard to show the new queue
+          if (this.pageContainer) {
+            this.render(this.pageContainer);
+          }
+        } catch (err) {
+          console.error('Failed to create queue:', err);
+          Utils.showToast('Failed to create queue', 'error');
+        }
+      });
+    },
+
+    attachNewQueueButtonHandler(container) {
+      const newQueueBtn = container?.querySelector('#dashboard-new-queue-btn');
+      if (!newQueueBtn) {
+        return;
+      }
+
+      // Clone and replace to remove any existing listeners
+      const newBtn = newQueueBtn.cloneNode(true);
+      newQueueBtn.replaceWith(newBtn);
+
+      newBtn.addEventListener('click', async () => {
         // Load sessions for queue creation
         let sessions = [];
         try {
