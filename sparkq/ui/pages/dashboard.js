@@ -99,11 +99,14 @@
     currentSessionId: null,
     queuesCache: [],
     quickAddInstance: null,
+    pageContainer: null,
 
     async render(container) {
       if (!container) {
         return;
       }
+
+      this.pageContainer = container;
 
       container.innerHTML = `
         <div class="card">
@@ -112,7 +115,7 @@
       `;
 
       let sessions = [];
-      let streams = [];
+      let queues = [];
       let activeSession = null;
 
       try {
@@ -124,14 +127,14 @@
 
       try {
         const response = await api('GET', '/api/queues', null, { action: 'load queues' });
-        streams = response?.streams || [];
+        queues = response?.queues || [];
       } catch (err) {
         showError(`Failed to load queues: ${err.message || err}`, err);
       }
 
-      this.queuesCache = streams;
+      this.queuesCache = queues;
 
-      if (!streams.length) {
+      if (!queues.length) {
         // Get the first session or use a placeholder
         activeSession = sessions.length > 0 ? sessions[0] : null;
         if (activeSession) {
@@ -160,13 +163,13 @@
         return;
       }
 
-      if (!this.currentQueueId || !streams.some((queue) => queue.id === this.currentQueueId)) {
-        this.currentQueueId = streams[0].id;
+      if (!this.currentQueueId || !queues.some((queue) => queue.id === this.currentQueueId)) {
+        this.currentQueueId = queues[0].id;
       }
 
       // Get the session for the first queue
-      if (streams.length > 0) {
-        activeSession = sessions.find((s) => s.id === streams[0].session_id) || sessions[0];
+      if (queues.length > 0) {
+        activeSession = sessions.find((s) => s.id === queues[0].session_id) || sessions[0];
         if (activeSession) {
           this.currentSessionId = activeSession.id;
         }
@@ -190,18 +193,18 @@
 
       this.attachSessionSelectorHandlers(container, sessions);
       const tabsContainer = container.querySelector('#queue-tabs');
-      this.renderQueueTabs(tabsContainer, streams);
+      this.renderQueueTabs(tabsContainer, queues);
 
       const contentContainer = container.querySelector('#queue-content');
       await this.renderQueueContent(contentContainer, this.currentQueueId);
     },
 
-    renderQueueTabs(container, streams) {
+    renderQueueTabs(container, queues) {
       if (!container) {
         return;
       }
 
-      const tabsHtml = streams
+      const tabsHtml = queues
         .map((queue) => {
           const isActive = queue.id === this.currentQueueId;
           const progress = formatProgress(queue.stats);
@@ -243,8 +246,6 @@
           }
         });
       });
-
-      this.attachNewQueueHandler(container);
     },
 
     attachNewQueueHandler(root) {
@@ -297,7 +298,9 @@
           await api('POST', '/api/queues', payload, { action: 'create queue' });
           Utils.showToast(`Queue created`, 'success');
           // Re-render the dashboard to show the new queue
-          this.render(root);
+          if (this.pageContainer) {
+            this.render(this.pageContainer);
+          }
         } catch (err) {
           console.error('Failed to create queue:', err);
           Utils.showToast('Failed to create queue', 'error');
@@ -571,9 +574,11 @@
           if (!confirmed) return;
 
           try {
-            await api('PUT', `/api/queues/${queueId}`, { archived: true }, { action: 'archive queue' });
+            await api('PUT', `/api/queues/${queueId}/archive`, null, { action: 'archive queue' });
             Utils.showToast(`Queue "${queueName}" archived`, 'success');
-            this.render(container);
+            if (this.pageContainer) {
+              this.render(this.pageContainer);
+            }
           } catch (err) {
             console.error('Failed to archive queue:', err);
             Utils.showToast('Failed to archive queue', 'error');
@@ -590,7 +595,9 @@
           try {
             await api('DELETE', `/api/queues/${queueId}`, null, { action: 'delete queue' });
             Utils.showToast(`Queue "${queueName}" deleted`, 'success');
-            this.render(container);
+            if (this.pageContainer) {
+              this.render(this.pageContainer);
+            }
           } catch (err) {
             console.error('Failed to delete queue:', err);
             Utils.showToast('Failed to delete queue', 'error');
