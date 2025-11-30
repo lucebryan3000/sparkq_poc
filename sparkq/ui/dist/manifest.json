@@ -1,15 +1,15 @@
 {
   "files": {
-    "config.js": "dist/config.2295bafe.js",
-    "dashboard.js": "dist/dashboard.2295bafe.js",
-    "enqueue.js": "dist/enqueue.2295bafe.js",
-    "queues.js": "dist/queues.2295bafe.js",
-    "scripts.js": "dist/scripts.2295bafe.js",
-    "sessions.js": "dist/sessions.2295bafe.js",
-    "tasks.js": "dist/tasks.2295bafe.js",
-    "app-core.js": "dist/app-core.2295bafe.js",
-    "quick-add.js": "dist/quick-add.2295bafe.js"
+    "config.js": "dist/config.33b47f4a.js",
+    "dashboard.js": "dist/dashboard.33b47f4a.js",
+    "enqueue.js": "dist/enqueue.33b47f4a.js",
+    "queues.js": "dist/queues.33b47f4a.js",
+    "scripts.js": "dist/scripts.33b47f4a.js",
+    "sessions.js": "dist/sessions.33b47f4a.js",
+    "tasks.js": "dist/tasks.33b47f4a.js",
+    "app-core.js": "dist/app-core.33b47f4a.js",
+    "quick-add.js": "dist/quick-add.33b47f4a.js"
   },
-  "hash": "2295bafe",
-  "timestamp": "2025-11-29T20:30:53.596323-06:00"
+  "hash": "33b47f4a",
+  "timestamp": "2025-11-29T20:37:51.937114-06:00"
 }

@@ -134,18 +134,10 @@
       return;
     }
 
-    // Auto-select if only one session, otherwise prompt
-    let sessionId;
-    if (sessions.length === 1) {
-      sessionId = sessions[0].id;
-    } else {
-      const sessionOptions = sessions.map((s) => `${s.name || 'Unnamed'}`).join('\n');
-      const selectedName = await Utils.showPrompt('Select Session', `${sessionOptions}`, sessions[0].name || 'Unnamed');
-      if (!selectedName || !selectedName.trim()) {
-        return;
-      }
-      const selected = sessions.find((s) => (s.name || 'Unnamed') === selectedName.trim());
-      sessionId = selected?.id;
+    const sessionOptions = sessions.map((s) => `${s.id}: ${s.name || 'Unnamed'}`).join('\n');
+    const sessionId = await Utils.showPrompt('Select Session', `${sessionOptions}`, sessions[0].id);
+    if (!sessionId || !sessionId.trim()) {
+      return;
     }
 
     const instructions = await Utils.showPrompt('Queue Instructions', 'Enter queue instructions (optional):', '', { textarea: true });
