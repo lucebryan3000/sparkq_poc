@@ -313,7 +313,11 @@
               <h2 style="margin: 0;">${streamName}</h2>
               <div class="muted" style="font-size: 13px;">${progress} • ${statusLabel}</div>
             </div>
-            <span class="badge ${badgeClass}">${statusLabel}</span>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span class="badge ${badgeClass}">${statusLabel}</span>
+              <button id="dashboard-archive-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Archive queue">📦 Archive</button>
+              <button id="dashboard-delete-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Delete queue">🗑️ Delete</button>
+            </div>
           </div>
           <div id="dashboard-quick-add"></div>
         </div>
@@ -321,6 +325,7 @@
         <div id="dashboard-tasks" style="margin-top: 16px;"></div>
       `;
 
+      this.attachQueueActionHandlers(container, streamId, stream);
       this.renderQuickAdd(streamId, streamName);
 
       const tasksContainer = container.querySelector('#dashboard-tasks');
@@ -419,6 +424,45 @@
           <button id="session-delete-btn" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Delete session">🗑️</button>
         </div>
       `;
+    },
+
+    attachQueueActionHandlers(container, streamId, stream) {
+      const archiveBtn = container?.querySelector('#dashboard-archive-btn');
+      const deleteBtn = container?.querySelector('#dashboard-delete-btn');
+
+      if (archiveBtn) {
+        archiveBtn.addEventListener('click', async () => {
+          const queueName = stream.name || stream.id || 'Queue';
+          const confirmed = await Utils.showConfirm('Archive Queue', `Archive "${queueName}"?`);
+          if (!confirmed) return;
+
+          try {
+            await api('PUT', `/api/streams/${streamId}`, { archived: true }, { action: 'archive queue' });
+            Utils.showToast(`Queue "${queueName}" archived`, 'success');
+            this.render(container);
+          } catch (err) {
+            console.error('Failed to archive queue:', err);
+            Utils.showToast('Failed to archive queue', 'error');
+          }
+        });
+      }
+
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+          const queueName = stream.name || stream.id || 'Queue';
+          const confirmed = await Utils.showConfirm('Delete Queue', `Are you sure you want to delete "${queueName}"? This cannot be undone.`);
+          if (!confirmed) return;
+
+          try {
+            await api('DELETE', `/api/streams/${streamId}`, null, { action: 'delete queue' });
+            Utils.showToast(`Queue "${queueName}" deleted`, 'success');
+            this.render(container);
+          } catch (err) {
+            console.error('Failed to delete queue:', err);
+            Utils.showToast('Failed to delete queue', 'error');
+          }
+        });
+      }
     },
 
     attachSessionSelectorHandlers(container, sessions) {
