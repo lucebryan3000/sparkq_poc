@@ -42,8 +42,8 @@
 
       container.innerHTML = `
         <div class="quick-add-bar" style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-          <div class="stream-indicator" style="font-size: 12px; color: #888; margin-bottom: 12px;">
-            Add to stream: <strong style="color: #3b82f6;">${this.streamName || 'Select a stream'}</strong>
+          <div class="queue-indicator" style="font-size: 12px; color: #888; margin-bottom: 12px;">
+            Add to queue: <strong style="color: #3b82f6;">${this.streamName || 'Select a queue'}</strong>
           </div>
 
           <div class="mode-toggle" style="display: flex; gap: 8px; margin-bottom: 12px;">
@@ -145,6 +145,26 @@
         promptField.addEventListener('input', (e) => this.handlePromptInput(e));
       }
 
+      // Attach mode button listeners
+      const llmBtn = document.querySelector('button[onclick*="setMode(\'llm\')"]');
+      const scriptBtn = document.querySelector('button[onclick*="setMode(\'script\')"]');
+
+      if (llmBtn) {
+        llmBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.setMode('llm');
+        });
+      }
+
+      if (scriptBtn) {
+        scriptBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.setMode('script');
+        });
+      }
+
       const toolsBtn = document.getElementById('tools-btn');
       if (toolsBtn) {
         toolsBtn.addEventListener('click', (e) => {
@@ -153,10 +173,20 @@
         });
       }
 
+      const scriptAddBtn = document.querySelector('button[onclick*="addScriptTask()"]');
+      if (scriptAddBtn) {
+        scriptAddBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.addScriptTask();
+        });
+      }
+
       if (!this.documentClickHandler) {
         this.documentClickHandler = (e) => {
-          if (!e.target.closest('.prompt-input-wrapper') && !e.target.closest('#tools-popup')) {
+          if (!e.target.closest('.prompt-input-wrapper') && !e.target.closest('#tools-popup') && !e.target.closest('#text-expander-popup')) {
             this.closeToolsPopup();
+            this.hidePopup();
           }
         };
         document.addEventListener('click', this.documentClickHandler);
@@ -225,7 +255,7 @@
       }
 
       if (!this.streamId) {
-        Utils.showToast('No stream selected', 'error');
+        Utils.showToast('No queue selected', 'error');
         return;
       }
 
@@ -268,7 +298,7 @@
       }
 
       if (!this.streamId) {
-        Utils.showToast('No stream selected', 'error');
+        Utils.showToast('No queue selected', 'error');
         return;
       }
 

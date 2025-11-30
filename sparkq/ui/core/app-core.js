@@ -13,8 +13,6 @@ const REFRESH_MS = 10000;
 const pages = {};
 
 let currentPage = 'dashboard';
-let dashboardTimer;
-let statusTimer;
 let statusErrorNotified = false;
 const taskFilters = {
   streamId: '',
@@ -600,29 +598,6 @@ function router(page = currentPage) {
   }
 }
 
-function startStatusPolling() {
-  statusTimer = setInterval(async () => {
-    try {
-      refreshStatus();
-    } catch (err) {
-      console.error('Status refresh failed:', err);
-    }
-  }, REFRESH_MS);
-}
-
-function startDashboardPolling() {
-  dashboardTimer = setInterval(async () => {
-    if (currentPage === 'dashboard') {
-      try {
-        if (window.Pages.Dashboard && typeof window.Pages.Dashboard.render === 'function') {
-          window.Pages.Dashboard.render(pages.dashboard);
-        }
-      } catch (err) {
-        console.error('Dashboard refresh failed:', err);
-      }
-    }
-  }, REFRESH_MS);
-}
 
 async function refreshStatus() {
   try {
@@ -681,6 +656,13 @@ function updateThemeButtonIcon() {
   themeBtn.setAttribute('title', isDark ? 'Switch to light mode' : 'Switch to dark mode');
 }
 
+function attachThemeButtonListener() {
+  const themeBtn = document.getElementById('theme-toggle-btn');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', toggleTheme);
+  }
+}
+
 // ===== EXPORTS =====
 
 window.API = { api };
@@ -722,9 +704,8 @@ document.addEventListener('DOMContentLoaded', () => {
   cachePages();
   setupNavTabs();
   router(currentPage);
-  startStatusPolling();
-  startDashboardPolling();
   initTheme();
   setupKeyboardShortcuts();
   updateThemeButtonIcon();
+  attachThemeButtonListener();
 });

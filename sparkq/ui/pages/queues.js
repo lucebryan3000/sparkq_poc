@@ -5,11 +5,9 @@
   const formatTimestamp = Utils.formatTimestamp;
   const formatDuration = Utils.formatDuration;
   const showToast = Utils.showToast;
-  const AutoRefresh = Utils.AutoRefresh;
 
   let currentStreamId = null;
   let currentStreamName = null;
-  let autoRefresh = null;
   let quickAdd = null;
 
   async function renderStreamsPage(container) {
@@ -35,11 +33,11 @@
     }
 
     try {
-      const streamsResponse = await api('GET', '/api/streams', null, { action: 'load streams' });
+      const streamsResponse = await api('GET', '/api/streams', null, { action: 'load queues' });
       streams = streamsResponse?.streams || [];
     } catch (err) {
-      console.error('Failed to load streams:', err);
-      showToast('Failed to load streams', 'error');
+      console.error('Failed to load queues:', err);
+      showToast('Failed to load queues', 'error');
     }
 
     const sessionsById = {};
@@ -152,12 +150,44 @@
       if (instructions && instructions.trim()) {
         payload.instructions = instructions;
       }
-      await api('POST', '/api/streams', payload, { action: 'create stream' });
+      await api('POST', '/api/streams', payload, { action: 'create queue' });
       showToast(`Queue "${streamName}" created`, 'success');
       renderStreamsPage(container);
     } catch (err) {
-      console.error('Failed to create stream:', err);
+      console.error('Failed to create queue:', err);
       showToast('Failed to create queue', 'error');
+    }
+  }
+
+  async function handleArchiveStream(container, streamId, streamName) {
+    const confirmed = await Utils.showPrompt('Archive Queue', `Are you sure you want to archive "${streamName}"? This keeps the history but marks it as archived.`, 'no');
+    if (confirmed !== 'yes') {
+      return;
+    }
+
+    try {
+      await api('PUT', `/api/streams/${streamId}/archive`, null, { action: 'archive queue' });
+      showToast(`Queue "${streamName}" archived`, 'success');
+      renderStreamsPage(container);
+    } catch (err) {
+      console.error('Failed to archive queue:', err);
+      showToast('Failed to archive queue', 'error');
+    }
+  }
+
+  async function handleDeleteStream(container, streamId, streamName) {
+    const confirmed = await Utils.showPrompt('Delete Queue', `Are you sure you want to permanently delete "${streamName}"? This will remove all history and cannot be undone.`, 'no');
+    if (confirmed !== 'yes') {
+      return;
+    }
+
+    try {
+      await api('DELETE', `/api/streams/${streamId}`, null, { action: 'delete queue' });
+      showToast(`Queue "${streamName}" deleted`, 'success');
+      renderStreamsPage(container);
+    } catch (err) {
+      console.error('Failed to delete queue:', err);
+      showToast('Failed to delete queue', 'error');
     }
   }
 
@@ -223,11 +253,28 @@
 
     detailsContainer.innerHTML = `
       <div class="card">
-        <h3>Queue: ${streamName}</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <h3 style="margin: 0;">Queue: ${streamName}</h3>
+          <div style="display: flex; gap: 8px;">
+            <button class="button secondary" id="archive-btn" title="Archive this queue">📦 Archive</button>
+            <button class="button error" id="delete-btn" title="Permanently delete this queue">🗑️ Delete</button>
+          </div>
+        </div>
         <div id="quick-add-container" style="margin-bottom: 24px;"></div>
         ${taskTable}
       </div>
     `;
+
+    // Attach action buttons
+    const archiveBtn = detailsContainer.querySelector('#archive-btn');
+    if (archiveBtn) {
+      archiveBtn.addEventListener('click', () => handleArchiveStream(container, streamId, streamName));
+    }
+
+    const deleteBtn = detailsContainer.querySelector('#delete-btn');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => handleDeleteStream(container, streamId, streamName));
+    }
 
     // Initialize QuickAdd component
     if (window.QuickAdd) {
@@ -240,15 +287,6 @@
   Pages.Queues = {
     async render(container) {
       await renderStreamsPage(container);
-
-      // Initialize auto-refresh only once (not on every render)
-      if (!autoRefresh) {
-        autoRefresh = new AutoRefresh(60000);
-        autoRefresh.addCallback(() => {
-          renderStreamsPage(container);
-        });
-        autoRefresh.start();
-      }
     }
   };
 

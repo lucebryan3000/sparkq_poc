@@ -85,10 +85,10 @@
 
     let streams = [];
     try {
-      const response = await api('GET', '/api/streams', null, { action: 'load streams' });
+      const response = await api('GET', '/api/streams', null, { action: 'load queues' });
       streams = response?.streams || [];
     } catch (err) {
-      handleApiError('load streams for enqueue', err);
+      handleApiError('load queues for enqueue', err);
     }
 
     let scripts = [];
@@ -114,8 +114,8 @@
         <form id="enqueue-form" novalidate>
           <div class="grid grid-2">
             <div class="input-group">
-              <label for="enqueue-stream">Stream</label>
-              <input id="enqueue-stream" list="enqueue-stream-options" placeholder="Enter or choose a stream ID" required />
+              <label for="enqueue-stream">Queue</label>
+              <input id="enqueue-stream" list="enqueue-stream-options" placeholder="Enter or choose a queue ID" required />
               <datalist id="enqueue-stream-options">
                 ${streamOptions}
               </datalist>

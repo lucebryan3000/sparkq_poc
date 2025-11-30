@@ -197,7 +197,7 @@ describe('Cache Debugging and Bundle Validation', () => {
       'tasks',
       'enqueue',
       'sessions',
-      'streams',
+      'queues',
       'config',
       'scripts',
     ];

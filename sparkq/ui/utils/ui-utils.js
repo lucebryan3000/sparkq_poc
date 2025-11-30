@@ -59,7 +59,18 @@
 
   // === Toast Notifications ===
 
+  const MAX_TOASTS = 2;
+  let activeToasts = [];
+
   function showToast(message, type = 'success') {
+    // If we already have 2 toasts, remove the oldest one
+    if (activeToasts.length >= MAX_TOASTS) {
+      const oldestToast = activeToasts.shift();
+      oldestToast.style.opacity = '0';
+      oldestToast.style.transform = 'translateY(20px)';
+      setTimeout(() => oldestToast.remove(), 300);
+    }
+
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
@@ -89,6 +100,7 @@
     toast.style.background = colors[type] || colors.success;
 
     document.body.appendChild(toast);
+    activeToasts.push(toast);
 
     // Trigger animation
     setTimeout(() => {
@@ -100,7 +112,10 @@
     setTimeout(() => {
       toast.style.opacity = '0';
       toast.style.transform = 'translateY(20px)';
-      setTimeout(() => toast.remove(), 300);
+      setTimeout(() => {
+        toast.remove();
+        activeToasts = activeToasts.filter(t => t !== toast);
+      }, 300);
     }, 2000);
   }
 
@@ -149,7 +164,6 @@
         overlay.style.opacity = '0';
         modal.style.transform = 'scale(0.95)';
         setTimeout(() => overlay.remove(), 300);
-        document.removeEventListener('keydown', handleEsc);
       };
 
       // Title
@@ -180,6 +194,7 @@
       modal.appendChild(contentEl);
 
       // Buttons
+      let primaryButton = null;
       if (buttons.length > 0) {
         const buttonsEl = document.createElement('div');
         buttonsEl.style.cssText = `
@@ -212,6 +227,9 @@
             if (btn.onclick) btn.onclick();
             resolve(null);
           };
+          if (btn.primary) {
+            primaryButton = button;
+          }
           buttonsEl.appendChild(button);
         });
         modal.appendChild(buttonsEl);
@@ -234,14 +252,17 @@
         }
       });
 
-      // ESC to close
-      const handleEsc = (e) => {
+      // ESC to close, Enter to submit primary button
+      const handleKeydown = (e) => {
         if (e.key === 'Escape') {
           closeModal();
           resolve(null);
+        } else if (e.key === 'Enter' && primaryButton) {
+          e.preventDefault();
+          primaryButton.click();
         }
       };
-      document.addEventListener('keydown', handleEsc);
+      document.addEventListener('keydown', handleKeydown);
     });
   }
 
@@ -292,11 +313,11 @@
         contentEl.appendChild(input);
       }
 
+      // Don't try to call closeModal from buttons - just resolve the promise
       const buttons = [
         {
           label: 'Cancel',
           onclick: () => {
-            closeModal();
             resolve(null);
           }
         },
@@ -305,13 +326,11 @@
           primary: true,
           onclick: () => {
             const value = options.textarea ? contentEl.querySelector('textarea').value : input.value;
-            closeModal();
             resolve(value);
           }
         }
       ];
 
-      let closeModal;
       showModal(title, contentEl, buttons).then((result) => {
         if (result === undefined) {
           resolve(null);
@@ -320,11 +339,10 @@
 
       // Focus input
       setTimeout(() => {
-        if (options.textarea) {
-          contentEl.querySelector('textarea').focus();
-        } else {
-          input.focus();
-          input.select();
+        const inputEl = options.textarea ? contentEl.querySelector('textarea') : input;
+        inputEl.focus();
+        if (!options.textarea) {
+          inputEl.select();
         }
       }, 100);
     });
@@ -336,7 +354,6 @@
         {
           label: options.cancelLabel || 'Cancel',
           onclick: () => {
-            closeModal();
             resolve(false);
           }
         },
@@ -344,13 +361,11 @@
           label: options.confirmLabel || 'OK',
           primary: true,
           onclick: () => {
-            closeModal();
             resolve(true);
           }
         }
       ];
 
-      let closeModal;
       showModal(title, message, buttons).then(() => {
         resolve(false);
       });

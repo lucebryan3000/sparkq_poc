@@ -10,6 +10,21 @@
   --success: #4caf50;
   --warning: #ffc107;
   --error: #f44336;
+  /* Additional colors for dark mode */
+  --navbar-bg: rgba(26, 26, 26, 0.9);
+  --tab-hover-text: #fff;
+  --tab-active-text: #0b1724;
+  --button-primary-text: #0b1724;
+  --highlight-overlay: rgba(255, 255, 255, 0.04);
+  --highlight-overlay-hover: rgba(255, 255, 255, 0.02);
+  --table-row-alt: rgba(255, 255, 255, 0.02);
+  --loading-ring: rgba(255, 255, 255, 0.1);
+  --queue-tab-bg: rgba(255, 255, 255, 0.03);
+  --queue-tab-hover: rgba(255, 255, 255, 0.05);
+  --mode-btn-bg: rgba(255, 255, 255, 0.03);
+  --mode-btn-hover: rgba(255, 255, 255, 0.05);
+  --tools-btn-bg: rgba(255, 255, 255, 0.05);
+  --tools-btn-hover: rgba(255, 255, 255, 0.1);
 }
 
 /* Light mode theme (Phase 10) */
@@ -22,6 +37,21 @@
   --accent: #0066cc;
   --border: #e0e0e0;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  /* Light mode overrides for additional colors */
+  --navbar-bg: rgba(255, 255, 255, 0.95);
+  --tab-hover-text: var(--text);
+  --tab-active-text: #ffffff;
+  --button-primary-text: #ffffff;
+  --highlight-overlay: rgba(0, 0, 0, 0.02);
+  --highlight-overlay-hover: rgba(0, 0, 0, 0.04);
+  --table-row-alt: rgba(0, 0, 0, 0.01);
+  --loading-ring: rgba(0, 0, 0, 0.1);
+  --queue-tab-bg: rgba(0, 0, 0, 0.02);
+  --queue-tab-hover: rgba(0, 0, 0, 0.04);
+  --mode-btn-bg: rgba(0, 0, 0, 0.02);
+  --mode-btn-hover: rgba(0, 0, 0, 0.04);
+  --tools-btn-bg: rgba(0, 0, 0, 0.04);
+  --tools-btn-hover: rgba(0, 0, 0, 0.08);
 }
 
 * {
@@ -56,7 +86,7 @@ a {
   justify-content: space-between;
   gap: 16px;
   padding: 14px 18px;
-  background: rgba(26, 26, 26, 0.9);
+  background: var(--navbar-bg);
   backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -85,12 +115,12 @@ a {
 
 .nav-tab:hover {
   border-color: var(--accent);
-  color: #fff;
+  color: var(--tab-hover-text);
 }
 
 .nav-tab.active {
   background: var(--accent);
-  color: #0b1724;
+  color: var(--tab-active-text);
   border-color: var(--accent);
   box-shadow: 0 8px 16px rgba(74, 158, 255, 0.25);
 }
@@ -100,7 +130,7 @@ a {
   height: 14px;
   border-radius: 50%;
   background: var(--subtle);
-  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 6px var(--highlight-overlay);
   transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -164,7 +194,7 @@ a {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px 14px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  box-shadow: inset 0 1px 0 var(--highlight-overlay-hover);
 }
 
 .stat-label {
@@ -197,7 +227,7 @@ a {
 }
 
 .table tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--table-row-alt);
 }
 
 .button {
@@ -213,7 +243,7 @@ a {
 
 .button.primary {
   background: var(--accent);
-  color: #0b1724;
+  color: var(--button-primary-text);
   border-color: var(--accent);
 }
 
@@ -314,7 +344,7 @@ a {
   display: inline-block;
   width: 22px;
   height: 22px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
+  border: 3px solid var(--loading-ring);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -641,7 +671,7 @@ a {
 
 .queue-tab {
   padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--queue-tab-bg);
   border: 1px solid var(--border);
   border-bottom: none;
   border-radius: 8px 8px 0 0;
@@ -652,7 +682,7 @@ a {
 }
 
 .queue-tab:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--queue-tab-hover);
 }
 
 .queue-tab.active {
@@ -722,7 +752,7 @@ a {
 
 .mode-btn {
   padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--mode-btn-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: #a1a1aa;
@@ -732,7 +762,7 @@ a {
 }
 
 .mode-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--mode-btn-hover);
 }
 
 .mode-btn.active {
@@ -750,7 +780,7 @@ a {
   position: absolute;
   right: 12px;
   top: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--tools-btn-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   width: 32px;
@@ -765,7 +795,7 @@ a {
 }
 
 .tools-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--tools-btn-hover);
   border-color: #52525b;
 }
 
@@ -805,7 +835,7 @@ a {
 }
 
 .popup-item:hover:not(.disabled) {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--queue-tab-hover);
 }
 
 .popup-item.disabled {
@@ -816,7 +846,7 @@ a {
 .coming-soon {
   font-size: 10px;
   color: #71717a;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--queue-tab-bg);
   padding: 2px 6px;
   border-radius: 3px;
 }

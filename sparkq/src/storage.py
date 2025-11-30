@@ -369,6 +369,23 @@ class Storage:
             )
             return cursor.rowcount > 0
 
+    def archive_stream(self, stream_id: str) -> bool:
+        now = now_iso()
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "UPDATE streams SET status = 'archived', updated_at = ? WHERE id = ?",
+                (now, stream_id)
+            )
+            return cursor.rowcount > 0
+
+    def delete_stream(self, stream_id: str) -> bool:
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM streams WHERE id = ?",
+                (stream_id,)
+            )
+            return cursor.rowcount > 0
+
     # === Task CRUD ===
     def create_task(
         self, stream_id: str, tool_name: str, task_class: str, payload: str, timeout: int,

@@ -171,7 +171,7 @@
     try {
       const sessResp = await api('GET', `/api/sessions/${sessionId}`, null, { action: 'load session' });
       session = sessResp?.session;
-      const streamsResp = await api('GET', '/api/streams', null, { action: 'load streams' });
+      const streamsResp = await api('GET', '/api/streams', null, { action: 'load queues' });
       streams = (streamsResp?.streams || []).filter((s) => s.session_id === sessionId);
     } catch (err) {
       handleApiError('load session', err);
@@ -215,7 +215,7 @@
 
         ${streams.length > 0 ? `
           <div style="margin-bottom: 16px;">
-            <h4 style="margin: 0 0 8px 0;">Streams (${streams.length})</h4>
+            <h4 style="margin: 0 0 8px 0;">Queues (${streams.length})</h4>
             <ul style="margin: 0; padding-left: 20px;">${streamsList}</ul>
           </div>
         ` : ''}

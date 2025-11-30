@@ -12,7 +12,7 @@ sparkq/ui/
 ├── pages/
 │   ├── dashboard.js             # Dashboard page module
 │   ├── sessions.js              # Sessions page module
-│   ├── streams.js               # Streams page module
+│   ├── queues.js                # Queues page module
 │   ├── tasks.js                 # Tasks page module (~420 lines)
 │   ├── enqueue.js               # Enqueue form module
 │   ├── config.js                # Configuration page module
@@ -150,7 +150,7 @@ Then add to `index.html`:
 - core/app-core.js: ~950 lines
 - pages/dashboard.js: ~80 lines
 - pages/sessions.js: ~180 lines
-- pages/streams.js: ~120 lines
+- pages/queues.js: ~120 lines
 - pages/tasks.js: ~420 lines (largest)
 - pages/enqueue.js: ~370 lines
 - pages/config.js: ~114 lines

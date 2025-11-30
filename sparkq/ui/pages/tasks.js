@@ -36,10 +36,10 @@
 
     let streams = [];
     try {
-      const response = await api('GET', '/api/streams', null, { action: 'load streams' });
+      const response = await api('GET', '/api/streams', null, { action: 'load queues' });
       streams = response?.streams || [];
     } catch (err) {
-      handleApiError('load streams for filters', err);
+      handleApiError('load queues for filters', err);
     }
 
     let tasks = [];
@@ -123,7 +123,7 @@
               <tr>
                 <th style="width: 30px;"><input type="checkbox" id="select-all-tasks" title="Select all tasks" /></th>
                 <th>ID</th>
-                <th>Stream</th>
+                <th>Queue</th>
                 <th>Tool</th>
                 <th>Status</th>
                 <th>Created</th>
@@ -145,9 +145,9 @@
       <div class="card">
         <div class="grid grid-2">
           <div class="input-group">
-            <label for="task-stream-filter">Stream</label>
+            <label for="task-stream-filter">Queue</label>
             <select id="task-stream-filter">
-              <option value="">All streams</option>
+              <option value="">All queues</option>
               ${streamOptions}
             </select>
           </div>
@@ -357,7 +357,7 @@
         </div>
         <p class="muted">Status: ${task.status}</p>
         <div class="grid grid-2">
-          <div><strong>Stream</strong><div>${formatValue(task.stream_id, '—')}</div></div>
+          <div><strong>Queue</strong><div>${formatValue(task.stream_id, '—')}</div></div>
           <div><strong>Tool</strong><div>${formatValue(task.tool_name, '—')}</div></div>
           <div><strong>Created</strong><div>${formatTimestamp(task.created_at)}</div></div>
           <div><strong>Claimed</strong><div>${formatTimestamp(task.claimed_at)}</div></div>

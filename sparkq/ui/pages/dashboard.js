@@ -106,21 +106,35 @@
         </div>
       `;
 
+      let sessions = [];
       let streams = [];
+      let activeSession = null;
 
       try {
-        const response = await api('GET', '/api/streams', null, { action: 'load streams' });
+        const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
+        sessions = sessionsResponse?.sessions || [];
+      } catch (err) {
+        console.error('Failed to load sessions:', err);
+      }
+
+      try {
+        const response = await api('GET', '/api/streams', null, { action: 'load queues' });
         streams = response?.streams || [];
       } catch (err) {
-        showError(`Failed to load streams: ${err.message || err}`, err);
+        showError(`Failed to load queues: ${err.message || err}`, err);
       }
 
       this.streamsCache = streams;
 
       if (!streams.length) {
+        // Get the first session or use a placeholder
+        activeSession = sessions.length > 0 ? sessions[0] : null;
+        const sessionSelector = this.renderSessionSelector(activeSession, sessions);
+
         container.innerHTML = `
           <div class="queue-tabs-section">
             <div class="section-title">Queues</div>
+            ${sessionSelector}
             <div class="queue-tabs">
               <button class="new-queue-btn" id="dashboard-new-queue-btn">+ New Queue</button>
             </div>
@@ -129,6 +143,7 @@
             <p class="muted">No queues yet. Create one to get started.</p>
           </div>
         `;
+        this.attachSessionSelectorHandlers(container, sessions);
         this.attachNewQueueHandler(container);
         return;
       }
@@ -137,15 +152,24 @@
         this.currentStreamId = streams[0].id;
       }
 
+      // Get the session for the first stream
+      if (streams.length > 0) {
+        activeSession = sessions.find((s) => s.id === streams[0].session_id) || sessions[0];
+      }
+
+      const sessionSelector = this.renderSessionSelector(activeSession, sessions);
+
       container.innerHTML = `
         <div class="queue-tabs-section">
           <div class="section-title">Queues</div>
+          ${sessionSelector}
           <div id="queue-tabs" class="queue-tabs"></div>
         </div>
 
         <div id="queue-content"></div>
       `;
 
+      this.attachSessionSelectorHandlers(container, sessions);
       const tabsContainer = container.querySelector('#queue-tabs');
       this.renderQueueTabs(tabsContainer, streams);
 
@@ -222,10 +246,21 @@
         }
 
         if (!sessions.length) {
-          Utils.showModal('No Sessions Available', 'Create a session first before creating a queue.', [
-            { label: 'OK', primary: true, onclick: () => {} }
-          ]);
-          return;
+          // Auto-create a session when none exist
+          const sessionName = await Utils.showPrompt('Create Session', 'Enter session name:');
+          if (!sessionName || !sessionName.trim()) {
+            return;
+          }
+
+          try {
+            const sessionResponse = await api('POST', '/api/sessions', { name: sessionName.trim() }, { action: 'create session' });
+            const newSession = sessionResponse?.session || sessionResponse;
+            sessions = [newSession];
+          } catch (err) {
+            console.error('Failed to create session:', err);
+            Utils.showToast('Failed to create session', 'error');
+            return;
+          }
         }
 
         const queueName = await Utils.showPrompt('Create Queue', 'Enter queue name:');
@@ -249,7 +284,7 @@
           if (instructions && instructions.trim()) {
             payload.instructions = instructions;
           }
-          await api('POST', '/api/streams', payload, { action: 'create stream' });
+          await api('POST', '/api/streams', payload, { action: 'create queue' });
           Utils.showToast(`Queue "${queueName}" created`, 'success');
           // Re-render the dashboard to show the new queue
           this.render(root);
@@ -364,6 +399,85 @@
           </div>
         </div>
       `;
+    },
+
+    renderSessionSelector(activeSession, sessions) {
+      if (!activeSession || !sessions.length) {
+        return '';
+      }
+
+      const sessionOptions = sessions
+        .map((s) => `<option value="${s.id}" ${s.id === activeSession.id ? 'selected' : ''}>${s.name || s.id}</option>`)
+        .join('');
+
+      return `
+        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+          <select id="session-selector" style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); font-size: 13px;">
+            ${sessionOptions}
+          </select>
+          <button id="session-rename-btn" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Rename session">✏️</button>
+          <button id="session-delete-btn" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Delete session">🗑️</button>
+        </div>
+      `;
+    },
+
+    attachSessionSelectorHandlers(container, sessions) {
+      const selector = container?.querySelector('#session-selector');
+      const renameBtn = container?.querySelector('#session-rename-btn');
+      const deleteBtn = container?.querySelector('#session-delete-btn');
+
+      if (selector) {
+        selector.addEventListener('change', async () => {
+          // Re-render dashboard with the selected session's queues
+          this.render(container);
+        });
+      }
+
+      if (renameBtn) {
+        renameBtn.addEventListener('click', async () => {
+          const selector = container.querySelector('#session-selector');
+          if (!selector) return;
+
+          const sessionId = selector.value;
+          const currentSession = sessions.find((s) => s.id === sessionId);
+          if (!currentSession) return;
+
+          const newName = await Utils.showPrompt('Rename Session', 'Enter new session name:', currentSession.name || '');
+          if (!newName || !newName.trim()) return;
+
+          try {
+            await api('PUT', `/api/sessions/${sessionId}`, { name: newName.trim() }, { action: 'rename session' });
+            Utils.showToast('Session renamed', 'success');
+            this.render(container);
+          } catch (err) {
+            console.error('Failed to rename session:', err);
+            Utils.showToast('Failed to rename session', 'error');
+          }
+        });
+      }
+
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+          const selector = container.querySelector('#session-selector');
+          if (!selector) return;
+
+          const sessionId = selector.value;
+          const currentSession = sessions.find((s) => s.id === sessionId);
+          if (!currentSession) return;
+
+          const confirmed = await Utils.showConfirm('Delete Session', `Are you sure you want to delete "${currentSession.name || currentSession.id}"? This cannot be undone.`);
+          if (!confirmed) return;
+
+          try {
+            await api('DELETE', `/api/sessions/${sessionId}`, null, { action: 'delete session' });
+            Utils.showToast('Session deleted', 'success');
+            this.render(container);
+          } catch (err) {
+            console.error('Failed to delete session:', err);
+            Utils.showToast('Failed to delete session', 'error');
+          }
+        });
+      }
     }
   };
 

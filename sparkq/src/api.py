@@ -452,6 +452,25 @@ async def end_stream(stream_id: str):
     return {"message": "Stream ended", "stream": stream}
 
 
+@app.put("/api/streams/{stream_id}/archive")
+async def archive_stream(stream_id: str):
+    archived = storage.archive_stream(stream_id)
+    if not archived:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    stream = storage.get_stream(stream_id)
+    return {"message": "Stream archived", "stream": stream}
+
+
+@app.delete("/api/streams/{stream_id}")
+async def delete_stream(stream_id: str):
+    deleted = storage.delete_stream(stream_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Stream not found")
+
+    return {"message": "Stream deleted"}
+
+
 @app.get("/api/tasks")
 async def list_tasks(
     stream_id: Optional[str] = Query(None),
