@@ -11,9 +11,6 @@
     <div class='navbar-brand'>SparkQ</div>
     <div class='nav-tabs'>
       <button class='nav-tab active' data-tab='dashboard'>Dashboard</button>
-      <button class='nav-tab' data-tab='sessions'>Sessions</button>
-      <button class='nav-tab' data-tab='streams'>Queues</button>
-      <button class='nav-tab' data-tab='tasks'>Tasks</button>
       <button class='nav-tab' data-tab='enqueue'>Enqueue</button>
       <button class='nav-tab' data-tab='config'>Config</button>
       <button class='nav-tab' data-tab='scripts'>Scripts</button>
@@ -26,9 +23,6 @@
 
   <main id='app' class='container'>
     <div id='dashboard-page' class='page-content'></div>
-    <div id='sessions-page' class='page-content'></div>
-    <div id='streams-page' class='page-content'></div>
-    <div id='tasks-page' class='page-content'></div>
     <div id='enqueue-page' class='page-content'></div>
     <div id='config-page' class='page-content'></div>
     <div id='scripts-page' class='page-content'></div>
@@ -37,21 +31,19 @@
   <div id='breadcrumbs' class='breadcrumbs'></div>
 
   <!-- Core must load first -->
-  <script src='/ui/dist/app-core.7db292ba.js'></script>
+  <script src='/ui/dist/app-core.5091135a.js'></script>
 
   <!-- Utils must load before components and pages that use them -->
-  <script src='/ui/dist/ui-utils.7db292ba.js'></script>
+  <script src='/ui/dist/ui-utils.6b171de6.js'></script>
 
   <!-- Components can load after utils -->
-  <script src='/ui/dist/quick-add.7db292ba.js'></script>
+  <script src='/ui/dist/quick-add.43b3a50c.js'></script>
 
   <!-- Pages can load in any order -->
-  <script src='/ui/dist/dashboard.7db292ba.js'></script>
-  <script src='/ui/dist/tasks.7db292ba.js'></script>
-  <script src='/ui/dist/enqueue.7db292ba.js'></script>
-  <script src='/ui/dist/sessions.7db292ba.js'></script>
-  <script src='/ui/dist/streams.7db292ba.js'></script>
-  <script src='/ui/dist/config.7db292ba.js'></script>
-  <script src='/ui/dist/scripts.7db292ba.js'></script>
+  <script src='/ui/dist/dashboard.9c1b978c.js'></script>
+  <script src='/ui/dist/enqueue.ad7393c9.js'></script>
+  <script src='/ui/dist/queues.ba086cfb.js'></script>
+  <script src='/ui/dist/config.5eed1942.js'></script>
+  <script src='/ui/dist/scripts.js'></script>
 </body>
 </html>

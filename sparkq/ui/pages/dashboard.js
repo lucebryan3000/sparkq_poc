@@ -210,12 +210,52 @@
         return;
       }
 
-      newQueueBtn.addEventListener('click', () => {
-        const streamsTab = document.querySelector('.nav-tab[data-tab="streams"]');
-        if (streamsTab) {
-          streamsTab.click();
-        } else if (typeof window.router === 'function') {
-          window.router('streams');
+      newQueueBtn.addEventListener('click', async () => {
+        // Load sessions for queue creation
+        let sessions = [];
+        try {
+          const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
+          sessions = sessionsResponse?.sessions || [];
+        } catch (err) {
+          console.error('Failed to load sessions:', err);
+          return;
+        }
+
+        if (!sessions.length) {
+          Utils.showModal('No Sessions Available', 'Create a session first before creating a queue.', [
+            { label: 'OK', primary: true, onclick: () => {} }
+          ]);
+          return;
+        }
+
+        const queueName = await Utils.showPrompt('Create Queue', 'Enter queue name:');
+        if (!queueName || !queueName.trim()) {
+          return;
+        }
+
+        const sessionOptions = sessions.map((s) => `${s.id}: ${s.name || 'Unnamed'}`).join('\n');
+        const sessionId = await Utils.showPrompt('Select Session', `${sessionOptions}`, sessions[0].id);
+        if (!sessionId || !sessionId.trim()) {
+          return;
+        }
+
+        const instructions = await Utils.showPrompt('Queue Instructions', 'Enter queue instructions (optional):', '', { textarea: true });
+
+        try {
+          const payload = {
+            session_id: sessionId.trim(),
+            name: queueName.trim(),
+          };
+          if (instructions && instructions.trim()) {
+            payload.instructions = instructions;
+          }
+          await api('POST', '/api/streams', payload, { action: 'create stream' });
+          Utils.showToast(`Queue "${queueName}" created`, 'success');
+          // Re-render the dashboard to show the new queue
+          this.render(root);
+        } catch (err) {
+          console.error('Failed to create queue:', err);
+          Utils.showToast('Failed to create queue', 'error');
         }
       });
     },

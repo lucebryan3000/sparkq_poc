@@ -538,16 +538,13 @@ function toggleTheme() {
 
 function cachePages() {
   pages.dashboard = document.getElementById('dashboard-page');
-  pages.sessions = document.getElementById('sessions-page');
-  pages.streams = document.getElementById('streams-page');
-  pages.tasks = document.getElementById('tasks-page');
   pages.enqueue = document.getElementById('enqueue-page');
   pages.config = document.getElementById('config-page');
   pages.scripts = document.getElementById('scripts-page');
 
   // Verify all pages were cached
   const missing = [];
-  ['dashboard', 'sessions', 'streams', 'tasks', 'enqueue', 'config', 'scripts'].forEach(name => {
+  ['dashboard', 'enqueue', 'config', 'scripts'].forEach(name => {
     if (!pages[name]) {
       missing.push(name);
     }

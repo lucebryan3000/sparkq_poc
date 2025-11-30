@@ -30,6 +30,8 @@ npx jest sparkq/tests/browser/test_cache_debug.test.js
 
 - **test_core_flow.test.js** - Core UI navigation and functionality
 - **test_cache_debug.test.js** - Cache behavior and stale bundle detection
+- **test_config_page.test.js** - Config page tab rendering, switching, and functionality
+- **test_rendering_debug.test.js** - Component rendering validation and script loading verification
 
 ## Helpers
 

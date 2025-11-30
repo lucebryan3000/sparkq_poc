@@ -104,6 +104,261 @@
     }, 2000);
   }
 
+  // === Modal Dialog System ===
+
+  function createModalOverlay() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    `;
+    return overlay;
+  }
+
+  function createModalContent(title, content, buttons = []) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-content';
+    modal.style.cssText = `
+      background: var(--surface, #1a1a1a);
+      border: 1px solid var(--border, #333);
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+      transform: scale(0.95);
+      transition: transform 0.3s ease;
+      color: var(--text, #fff);
+    `;
+
+    // Title
+    if (title) {
+      const titleEl = document.createElement('h2');
+      titleEl.style.cssText = `
+        margin: 0 0 16px 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text, #fff);
+      `;
+      titleEl.textContent = title;
+      modal.appendChild(titleEl);
+    }
+
+    // Content
+    const contentEl = document.createElement('div');
+    contentEl.style.cssText = `
+      margin-bottom: 24px;
+      color: var(--text-secondary, #ccc);
+      line-height: 1.5;
+    `;
+    if (typeof content === 'string') {
+      contentEl.textContent = content;
+    } else {
+      contentEl.appendChild(content);
+    }
+    modal.appendChild(contentEl);
+
+    // Buttons
+    if (buttons.length > 0) {
+      const buttonsEl = document.createElement('div');
+      buttonsEl.style.cssText = `
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+      `;
+      buttons.forEach(btn => {
+        const button = document.createElement('button');
+        button.textContent = btn.label;
+        button.style.cssText = `
+          padding: 10px 20px;
+          border-radius: 6px;
+          border: 1px solid var(--border, #333);
+          background: ${btn.primary ? 'var(--primary, #3b82f6)' : 'var(--surface-2, #252525)'};
+          color: ${btn.primary ? '#fff' : 'var(--text, #fff)'};
+          cursor: pointer;
+          font-weight: 500;
+          transition: all 0.2s ease;
+        `;
+        button.onmouseover = () => {
+          button.style.opacity = '0.8';
+        };
+        button.onmouseout = () => {
+          button.style.opacity = '1';
+        };
+        button.onclick = btn.onclick;
+        buttonsEl.appendChild(button);
+      });
+      modal.appendChild(buttonsEl);
+    }
+
+    return modal;
+  }
+
+  function showModal(title, content, buttons = []) {
+    return new Promise((resolve) => {
+      const overlay = createModalOverlay();
+      const modal = createModalContent(title, content, buttons);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      // Animate in
+      setTimeout(() => {
+        overlay.style.opacity = '1';
+        modal.style.transform = 'scale(1)';
+      }, 10);
+
+      // Close function
+      const closeModal = () => {
+        overlay.style.opacity = '0';
+        modal.style.transform = 'scale(0.95)';
+        setTimeout(() => overlay.remove(), 300);
+      };
+
+      // Click overlay to close
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          closeModal();
+          resolve(null);
+        }
+      });
+
+      // ESC to close
+      const handleEsc = (e) => {
+        if (e.key === 'Escape') {
+          document.removeEventListener('keydown', handleEsc);
+          closeModal();
+          resolve(null);
+        }
+      };
+      document.addEventListener('keydown', handleEsc);
+
+      return closeModal;
+    });
+  }
+
+  function showPrompt(title, message, defaultValue = '', options = {}) {
+    return new Promise((resolve) => {
+      const contentEl = document.createElement('div');
+
+      const messageEl = document.createElement('p');
+      messageEl.textContent = message;
+      messageEl.style.cssText = `
+        margin: 0 0 12px 0;
+        color: var(--text-secondary, #ccc);
+      `;
+      contentEl.appendChild(messageEl);
+
+      const input = document.createElement('input');
+      input.type = options.type || 'text';
+      input.value = defaultValue;
+      input.placeholder = options.placeholder || '';
+      input.style.cssText = `
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border, #333);
+        border-radius: 6px;
+        background: var(--surface-2, #252525);
+        color: var(--text, #fff);
+        font-size: 14px;
+        box-sizing: border-box;
+      `;
+      if (options.textarea) {
+        const textarea = document.createElement('textarea');
+        textarea.value = defaultValue;
+        textarea.placeholder = options.placeholder || '';
+        textarea.style.cssText = `
+          width: 100%;
+          padding: 10px 12px;
+          border: 1px solid var(--border, #333);
+          border-radius: 6px;
+          background: var(--surface-2, #252525);
+          color: var(--text, #fff);
+          font-size: 14px;
+          box-sizing: border-box;
+          min-height: 100px;
+          font-family: inherit;
+        `;
+        contentEl.appendChild(textarea);
+      } else {
+        contentEl.appendChild(input);
+      }
+
+      const buttons = [
+        {
+          label: 'Cancel',
+          onclick: () => {
+            closeModal();
+            resolve(null);
+          }
+        },
+        {
+          label: 'OK',
+          primary: true,
+          onclick: () => {
+            const value = options.textarea ? contentEl.querySelector('textarea').value : input.value;
+            closeModal();
+            resolve(value);
+          }
+        }
+      ];
+
+      let closeModal;
+      showModal(title, contentEl, buttons).then((result) => {
+        if (result === undefined) {
+          resolve(null);
+        }
+      });
+
+      // Focus input
+      setTimeout(() => {
+        if (options.textarea) {
+          contentEl.querySelector('textarea').focus();
+        } else {
+          input.focus();
+          input.select();
+        }
+      }, 100);
+    });
+  }
+
+  function showConfirm(title, message, options = {}) {
+    return new Promise((resolve) => {
+      const buttons = [
+        {
+          label: options.cancelLabel || 'Cancel',
+          onclick: () => {
+            closeModal();
+            resolve(false);
+          }
+        },
+        {
+          label: options.confirmLabel || 'OK',
+          primary: true,
+          onclick: () => {
+            closeModal();
+            resolve(true);
+          }
+        }
+      ];
+
+      let closeModal;
+      showModal(title, message, buttons).then(() => {
+        resolve(false);
+      });
+    });
+  }
+
   // === Auto-Refresh Manager ===
 
   class AutoRefresh {
@@ -189,6 +444,9 @@
   window.Utils.formatTimestamp = formatTimestamp;
   window.Utils.formatDuration = formatDuration;
   window.Utils.showToast = showToast;
+  window.Utils.showModal = showModal;
+  window.Utils.showPrompt = showPrompt;
+  window.Utils.showConfirm = showConfirm;
   window.Utils.AutoRefresh = AutoRefresh;
 
 })(window);
