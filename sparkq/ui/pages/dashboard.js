@@ -614,7 +614,7 @@
 
           try {
             await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });
-            Utils.showToast(`Task ${taskId} deleted`, 'success');
+            Utils.showToast(`Task ${taskId} deleted`, 'success', 3500);
             const tasksContainer = document.getElementById('dashboard-tasks');
             if (tasksContainer) {
               this.renderTasks(tasksContainer, queueId);
@@ -765,7 +765,7 @@
         if (!confirmed) return;
         try {
           await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
-          Utils.showToast(`Task ${label} deleted`, 'success');
+          Utils.showToast(`Task ${label} deleted`, 'success', 3500);
           const tasksContainer = document.getElementById('dashboard-tasks');
           if (tasksContainer) {
             this.renderTasks(tasksContainer, queueId);

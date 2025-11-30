@@ -224,6 +224,38 @@ class TestConfigEndpoint:
 
         response = api_client.get("/api/config")
 
-        if response.status_code == 200:
-            data = response.json()
-            assert "config" in data or isinstance(data, dict)
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, dict)
+        assert "server" in data
+        assert "database" in data
+        assert "tools" in data
+        assert "task_classes" in data
+
+    def test_update_purge_config(self, api_client):
+        response = api_client.put(
+            "/api/config/purge/config",
+            json={"value": {"older_than_days": 5}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["config"]["purge"]["older_than_days"] == 5
+
+    def test_task_class_and_tool_crud(self, api_client):
+        # Create task class
+        tc_resp = api_client.post(
+            "/api/task-classes",
+            json={"name": "TEST_CLASS", "timeout": 120, "description": "demo"},
+        )
+        assert tc_resp.status_code == 201
+        # Create tool that references it
+        tool_resp = api_client.post(
+            "/api/tools",
+            json={"name": "demo-tool", "description": "Demo", "task_class": "TEST_CLASS"},
+        )
+        assert tool_resp.status_code == 201
+        # Delete tool then task class
+        del_tool = api_client.delete("/api/tools/demo-tool")
+        assert del_tool.status_code == 200
+        del_tc = api_client.delete("/api/task-classes/TEST_CLASS")
+        assert del_tc.status_code == 200

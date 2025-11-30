@@ -1,11 +1,12 @@
 """SparkQ SQLite Storage Layer"""
 
+import json
 import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
 from contextlib import contextmanager
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 
 # ID generation helpers
@@ -216,6 +217,57 @@ class Storage:
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 ("prj_default", "default", None, None, now, now)
             )
+
+            # Config and audit tables (Phase 20)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS config (
+                    namespace TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    updated_by TEXT,
+                    PRIMARY KEY (namespace, key)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id TEXT PRIMARY KEY,
+                    actor TEXT,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
+            # Granular config tables for tools and task classes (Phase 20.1)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS task_classes (
+                    name TEXT PRIMARY KEY,
+                    timeout INTEGER NOT NULL,
+                    description TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tools (
+                    name TEXT PRIMARY KEY,
+                    description TEXT,
+                    task_class TEXT NOT NULL REFERENCES task_classes(name),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_tools_task_class ON tools(task_class)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_config_namespace ON config(namespace)")
 
     # === Project CRUD ===
     def create_project(self, name: str, repo_path: str = None, prd_path: str = None) -> dict:
@@ -517,6 +569,175 @@ class Storage:
             raise
         finally:
             conn.close()
+
+    # === Config helpers (Phase 20) ===
+    def _serialize_value(self, value: Any) -> str:
+        return json.dumps(value)
+
+    def _deserialize_value(self, value: str) -> Any:
+        try:
+            return json.loads(value)
+        except Exception:
+            return value
+
+    def list_config_entries(self) -> List[dict]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT namespace, key, value, updated_at, updated_by FROM config"
+            ).fetchall()
+            return [
+                {
+                    "namespace": row["namespace"],
+                    "key": row["key"],
+                    "value": self._deserialize_value(row["value"]),
+                    "updated_at": row["updated_at"],
+                    "updated_by": row["updated_by"],
+                }
+                for row in rows
+            ]
+
+    def get_config_entry(self, namespace: str, key: str) -> Optional[dict]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT namespace, key, value, updated_at, updated_by FROM config WHERE namespace = ? AND key = ?",
+                (namespace, key),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "namespace": row["namespace"],
+                "key": row["key"],
+                "value": self._deserialize_value(row["value"]),
+                "updated_at": row["updated_at"],
+                "updated_by": row["updated_by"],
+            }
+
+    def upsert_config_entry(self, namespace: str, key: str, value: Any, updated_by: str = "system"):
+        now = now_iso()
+        serialized = self._serialize_value(value)
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO config (namespace, key, value, updated_at, updated_by)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(namespace, key)
+                DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by=excluded.updated_by
+                """,
+                (namespace, key, serialized, now, updated_by),
+            )
+
+    def delete_config_entry(self, namespace: str, key: str):
+        with self.connection() as conn:
+            conn.execute("DELETE FROM config WHERE namespace = ? AND key = ?", (namespace, key))
+
+    def count_config_entries(self) -> int:
+        with self.connection() as conn:
+            row = conn.execute("SELECT COUNT(*) as cnt FROM config").fetchone()
+            return row["cnt"] if row else 0
+
+    def export_config(self) -> Dict[str, Dict[str, Any]]:
+        """Return config as nested dict {namespace: {key: value}}."""
+        entries = self.list_config_entries()
+        output: Dict[str, Dict[str, Any]] = {}
+        for entry in entries:
+            ns = entry["namespace"]
+            output.setdefault(ns, {})
+            output[ns][entry["key"]] = entry["value"]
+        return output
+
+    def log_audit(self, actor: Optional[str], action: str, details: Optional[dict] = None):
+        now = now_iso()
+        audit_id = f"audit_{uuid.uuid4().hex[:12]}"
+        details_str = json.dumps(details) if details is not None else None
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO audit_log (id, actor, action, details, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (audit_id, actor, action, details_str, now),
+            )
+
+    # === Task classes & tools (Phase 20.1) ===
+    def list_task_classes(self) -> List[dict]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT name, timeout, description, created_at, updated_at FROM task_classes ORDER BY name"
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_task_class_record(self, name: str) -> Optional[dict]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT name, timeout, description, created_at, updated_at FROM task_classes WHERE name = ?",
+                (name,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def upsert_task_class(self, name: str, timeout: int, description: Optional[str] = None):
+        if not name or not isinstance(name, str):
+            raise ValueError("task_class name required")
+        if not isinstance(timeout, int) or timeout <= 0:
+            raise ValueError("timeout must be a positive integer")
+        now = now_iso()
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO task_classes (name, timeout, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(name)
+                DO UPDATE SET timeout=excluded.timeout, description=excluded.description, updated_at=excluded.updated_at
+                """,
+                (name, timeout, description, now, now),
+            )
+
+    def delete_task_class(self, name: str):
+        with self.connection() as conn:
+            # Prevent delete if referenced by any tool
+            ref = conn.execute("SELECT 1 FROM tools WHERE task_class = ? LIMIT 1", (name,)).fetchone()
+            if ref:
+                raise ValueError("Cannot delete task_class in use by tools")
+            conn.execute("DELETE FROM task_classes WHERE name = ?", (name,))
+
+    def list_tools_table(self) -> List[dict]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT name, description, task_class, created_at, updated_at FROM tools ORDER BY name"
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_tool_record(self, name: str) -> Optional[dict]:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT name, description, task_class, created_at, updated_at FROM tools WHERE name = ?",
+                (name,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def upsert_tool_record(self, name: str, task_class: str, description: Optional[str] = None):
+        if not name or not isinstance(name, str):
+            raise ValueError("tool name required")
+        if not task_class or not isinstance(task_class, str):
+            raise ValueError("task_class required for tool")
+        now = now_iso()
+        with self.connection() as conn:
+            # Ensure task_class exists
+            tc = conn.execute("SELECT 1 FROM task_classes WHERE name = ?", (task_class,)).fetchone()
+            if not tc:
+                raise ValueError(f"task_class '{task_class}' does not exist")
+            conn.execute(
+                """
+                INSERT INTO tools (name, description, task_class, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(name)
+                DO UPDATE SET description=excluded.description, task_class=excluded.task_class, updated_at=excluded.updated_at
+                """,
+                (name, description, task_class, now, now),
+            )
+
+    def delete_tool_record(self, name: str):
+        with self.connection() as conn:
+            conn.execute("DELETE FROM tools WHERE name = ?", (name,))
 
     def complete_task(self, task_id: str, result_summary: str, result_data: str = None,
                      stdout: str = None, stderr: str = None) -> dict:

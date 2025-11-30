@@ -1045,6 +1045,27 @@ def purge(
     _emit_error("Purge command not implemented yet", "Check sparkq.yml purge settings")
 
 
+@app.command("config-export", help="Export DB-backed config to YAML (or stdout)")
+@cli_handler
+def config_export(
+    output: str = typer.Option("-", "--output", "-o", help="Output path or '-' for stdout")
+):
+    """Export config table to YAML for backup or inspection."""
+    import yaml
+
+    st = get_storage()
+    st.init_db()
+    data = st.export_config()
+    yaml_str = yaml.safe_dump(data, sort_keys=False)
+
+    if output in (None, "-", ""):
+        typer.echo(yaml_str)
+    else:
+        out_path = Path(output)
+        out_path.write_text(yaml_str)
+        typer.echo(f"Wrote config to {out_path}")
+
+
 # === Scripts Commands ===
 
 scripts_app = typer.Typer(help="Manage and discover scripts")

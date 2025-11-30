@@ -13,6 +13,8 @@
       this.refreshCallback = null;
       this.llmTools = [];
       this.selectedTool = null;
+      this.buildPrompts = [];
+      this.selectedPrompt = '';
 
       // Text expander state (Phase 14B)
       this.prompts = [];
@@ -69,11 +71,25 @@
       }
     }
 
+    async loadBuildPrompts() {
+      try {
+        const resp = await API.api('GET', '/api/build-prompts', null, { action: 'load build prompts' });
+        this.buildPrompts = resp?.prompts || [];
+        if (!this.selectedPrompt) {
+          this.selectedPrompt = '';
+        }
+      } catch (err) {
+        console.error('[QuickAdd] Failed to load build prompts:', err);
+        this.buildPrompts = [];
+      }
+    }
+
     async render() {
       const container = document.getElementById(this.containerId);
       if (!container) return;
 
       await this.loadTools();
+      await this.loadBuildPrompts();
 
       const llmOptions = this.llmTools.length
         ? this.llmTools
@@ -92,6 +108,19 @@
           ${llmOptions.map(opt => `<option value="${opt.name}" ${opt.name === this.selectedTool ? 'selected' : ''}>${opt.description}</option>`).join('')}
         </select>
       `;
+
+      const promptSelect = this.buildPrompts.length
+        ? `
+          <label for="prompt-file-select" style="font-size: 13px; color: #bbb; display: block; margin-bottom: 6px;">Prompt File</label>
+          <select
+            id="prompt-file-select"
+            onchange="window.quickAdd.handlePromptFileChange(event)"
+            style="display: inline-block; min-width: 220px; max-width: 360px; background: rgba(0, 0, 0, 0.3); border: 1px solid #444; border-radius: 6px; padding: 10px; color: #fff; margin-bottom: 10px;">
+            <option value="">-- Select Prompt --</option>
+            ${this.buildPrompts.map(p => `<option value="${p.path}" ${p.path === this.selectedPrompt ? 'selected' : ''}>${p.name || p.path}</option>`).join('')}
+          </select>
+        `
+        : '';
 
       container.innerHTML = `
         <div class="quick-add-bar" style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
@@ -112,7 +141,10 @@
           </div>
 
           <div id="llm-input" class="input-area" style="display: ${this.mode === 'llm' ? 'block' : 'none'}; position: relative;">
-            ${llmSelect}
+            <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin-bottom:8px;">
+              <div style="flex:0 0 auto;">${llmSelect}</div>
+              ${promptSelect ? `<div style="flex:0 0 auto;">${promptSelect}</div>` : ''}
+            </div>
             <div class="prompt-input-wrapper" style="position: relative;">
               <textarea
                 id="prompt-field"
@@ -310,14 +342,14 @@
         return;
       }
 
-      const tool = this.selectedTool || 'llm-haiku';
+      const selectedTool = this.selectedTool || 'llm-haiku';
 
       try {
         const response = await API.api('POST', '/api/tasks/quick-add', {
           queue_id: this.queueId,
           mode: 'llm',
           prompt: prompt,
-          tool_name: tool
+          tool_name: selectedTool
         }, { action: 'add task' });
 
         if (!response || !response.task_id) {
@@ -327,9 +359,9 @@
         // Clear field
         promptField.value = '';
 
-        // Show success
-        const tool = response.tool || tool;
-        Utils.showToast(`Task #${response.task_id} added (${tool})`);
+        // Show success (friendly ID not returned here; keep short, extend duration)
+        const usedTool = response.tool || selectedTool;
+        Utils.showToast(`Task ${response.task_id} added (${usedTool})`, 'success', 3500);
 
         // Refresh if callback is set
         if (this.refreshCallback && typeof this.refreshCallback === 'function') {
@@ -344,6 +376,15 @@
 
     handleToolChange(event) {
       this.selectedTool = event?.target?.value || this.selectedTool || 'llm-haiku';
+    }
+
+    handlePromptFileChange(event) {
+      const val = event?.target?.value || '';
+      this.selectedPrompt = val;
+      const promptField = document.getElementById('prompt-field');
+      if (promptField && val) {
+        promptField.value = `Run prompt ${val}`;
+      }
     }
 
     async addScriptTask() {
@@ -378,7 +419,7 @@
 
         // Show success
         const tool = response.tool || 'script';
-        Utils.showToast(`Task #${response.task_id} added (${tool})`);
+        Utils.showToast(`Task ${response.task_id} added (${tool})`, 'success', 3500);
 
         // Refresh if callback is set
         if (this.refreshCallback && typeof this.refreshCallback === 'function') {

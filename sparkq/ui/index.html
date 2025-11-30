@@ -5,8 +5,8 @@
   <meta name='viewport' content='width=device-width, initial-scale=1'>
   <title>SparkQ</title>
   <!-- Simple build/version id for cache-busting static assets (update as needed) -->
-  <script>window.__BUILD_ID__ = 'b712';</script>
-  <link rel="stylesheet" href="/ui/style.css?v=b712">
+  <script>window.__BUILD_ID__ = 'b713';</script>
+  <link rel="stylesheet" href="/ui/style.css?v=b713">
 </head>
 <body>
   <header class='app-header'>
@@ -19,6 +19,7 @@
       <div class='navbar-brand'>SparkQueue</div>
     </div>
     <div class='header-right'>
+      <span id="build-id" style="font-size: 11px; color: #9ca3af; margin-right: 8px;"></span>
       <button class='button secondary' id='theme-toggle-btn' title='Toggle dark/light mode' style='padding: 6px 12px; font-size: 14px;'>🌙</button>
     </div>
   </header>
@@ -41,12 +42,20 @@
   <div id='breadcrumbs' class='breadcrumbs'></div>
 
   <!-- Core must load first -->
-  <script src="/ui/dist/app-core.js?v=b712"></script>
-  <script src="/ui/dist/ui-utils.js?v=b712"></script>
-  <script src="/ui/dist/quick-add.js?v=b712"></script>
-  <script src="/ui/dist/dashboard.js?v=b712"></script>
-  <script src="/ui/dist/enqueue.js?v=b712"></script>
-  <script src="/ui/dist/config.js?v=b712"></script>
-  <script src="/ui/dist/scripts.js?v=b712"></script>
+  <script src="/ui/dist/app-core.js?v=b713"></script>
+  <script src="/ui/dist/ui-utils.js?v=b713"></script>
+  <script src="/ui/dist/quick-add.js?v=b713"></script>
+  <script src="/ui/dist/dashboard.js?v=b713"></script>
+  <script src="/ui/dist/enqueue.js?v=b713"></script>
+  <script src="/ui/dist/config.js?v=b713"></script>
+  <script src="/ui/dist/scripts.js?v=b713"></script>
+  <script>
+    (function() {
+      const el = document.getElementById('build-id');
+      if (el && window.__BUILD_ID__) {
+        el.textContent = `UI v${window.__BUILD_ID__}`;
+      }
+    })();
+  </script>
 </body>
 </html>

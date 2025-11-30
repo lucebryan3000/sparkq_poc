@@ -3,14 +3,14 @@
 Per-queue task runner for SparkQ with Claude Haiku integration.
 
 Usage examples:
-  python sparkq/queue_runner.py --queue "Back End" --drain
-  python sparkq/queue_runner.py --queue "Back End" --execute --drain
+  python sparkq/queue_runner.py --queue "Back End" --run
+  python sparkq/queue_runner.py --queue "Back End" --execute --run
   python sparkq/queue_runner.py --queue "APIs" --base-url http://localhost:5005 --worker-id cli-runner-1 --execute
   python sparkq/queue_runner.py --queue "Back End" --once
 
 Behavior:
 - Resolves the queue by name or ID.
-- Drains the queue sequentially (oldest-first by created_at) until empty, then exits (--drain flag).
+- Runs the queue sequentially (oldest-first by created_at) until empty, then exits (--run flag).
 - Can optionally execute prompts via Claude Haiku (--execute flag) or just log them (dry-run).
 - Updates task status through the workflow: queued → running → succeeded/failed.
 - Designed to run one worker per queue to avoid overlap.
@@ -276,7 +276,7 @@ def main():
     parser.add_argument("--worker-id", default=None, help="Worker ID to tag claims (default: auto timestamp)")
     parser.add_argument("--poll", type=float, default=3.0, help="Polling interval when idle (seconds, default 3)")
     parser.add_argument("--once", action="store_true", help="Process at most one task then exit")
-    parser.add_argument("--drain", action="store_true", help="Drain queue until empty, then exit (default behavior)")
+    parser.add_argument("--run", action="store_true", help="Run queue until empty, then exit (default behavior)")
     parser.add_argument("--execute", action="store_true", help="Execute prompts via Claude Haiku (requires ANTHROPIC_API_KEY)")
     args = parser.parse_args()
 
@@ -290,7 +290,7 @@ def main():
 
     log(f"Starting worker for queue '{queue.get('name') or queue['id']}' as {worker_id}")
 
-    # Default behavior: drain unless --once is set. Ignore poll loop for now.
+    # Default behavior: run/until-empty unless --once is set. Ignore poll loop for now.
     while True:
         did_work = False
         try:
@@ -301,7 +301,7 @@ def main():
         if args.once:
             break
         if not did_work:
-            if args.drain:
+            if args.run:
                 break
             time.sleep(max(args.poll, 0.5))
 

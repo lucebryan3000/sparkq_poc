@@ -2,6 +2,7 @@ import inspect
 import json
 import logging
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -20,6 +21,9 @@ from .tools import get_registry, reload_registry
 
 logger = logging.getLogger(__name__)
 storage = Storage()
+SERVER_BUILD_ID = "b713"
+CONFIG_CACHE_TTL_SECONDS = 5
+_config_cache: Dict[str, Any] = {"data": None, "expires_at": 0.0}
 
 app = FastAPI(title="SparkQ API")
 
@@ -72,6 +76,252 @@ DEFAULT_TASK_TIMEOUTS = {
 _LIST_HAS_OFFSET = "offset" in inspect.signature(storage.list_tasks).parameters
 _CREATE_HAS_PAYLOAD = "payload" in inspect.signature(storage.create_task).parameters
 _CLAIM_HAS_WORKER = "worker_id" in inspect.signature(storage.claim_task).parameters
+
+
+# === Config helpers (Phase 20) ===
+def _load_yaml_defaults() -> Dict[str, Any]:
+    """Load defaults from sparkq.yml; fallback to sane defaults."""
+    config_path = Path("sparkq.yml")
+    defaults = {
+        "server": {"port": 8420, "host": "0.0.0.0"},
+        "database": {"path": "sparkq/data/sparkq.db", "mode": "wal"},
+        "purge": {"older_than_days": 3},
+        "tools": {},
+        "task_classes": {},
+        "ui": {"build_id": SERVER_BUILD_ID},
+        "features": {"flags": {}},
+        "defaults": {"queue": {}},
+    }
+    if not config_path.exists():
+        return defaults
+    try:
+        with open(config_path) as f:
+            full = yaml.safe_load(f) or {}
+            defaults["server"] = full.get("server", defaults["server"]) or defaults["server"]
+            defaults["database"] = full.get("database", defaults["database"]) or defaults["database"]
+            defaults["purge"] = full.get("purge", defaults["purge"]) or defaults["purge"]
+            defaults["tools"] = full.get("tools", {}) or {}
+            defaults["task_classes"] = full.get("task_classes", {}) or {}
+            defaults["ui"] = {"build_id": SERVER_BUILD_ID}
+            defaults["features"] = {"flags": {}}
+            defaults["defaults"] = {"queue": {}}
+    except Exception:
+        # Fall back to baked defaults if YAML is invalid
+        logger.exception("Failed to load sparkq.yml; using defaults")
+    return defaults
+
+
+def _invalidate_config_cache():
+    _config_cache["data"] = None
+    _config_cache["expires_at"] = 0.0
+
+
+def _seed_config_if_empty(defaults: Dict[str, Any]):
+    """Seed config table once from YAML defaults if empty."""
+    try:
+        storage.init_db()
+        if storage.count_config_entries() > 0:
+            return
+        seed_payload = {
+            "purge": {"config": defaults.get("purge", {})},
+            "tools": {"all": defaults.get("tools", {})},
+            "task_classes": {"all": defaults.get("task_classes", {})},
+            "ui": {"build_id": defaults.get("ui", {}).get("build_id", SERVER_BUILD_ID)},
+            "features": {"flags": defaults.get("features", {}).get("flags", {})},
+            "defaults": {"queue": defaults.get("defaults", {}).get("queue", {})},
+        }
+        for namespace, kv in seed_payload.items():
+            for key, value in kv.items():
+                storage.upsert_config_entry(namespace, key, value, updated_by="seed")
+    except Exception:
+        logger.exception("Failed to seed config table; continuing with defaults")
+
+
+def _seed_tools_task_classes_if_empty(defaults: Dict[str, Any], db_config: Dict[str, Dict[str, Any]]):
+    """
+    Seed tools/task_classes tables if empty using config table or YAML defaults.
+    Config table values win over YAML if present.
+    """
+    try:
+        existing_tcs = storage.list_task_classes()
+        existing_tools = storage.list_tools_table()
+        if existing_tcs or existing_tools:
+            return
+
+        source_task_classes = db_config.get("task_classes", {}).get("all") or defaults.get("task_classes", {})
+        source_tools = db_config.get("tools", {}).get("all") or defaults.get("tools", {})
+
+        for name, cfg in (source_task_classes or {}).items():
+            timeout = cfg.get("timeout") if isinstance(cfg, dict) else None
+            description = cfg.get("description") if isinstance(cfg, dict) else None
+            if timeout is None:
+                continue
+            storage.upsert_task_class(name, int(timeout), description)
+
+        for name, cfg in (source_tools or {}).items():
+            task_class = cfg.get("task_class") if isinstance(cfg, dict) else None
+            description = cfg.get("description") if isinstance(cfg, dict) else None
+            if not task_class:
+                continue
+            try:
+                storage.upsert_tool_record(name, task_class, description)
+            except ValueError:
+                # Skip tools with missing task_class if seed ordering was off
+                continue
+    except Exception:
+        logger.exception("Failed to seed tools/task_classes tables; continuing with defaults")
+
+
+def _task_classes_dict(rows: Any) -> Dict[str, Any]:
+    mapping: Dict[str, Any] = {}
+    for row in rows or []:
+        mapping[row["name"]] = {
+            "timeout": row.get("timeout"),
+            "description": row.get("description"),
+        }
+    return mapping
+
+
+def _tools_dict(rows: Any) -> Dict[str, Any]:
+    mapping: Dict[str, Any] = {}
+    for row in rows or []:
+        mapping[row["name"]] = {
+            "description": row.get("description"),
+            "task_class": row.get("task_class"),
+        }
+    return mapping
+
+
+def _sync_task_classes_payload(payload: Dict[str, Any]):
+    existing = {tc["name"] for tc in storage.list_task_classes()}
+    incoming = set(payload.keys())
+
+    for name, cfg in payload.items():
+        timeout = cfg.get("timeout")
+        description = cfg.get("description")
+        if timeout is None or not isinstance(timeout, int) or timeout <= 0:
+            raise HTTPException(status_code=400, detail=f"task_class '{name}' timeout must be > 0")
+        storage.upsert_task_class(name, int(timeout), description)
+
+    stale = existing - incoming
+    for name in stale:
+        try:
+            storage.delete_task_class(name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _sync_tools_payload(payload: Dict[str, Any]):
+    existing = {tool["name"] for tool in storage.list_tools_table()}
+    incoming = set(payload.keys())
+
+    for name, cfg in payload.items():
+        task_class = cfg.get("task_class")
+        description = cfg.get("description")
+        if not task_class or not isinstance(task_class, str):
+            raise HTTPException(status_code=400, detail=f"tool '{name}' missing task_class")
+        try:
+            storage.upsert_tool_record(name, task_class, description)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    stale = existing - incoming
+    for name in stale:
+        storage.delete_tool_record(name)
+
+
+def _build_config_response(include_cache: bool = True) -> Dict[str, Any]:
+    now = time.time()
+    if include_cache and _config_cache["data"] and now < _config_cache["expires_at"]:
+        return _config_cache["data"]
+
+    defaults = _load_yaml_defaults()
+    _seed_config_if_empty(defaults)
+
+    db_config = storage.export_config()
+    _seed_tools_task_classes_if_empty(defaults, db_config)
+
+    purge = db_config.get("purge", {}).get("config", defaults.get("purge"))
+    task_class_rows = storage.list_task_classes()
+    tool_rows = storage.list_tools_table()
+    task_classes = _task_classes_dict(task_class_rows) or defaults.get("task_classes")
+    tools = _tools_dict(tool_rows) or defaults.get("tools")
+    ui_cfg = db_config.get("ui", {})
+    ui_build_id = ui_cfg.get("build_id", defaults.get("ui", {}).get("build_id", SERVER_BUILD_ID))
+    feature_flags = db_config.get("features", {}).get("flags", {})
+    queue_defaults = db_config.get("defaults", {}).get("queue", {})
+
+    response = {
+        "server": defaults.get("server"),
+        "database": defaults.get("database"),
+        "purge": purge,
+        "tools": tools,
+        "task_classes": task_classes,
+        "ui": {"build_id": ui_build_id},
+        "features": {"flags": feature_flags},
+        "defaults": {"queue": queue_defaults},
+    }
+
+    _config_cache["data"] = response
+    _config_cache["expires_at"] = now + CONFIG_CACHE_TTL_SECONDS
+    return response
+
+
+def _current_build_id() -> str:
+    try:
+        cfg = _build_config_response(include_cache=True)
+        return cfg.get("ui", {}).get("build_id", SERVER_BUILD_ID)
+    except Exception:
+        return SERVER_BUILD_ID
+
+
+def _validate_config_value(namespace: str, key: str, value: Any):
+    """Enforce basic constraints for known config namespaces."""
+    ns = namespace.lower()
+    if ns == "purge" and key == "config":
+        if not isinstance(value, dict):
+            raise HTTPException(status_code=400, detail="purge config must be an object")
+        days = value.get("older_than_days")
+        if not isinstance(days, int) or days <= 0:
+            raise HTTPException(status_code=400, detail="older_than_days must be a positive integer")
+        return
+    if ns == "tools" and key == "all":
+        if not isinstance(value, dict):
+            raise HTTPException(status_code=400, detail="tools must be an object keyed by tool name")
+        for tool_name, cfg in value.items():
+            if not tool_name or not isinstance(tool_name, str):
+                raise HTTPException(status_code=400, detail="tool names must be non-empty strings")
+            if not isinstance(cfg, dict):
+                raise HTTPException(status_code=400, detail=f"tool '{tool_name}' config must be an object")
+            task_class = cfg.get("task_class")
+            if not task_class or not isinstance(task_class, str):
+                raise HTTPException(status_code=400, detail=f"tool '{tool_name}' missing task_class")
+        return
+    if ns == "task_classes" and key == "all":
+        if not isinstance(value, dict):
+            raise HTTPException(status_code=400, detail="task_classes must be an object keyed by class name")
+        for name, cfg in value.items():
+            if not name or not isinstance(name, str):
+                raise HTTPException(status_code=400, detail="task_class names must be non-empty strings")
+            if not isinstance(cfg, dict):
+                raise HTTPException(status_code=400, detail=f"task_class '{name}' config must be an object")
+            timeout = cfg.get("timeout")
+            if not isinstance(timeout, int) or timeout <= 0:
+                raise HTTPException(status_code=400, detail=f"task_class '{name}' timeout must be > 0")
+        return
+    if ns == "ui" and key == "build_id":
+        if not isinstance(value, str) or not value.strip():
+            raise HTTPException(status_code=400, detail="build_id must be a non-empty string")
+        return
+    if ns == "features" and key == "flags":
+        if not isinstance(value, dict):
+            raise HTTPException(status_code=400, detail="feature flags must be an object")
+        return
+    if ns == "defaults" and key == "queue":
+        if not isinstance(value, dict):
+            raise HTTPException(status_code=400, detail="queue defaults must be an object")
+        return
+    raise HTTPException(status_code=400, detail=f"Unsupported config namespace/key: {namespace}/{key}")
 
 
 def _format_error(message: Optional[str]) -> str:
@@ -177,6 +427,37 @@ class QuickAddTaskRequest(BaseModel):
     script_args: Optional[str] = None
 
 
+class ConfigUpdateRequest(BaseModel):
+    value: Any
+
+
+class TaskClassPayload(BaseModel):
+    name: Optional[str] = None
+    timeout: int
+    description: Optional[str] = None
+
+
+class ToolPayload(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    task_class: str
+
+
+@app.post("/api/config/validate")
+async def validate_config(payload: ConfigUpdateRequest):
+    """Dry-run validation for config payload (expects {value}) without persisting."""
+    value = payload.value
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail="value must be an object with namespace->key maps")
+    # Allow multiple namespace/key pairs in one call
+    for namespace, items in value.items():
+        if not isinstance(items, dict):
+            raise HTTPException(status_code=400, detail=f"Namespace {namespace} must map to an object of key/value")
+        for key, val in items.items():
+            _validate_config_value(namespace, key, val)
+    return {"status": "ok"}
+
+
 class PromptCreateRequest(BaseModel):
     command: str
     label: str
@@ -227,7 +508,14 @@ async def health():
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "build_id": _current_build_id(),
     }
+
+
+@app.get("/api/version")
+async def version():
+    """Return the current UI/server build id for cache-busting or auto-reload."""
+    return {"build_id": _current_build_id(), "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/api/build-prompts")
@@ -760,32 +1048,173 @@ async def build_script_index():
 
 @app.get("/api/config")
 async def get_config():
-    '''Get complete server configuration'''
-    config_path = Path("sparkq.yml")
-    server_config: Dict[str, Any] = {}
-    database_config: Dict[str, Any] = {}
-    purge_config: Dict[str, Any] = {}
+    """Get complete server configuration (DB-backed with YAML bootstrap)."""
+    cfg = _build_config_response(include_cache=True)
+    # Keep registry in sync with DB-backed tools/task_classes
+    reload_registry({"tools": cfg.get("tools", {}), "task_classes": cfg.get("task_classes", {})})
+    return cfg
 
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                full_config = yaml.safe_load(f) or {}
-                server_config = full_config.get("server", {})
-                database_config = full_config.get("database", {})
-                purge_config = full_config.get("purge", {})
-        except Exception:
-            pass  # Use defaults
 
-    # Reload registry on each call so UI reflects any sparkq.yml edits without a server restart
-    registry = reload_registry()
+@app.put("/api/config/{namespace}/{key}")
+async def update_config(namespace: str, key: str, payload: ConfigUpdateRequest):
+    """Create or update a config entry."""
+    value = payload.value
+    _validate_config_value(namespace, key, value)
+    if namespace == "task_classes" and key == "all":
+        _sync_task_classes_payload(value)
+    elif namespace == "tools" and key == "all":
+        _sync_tools_payload(value)
+    storage.upsert_config_entry(namespace, key, value, updated_by="api")
+    storage.log_audit(actor="api", action=f"config.update.{namespace}.{key}", details={"value": value})
+    _invalidate_config_cache()
 
-    return {
-        "server": server_config or {"port": 8420, "host": "0.0.0.0"},
-        "database": database_config or {"path": "sparkq/data/sparkq.db", "mode": "wal"},
-        "purge": purge_config or {"older_than_days": 3},
-        "tools": registry.tools or {},
-        "task_classes": registry.task_classes or {},
-    }
+    cfg = _build_config_response(include_cache=False)
+    if namespace in {"tools", "task_classes"}:
+        reload_registry({"tools": cfg.get("tools", {}), "task_classes": cfg.get("task_classes", {})})
+
+    return {"status": "ok", "config": cfg}
+
+
+@app.delete("/api/config/{namespace}/{key}")
+async def delete_config(namespace: str, key: str):
+    """Delete a config entry (reverts to defaults on next read)."""
+    defaults = _load_yaml_defaults()
+    # Validate supported namespace/key by validating against defaults
+    fallback_value = None
+    if namespace == "purge" and key == "config":
+        fallback_value = defaults.get("purge")
+    elif namespace == "tools" and key == "all":
+        fallback_value = defaults.get("tools")
+    elif namespace == "task_classes" and key == "all":
+        fallback_value = defaults.get("task_classes")
+    elif namespace == "ui" and key == "build_id":
+        fallback_value = defaults.get("ui", {}).get("build_id")
+    elif namespace == "features" and key == "flags":
+        fallback_value = defaults.get("features", {}).get("flags", {})
+    elif namespace == "defaults" and key == "queue":
+        fallback_value = defaults.get("defaults", {}).get("queue", {})
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported config namespace/key: {namespace}/{key}")
+
+    _validate_config_value(namespace, key, fallback_value)
+    if namespace == "task_classes" and key == "all":
+        _sync_task_classes_payload(fallback_value or {})
+    elif namespace == "tools" and key == "all":
+        _sync_tools_payload(fallback_value or {})
+    storage.delete_config_entry(namespace, key)
+    storage.log_audit(actor="api", action=f"config.delete.{namespace}.{key}", details=None)
+    _invalidate_config_cache()
+
+    cfg = _build_config_response(include_cache=False)
+    if namespace in {"tools", "task_classes"}:
+        reload_registry({"tools": cfg.get("tools", {}), "task_classes": cfg.get("task_classes", {})})
+
+    return {"status": "ok", "config": cfg}
+
+
+@app.get("/api/task-classes")
+async def list_task_classes():
+    _build_config_response(include_cache=False)  # ensure seeded
+    return {"task_classes": storage.list_task_classes()}
+
+
+@app.post("/api/task-classes", status_code=201)
+async def create_task_class(payload: TaskClassPayload):
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if payload.timeout <= 0:
+        raise HTTPException(status_code=400, detail="timeout must be > 0")
+    storage.upsert_task_class(name, payload.timeout, payload.description)
+    storage.upsert_config_entry("task_classes", "all", _task_classes_dict(storage.list_task_classes()), updated_by="api")
+    storage.log_audit(actor="api", action="task_class.create", details={"name": name})
+    _invalidate_config_cache()
+    cfg = _build_config_response(include_cache=False)
+    reload_registry({"tools": cfg.get("tools", {}), "task_classes": cfg.get("task_classes", {})})
+    return {"task_class": storage.get_task_class_record(name)}
+
+
+@app.put("/api/task-classes/{name}")
+async def update_task_class(name: str, payload: TaskClassPayload):
+    target_name = (payload.name or name or "").strip()
+    if not target_name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if payload.timeout <= 0:
+        raise HTTPException(status_code=400, detail="timeout must be > 0")
+    storage.upsert_task_class(target_name, payload.timeout, payload.description)
+    storage.upsert_config_entry("task_classes", "all", _task_classes_dict(storage.list_task_classes()), updated_by="api")
+    storage.log_audit(actor="api", action="task_class.update", details={"name": target_name})
+    _invalidate_config_cache()
+    cfg = _build_config_response(include_cache=False)
+    reload_registry({"tools": cfg.get("tools", {}), "task_classes": cfg.get("task_classes", {})})
+    return {"task_class": storage.get_task_class_record(target_name)}
+
+
+@app.delete("/api/task-classes/{name}")
+async def delete_task_class(name: str):
+    try:
+        storage.delete_task_class(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    storage.upsert_config_entry("task_classes", "all", _task_classes_dict(storage.list_task_classes()), updated_by="api")
+    storage.log_audit(actor="api", action="task_class.delete", details={"name": name})
+    _invalidate_config_cache()
+    cfg = _build_config_response(include_cache=False)
+    reload_registry({"tools": cfg.get("tools", {}), "task_classes": cfg.get("task_classes", {})})
+    return {"status": "ok"}
+
+
+@app.get("/api/tools")
+async def list_tools():
+    _build_config_response(include_cache=False)  # ensure seeded
+    return {"tools": storage.list_tools_table()}
+
+
+@app.post("/api/tools", status_code=201)
+async def create_tool(payload: ToolPayload):
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if not payload.task_class or not isinstance(payload.task_class, str):
+        raise HTTPException(status_code=400, detail="task_class is required")
+    try:
+        storage.upsert_tool_record(name, payload.task_class, payload.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    storage.upsert_config_entry("tools", "all", _tools_dict(storage.list_tools_table()), updated_by="api")
+    storage.log_audit(actor="api", action="tool.create", details={"name": name})
+    _invalidate_config_cache()
+    cfg = _build_config_response(include_cache=False)
+    reload_registry({"tools": cfg.get("tools", {}), "task_classes": cfg.get("task_classes", {})})
+    return {"tool": storage.get_tool_record(name)}
+
+
+@app.put("/api/tools/{name}")
+async def update_tool(name: str, payload: ToolPayload):
+    target_name = (payload.name or name or "").strip()
+    if not target_name:
+        raise HTTPException(status_code=400, detail="name is required")
+    try:
+        storage.upsert_tool_record(target_name, payload.task_class, payload.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    storage.upsert_config_entry("tools", "all", _tools_dict(storage.list_tools_table()), updated_by="api")
+    storage.log_audit(actor="api", action="tool.update", details={"name": target_name})
+    _invalidate_config_cache()
+    cfg = _build_config_response(include_cache=False)
+    reload_registry({"tools": cfg.get("tools", {}), "task_classes": cfg.get("task_classes", {})})
+    return {"tool": storage.get_tool_record(target_name)}
+
+
+@app.delete("/api/tools/{name}")
+async def delete_tool(name: str):
+    storage.delete_tool_record(name)
+    storage.upsert_config_entry("tools", "all", _tools_dict(storage.list_tools_table()), updated_by="api")
+    storage.log_audit(actor="api", action="tool.delete", details={"name": name})
+    _invalidate_config_cache()
+    cfg = _build_config_response(include_cache=False)
+    reload_registry({"tools": cfg.get("tools", {}), "task_classes": cfg.get("task_classes", {})})
+    return {"status": "ok"}
 
 
 @app.get("/api/prompts")
