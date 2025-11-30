@@ -64,36 +64,36 @@ def test_integration():
     assert sessions[0]['name'] == "test-session"
     print(f"✓ Found {len(sessions)} session(s)")
 
-    # Test 6: Create stream
-    print("\n[6/8] Testing stream creation...")
-    stream = storage.create_stream(
+    # Test 6: Create queue
+    print("\n[6/8] Testing queue creation...")
+    queue = storage.create_queue(
         session_id=session['id'],
-        name="test-stream",
-        instructions="Test stream instructions"
+        name="test-queue",
+        instructions="Test queue instructions"
     )
-    assert stream['name'] == "test-stream"
-    assert stream['id'].startswith("str_")
-    assert stream['session_id'] == session['id']
-    print(f"✓ Stream created: {stream['id']}")
+    assert queue['name'] == "test-queue"
+    assert queue['id'].startswith("str_")
+    assert queue['session_id'] == session['id']
+    print(f"✓ Stream created: {queue['id']}")
 
-    # Test 7: List streams
-    print("\n[7/8] Testing stream listing...")
-    streams = storage.list_streams()
-    assert len(streams) == 1
-    assert streams[0]['name'] == "test-stream"
-    print(f"✓ Found {len(streams)} stream(s)")
+    # Test 7: List queues
+    print("\n[7/8] Testing queue listing...")
+    queues = storage.list_queues()
+    assert len(queues) == 1
+    assert queues[0]['name'] == "test-queue"
+    print(f"✓ Found {len(queues)} queue(s)")
 
-    # Test 8: End stream and session
+    # Test 8: End queue and session
     print("\n[8/8] Testing end operations...")
-    stream_ended = storage.end_stream(stream['id'])
-    assert stream_ended == True
+    queue_ended = storage.end_queue(queue['id'])
+    assert queue_ended == True
     session_ended = storage.end_session(session['id'])
     assert session_ended == True
 
     # Verify ended status
-    ended_stream = storage.get_stream(stream['id'])
+    ended_queue = storage.get_queue(queue['id'])
     ended_session = storage.get_session(session['id'])
-    assert ended_stream['status'] == "ended"
+    assert ended_queue['status'] == "ended"
     assert ended_session['status'] == "ended"
     print("✓ Stream and session ended successfully")
 

@@ -57,7 +57,7 @@ class TestStatsEndpoint:
 
         data = response.json()
         assert "sessions" in data
-        assert "streams" in data
+        assert "queues" in data
         assert "queued_tasks" in data
         assert "running_tasks" in data
         assert data["sessions"] >= 1
@@ -110,13 +110,13 @@ class TestSessionUpdateEndpoint:
 
 
 class TestStreamUpdateEndpoint:
-    """Test PUT /api/streams/{queue_id}"""
+    """Test PUT /api/queues/{queue_id}"""
 
     def test_update_stream_name(self, api_client, session_with_stream):
         queue = session_with_stream["queue"]
 
         response = api_client.put(
-            f"/api/streams/{queue['id']}",
+            f"/api/queues/{queue['id']}",
             json={"name": "updated-queue"},
         )
 
@@ -128,7 +128,7 @@ class TestStreamUpdateEndpoint:
         queue = session_with_stream["queue"]
 
         response = api_client.put(
-            f"/api/streams/{queue['id']}",
+            f"/api/queues/{queue['id']}",
             json={"instructions": "New instructions"},
         )
 

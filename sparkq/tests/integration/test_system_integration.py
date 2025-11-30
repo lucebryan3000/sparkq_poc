@@ -45,13 +45,13 @@ class TestCompleteSessionWorkflow:
         assert session_resp.json()["session"]["status"] == "active"
 
         # Step 2: Create queue under session
-        stream_resp = client.post(
-            "/api/streams",
+        queue_resp = client.post(
+            "/api/queues",
             json={"session_id": session_id, "name": "workflow-queue"},
         )
-        assert stream_resp.status_code == 201
-        queue_id = stream_resp.json()["queue"]["id"]
-        assert stream_resp.json()["queue"]["session_id"] == session_id
+        assert queue_resp.status_code == 201
+        queue_id = queue_resp.json()["queue"]["id"]
+        assert queue_resp.json()["queue"]["session_id"] == session_id
 
         # Step 3: Create task under queue
         task_resp = client.post(
@@ -107,11 +107,11 @@ class TestCompleteSessionWorkflow:
         )
         session_id = session_resp.json()["session"]["id"]
 
-        stream_resp = client.post(
-            "/api/streams",
+        queue_resp = client.post(
+            "/api/queues",
             json={"session_id": session_id, "name": "failure-queue"},
         )
-        queue_id = stream_resp.json()["queue"]["id"]
+        queue_id = queue_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
@@ -169,11 +169,11 @@ class TestCompleteSessionWorkflow:
         )
         session_id = session_resp.json()["session"]["id"]
 
-        stream_resp = client.post(
-            "/api/streams",
+        queue_resp = client.post(
+            "/api/queues",
             json={"session_id": session_id, "name": "multi-queue"},
         )
-        queue_id = stream_resp.json()["queue"]["id"]
+        queue_id = queue_resp.json()["queue"]["id"]
 
         # Step 2: Create 3 tasks
         task_ids = []
@@ -213,12 +213,12 @@ class TestCompleteSessionWorkflow:
 
 
 class TestMultiStreamIsolation:
-    """Test that streams and their tasks are properly isolated"""
+    """Test that queues and their tasks are properly isolated"""
 
     def test_multi_stream_isolation(self, client):
         """
         Test queue isolation:
-        1. Create session with multiple streams
+        1. Create session with multiple queues
         2. Create tasks in each queue
         3. Filter tasks by queue
         4. Verify tasks are isolated per queue
@@ -229,14 +229,14 @@ class TestMultiStreamIsolation:
         )
         session_id = session_resp.json()["session"]["id"]
 
-        # Step 2: Create multiple streams
+        # Step 2: Create multiple queues
         stream_ids = []
         for i in range(3):
-            stream_resp = client.post(
-                "/api/streams",
+            queue_resp = client.post(
+                "/api/queues",
                 json={"session_id": session_id, "name": f"queue-{i}"},
             )
-            stream_ids.append(stream_resp.json()["queue"]["id"])
+            stream_ids.append(queue_resp.json()["queue"]["id"])
 
         # Step 3: Create tasks in each queue
         stream_task_map = {}
@@ -271,12 +271,12 @@ class TestMultiStreamIsolation:
             expected_set = set(expected_task_ids)
             assert actual_task_ids == expected_set
 
-    def test_streams_isolated_across_sessions(self, client):
+    def test_queues_isolated_across_sessions(self, client):
         """
-        Test that streams from different sessions are properly isolated:
+        Test that queues from different sessions are properly isolated:
         1. Create 2 sessions
-        2. Create streams in each
-        3. Verify streams are isolated
+        2. Create queues in each
+        3. Verify queues are isolated
         """
         # Step 1: Create 2 sessions
         session_ids = []
@@ -284,26 +284,26 @@ class TestMultiStreamIsolation:
             resp = client.post("/api/sessions", json={"name": f"session-{i}"})
             session_ids.append(resp.json()["session"]["id"])
 
-        # Step 2: Create streams in each session
+        # Step 2: Create queues in each session
         session_stream_map = {}
         for session_id in session_ids:
-            stream_resp = client.post(
-                "/api/streams",
+            queue_resp = client.post(
+                "/api/queues",
                 json={"session_id": session_id, "name": f"queue-for-{session_id}"},
             )
-            queue_id = stream_resp.json()["queue"]["id"]
+            queue_id = queue_resp.json()["queue"]["id"]
             session_stream_map[session_id] = queue_id
 
-        # Step 3: Verify streams are isolated by session
+        # Step 3: Verify queues are isolated by session
         for session_id, expected_stream_id in session_stream_map.items():
-            streams_resp = client.get(f"/api/streams?session_id={session_id}")
-            streams = streams_resp.json()["streams"]
+            streams_resp = client.get(f"/api/queues?session_id={session_id}")
+            queues = streams_resp.json()["queues"]
 
-            # All streams should belong to this session
-            assert all(s["session_id"] == session_id for s in streams)
+            # All queues should belong to this session
+            assert all(s["session_id"] == session_id for s in queues)
 
             # Should find our queue
-            assert any(s["id"] == expected_stream_id for s in streams)
+            assert any(s["id"] == expected_stream_id for s in queues)
 
 
 class TestDataConsistency:
@@ -322,11 +322,11 @@ class TestDataConsistency:
         )
         session_id = session_resp.json()["session"]["id"]
 
-        stream_resp = client.post(
-            "/api/streams",
+        queue_resp = client.post(
+            "/api/queues",
             json={"session_id": session_id, "name": "persist-queue"},
         )
-        queue_id = stream_resp.json()["queue"]["id"]
+        queue_id = queue_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
@@ -349,7 +349,7 @@ class TestDataConsistency:
         assert session_check.status_code == 200
         assert session_check.json()["session"]["name"] == "persist-session"
 
-        stream_check = client.get(f"/api/streams/{queue_id}")
+        stream_check = client.get(f"/api/queues/{queue_id}")
         assert stream_check.status_code == 200
         assert stream_check.json()["queue"]["name"] == "persist-queue"
 
@@ -374,11 +374,11 @@ class TestDataConsistency:
         )
         session_id = session_resp.json()["session"]["id"]
 
-        stream_resp = client.post(
-            "/api/streams",
+        queue_resp = client.post(
+            "/api/queues",
             json={"session_id": session_id, "name": "transition-queue"},
         )
-        queue_id = stream_resp.json()["queue"]["id"]
+        queue_id = queue_resp.json()["queue"]["id"]
 
         # Test path 1: queued → running → succeeded
         task1_resp = client.post(
@@ -427,7 +427,7 @@ class TestDataConsistency:
         requeue2 = client.post(f"/api/tasks/{task2_id}/requeue")
         assert requeue2.json()["task"]["status"] == "queued"
 
-    def test_stream_with_tasks_query(self, client):
+    def test_queue_with_tasks_query(self, client):
         """
         Test that queue and task queries show correct relationships:
         1. Create session with queue and tasks
@@ -440,11 +440,11 @@ class TestDataConsistency:
         )
         session_id = session_resp.json()["session"]["id"]
 
-        stream_resp = client.post(
-            "/api/streams",
+        queue_resp = client.post(
+            "/api/queues",
             json={"session_id": session_id, "name": "query-test-queue"},
         )
-        queue_id = stream_resp.json()["queue"]["id"]
+        queue_id = queue_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
@@ -459,11 +459,11 @@ class TestDataConsistency:
 
         # Step 2: Verify all exist
         assert client.get(f"/api/sessions/{session_id}").status_code == 200
-        assert client.get(f"/api/streams/{queue_id}").status_code == 200
+        assert client.get(f"/api/queues/{queue_id}").status_code == 200
         assert client.get(f"/api/tasks/{task_id}").status_code == 200
 
         # Step 3: Query queue and verify it has correct session_id
-        stream_get = client.get(f"/api/streams/{queue_id}")
+        stream_get = client.get(f"/api/queues/{queue_id}")
         assert stream_get.json()["queue"]["session_id"] == session_id
 
         # Step 4: Query tasks and verify they belong to queue
@@ -483,7 +483,7 @@ class TestErrorRecovery:
         """
         Test that accessing invalid queue returns 404
         """
-        response = client.get("/api/streams/invalid-id")
+        response = client.get("/api/queues/invalid-id")
         assert response.status_code == 404
 
     def test_invalid_task_id_returns_404(self, client):
@@ -511,11 +511,11 @@ class TestErrorRecovery:
         )
         session_id = session_resp.json()["session"]["id"]
 
-        stream_resp = client.post(
-            "/api/streams",
+        queue_resp = client.post(
+            "/api/queues",
             json={"session_id": session_id, "name": "unclaimed-queue"},
         )
-        queue_id = stream_resp.json()["queue"]["id"]
+        queue_id = queue_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
@@ -548,11 +548,11 @@ class TestErrorRecovery:
         )
         session_id = session_resp.json()["session"]["id"]
 
-        stream_resp = client.post(
-            "/api/streams",
+        queue_resp = client.post(
+            "/api/queues",
             json={"session_id": session_id, "name": "fail-test-queue"},
         )
-        queue_id = stream_resp.json()["queue"]["id"]
+        queue_id = queue_resp.json()["queue"]["id"]
 
         task_resp = client.post(
             "/api/tasks",
@@ -590,12 +590,12 @@ class TestErrorRecovery:
         )
         assert response.status_code == 400
 
-    def test_create_stream_with_missing_session_id(self, client):
+    def test_create_queue_with_missing_session_id(self, client):
         """
         Test creating queue with missing session_id returns 400
         """
         response = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"name": "test-queue"},
         )
         assert response.status_code == 400

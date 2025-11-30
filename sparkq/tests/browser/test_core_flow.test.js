@@ -97,7 +97,6 @@ describe('SparkQ Core UI Flow', () => {
 
       return {
         hasDashboard: typeof window.Pages.Dashboard === 'object',
-        hasSessions: typeof window.Pages.Sessions === 'object',
         hasQueues: typeof window.Pages.Queues === 'object',
         hasTasks: typeof window.Pages.Tasks === 'object',
         hasEnqueue: typeof window.Pages.Enqueue === 'object',
@@ -108,7 +107,6 @@ describe('SparkQ Core UI Flow', () => {
 
     expect(pagesNamespace.error).toBeUndefined();
     expect(pagesNamespace.hasDashboard).toBe(true);
-    expect(pagesNamespace.hasSessions).toBe(true);
     expect(pagesNamespace.hasQueues).toBe(true);
     expect(pagesNamespace.hasTasks).toBe(true);
     expect(pagesNamespace.hasEnqueue).toBe(true);

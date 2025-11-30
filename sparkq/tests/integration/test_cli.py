@@ -15,7 +15,7 @@ from src.cli import app, get_storage
 pytestmark = pytest.mark.integration
 
 SESSION_ID_RE = re.compile(r"ses_[0-9a-f]{12}")
-STREAM_ID_RE = re.compile(r"str_[0-9a-f]{12}")
+QUEUE_ID_RE = re.compile(r"que_[0-9a-f]{12}")
 TASK_ID_RE = re.compile(r"tsk_[0-9a-f]{12}")
 
 
@@ -131,7 +131,7 @@ class TestSessionCommands:
 
 
 class TestStreamCommands:
-    def test_stream_create(self, cli_runner: CliRunner):
+    def test_queue_create(self, cli_runner: CliRunner):
         session_result = cli_runner.invoke(app, ["session", "create", "queue-session"])
         assert session_result.exit_code == 0
 
@@ -150,10 +150,10 @@ class TestStreamCommands:
 
         assert stream_result.exit_code == 0
         assert "Created queue: api-queue" in stream_result.stdout
-        assert STREAM_ID_RE.search(stream_result.stdout)
+        assert QUEUE_ID_RE.search(stream_result.stdout)
         assert "Instructions" in stream_result.stdout
 
-    def test_stream_list(self, cli_runner: CliRunner):
+    def test_queue_list(self, cli_runner: CliRunner):
         create_session_and_stream(cli_runner, "list-session", "list-queue")
 
         list_result = cli_runner.invoke(app, ["queue", "list"])

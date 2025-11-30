@@ -238,7 +238,7 @@ class TestQueueLifecycle:
         # Verify FIFO order
         assert claimed_ids == task_ids, "Tasks should be claimed in FIFO order"
 
-    def test_stream_isolation(self, queue_runner):
+    def test_queue_isolation(self, queue_runner):
         """Test that tasks are isolated by queue"""
         runner, storage = queue_runner
 
@@ -284,7 +284,7 @@ class TestQueueLifecycle:
         assert claim_a == task_a
         assert claim_b == task_b
 
-        # Verify they're in different streams
+        # Verify they're in different queues
         task_a_data = storage.get_task(task_a)
         task_b_data = storage.get_task(task_b)
         assert task_a_data["queue_id"] != task_b_data["queue_id"]

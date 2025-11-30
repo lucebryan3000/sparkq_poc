@@ -1,13 +1,13 @@
 #!/bin/bash
-# SparkQ Watcher Script - Monitor streams for new tasks
-# Usage: ./sparkq-watcher.sh <stream_name>
+# SparkQ Watcher Script - Monitor queues for new tasks
+# Usage: ./sparkq-watcher.sh <queue_name>
 
 set -e
 
 # Validate arguments
 if [[ -z "$1" ]]; then
-    echo "Error: stream name is required"
-    echo "Usage: $0 <stream_name>"
+    echo "Error: queue name is required"
+    echo "Usage: $0 <queue_name>"
     exit 1
 fi
 
@@ -20,7 +20,7 @@ if [[ -f "$LOCK_PATH" ]]; then
     EXISTING_PID=$(<"$LOCK_PATH")
     # Check if process still exists
     if kill -0 "$EXISTING_PID" 2>/dev/null; then
-        echo "Error: Watcher already running for stream '$STREAM_NAME' (PID: $EXISTING_PID)" >&2
+        echo "Error: Watcher already running for queue '$STREAM_NAME' (PID: $EXISTING_PID)" >&2
         exit 1
     fi
 fi
@@ -37,7 +37,7 @@ echo "$PID" > "$LOCK_PATH"
 
 # Main monitoring loop
 # In production, this would:
-# 1. Query the stream for new tasks via API
+# 1. Query the queue for new tasks via API
 # 2. Claim and execute tasks
 # 3. Report results back
 # For Phase 7, we keep it simple - just maintain the lock and sleep

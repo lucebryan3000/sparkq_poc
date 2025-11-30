@@ -98,52 +98,99 @@
     currentQueueId: null,
     currentSessionId: null,
     queuesCache: [],
+    _rendering: false,
     quickAddInstance: null,
 
     async render(container) {
-      if (!container) {
+      // Prevent concurrent renders
+      if (this._rendering) {
+        console.log('[Dashboard] Skipping render - already rendering');
         return;
       }
-
-      // Always ensure we have the correct page container
-      const actualContainer = container?.id === 'dashboard-page' ? container : document.getElementById('dashboard-page');
-      if (!actualContainer) {
-        console.error('Dashboard page container not found');
-        return;
-      }
-
-      actualContainer.innerHTML = `
-        <div class="card">
-          <div class="muted"><span class="loading"></span> Loading queues…</div>
-        </div>
-      `;
-
-      let sessions = [];
-      let queues = [];
-      let activeSession = null;
+      this._rendering = true;
 
       try {
-        const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
-        sessions = sessionsResponse?.sessions || [];
-      } catch (err) {
-        console.error('Failed to load sessions:', err);
-      }
-
-      try {
-        const response = await api('GET', '/api/queues', null, { action: 'load queues' });
-        queues = response?.queues || [];
-      } catch (err) {
-        showError(`Failed to load queues: ${err.message || err}`, err);
-      }
-
-      this.queuesCache = queues;
-
-      if (!queues.length) {
-        // Get the first session or use a placeholder
-        activeSession = sessions.length > 0 ? sessions[0] : null;
-        if (activeSession) {
-          this.currentSessionId = activeSession.id;
+        if (!container) {
+          return;
         }
+
+        // Always ensure we have the correct page container
+        const actualContainer = container?.id === 'dashboard-page' ? container : document.getElementById('dashboard-page');
+        if (!actualContainer) {
+          console.error('Dashboard page container not found');
+          return;
+        }
+
+        actualContainer.innerHTML = `
+          <div class="card">
+            <div class="muted"><span class="loading"></span> Loading queues…</div>
+          </div>
+        `;
+
+        let sessions = [];
+        let queues = [];
+        let activeSession = null;
+
+        try {
+          const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
+          sessions = sessionsResponse?.sessions || [];
+        } catch (err) {
+          console.error('Failed to load sessions:', err);
+        }
+
+        try {
+          const response = await api('GET', '/api/queues', null, { action: 'load queues' });
+          queues = response?.queues || [];
+        } catch (err) {
+          showError(`Failed to load queues: ${err.message || err}`, err);
+        }
+
+        this.queuesCache = queues;
+
+        if (!queues.length) {
+          this.currentQueueId = null;
+          // Get the first session or use a placeholder
+          activeSession = sessions.length > 0 ? sessions[0] : null;
+          if (activeSession) {
+            this.currentSessionId = activeSession.id;
+          }
+          const sessionSelector = this.renderSessionSelector(activeSession, sessions);
+
+          actualContainer.innerHTML = `
+            <div class="session-tabs-section">
+              <div class="section-title">Sessions</div>
+              ${sessionSelector}
+            </div>
+
+            <div class="queue-tabs-section">
+              <div class="section-title">Queues</div>
+              <div id="queue-tabs" class="queue-tabs">
+                <button class="new-queue-btn" id="dashboard-new-queue-btn">+ New Queue</button>
+              </div>
+            </div>
+            <div id="queue-content">
+              <div class="card">
+                <p class="muted">No queues yet. Create one to get started.</p>
+              </div>
+            </div>
+          `;
+          this.attachSessionSelectorHandlers(actualContainer, sessions);
+          this.attachNewQueueButton(actualContainer);
+          return;
+        }
+
+        if (!this.currentQueueId || !queues.some((queue) => queue.id === this.currentQueueId)) {
+          this.currentQueueId = queues[0].id;
+        }
+
+        // Get the session for the first queue
+        if (queues.length > 0) {
+          activeSession = sessions.find((s) => s.id === queues[0].session_id) || sessions[0];
+          if (activeSession) {
+            this.currentSessionId = activeSession.id;
+          }
+        }
+
         const sessionSelector = this.renderSessionSelector(activeSession, sessions);
 
         actualContainer.innerHTML = `
@@ -154,66 +201,25 @@
 
           <div class="queue-tabs-section">
             <div class="section-title">Queues</div>
-            <div class="queue-tabs">
-              <button class="new-queue-btn" id="dashboard-new-queue-btn">+ New Queue</button>
-            </div>
+            <div id="queue-tabs" class="queue-tabs"></div>
           </div>
-          <div class="card">
-            <p class="muted">No queues yet. Create one to get started.</p>
-          </div>
+
+          <div id="queue-content"></div>
         `;
+
         this.attachSessionSelectorHandlers(actualContainer, sessions);
-        this.attachNewQueueHandler(actualContainer);
-        return;
+        const tabsContainer = actualContainer.querySelector('#queue-tabs');
+        this.renderQueueTabs(tabsContainer, queues);
+
+        const contentContainer = actualContainer.querySelector('#queue-content');
+        await this.renderQueueContent(contentContainer, this.currentQueueId);
+      } finally {
+        this._rendering = false;
       }
-
-      if (!this.currentQueueId || !queues.some((queue) => queue.id === this.currentQueueId)) {
-        this.currentQueueId = queues[0].id;
-      }
-
-      // Get the session for the first queue
-      if (queues.length > 0) {
-        activeSession = sessions.find((s) => s.id === queues[0].session_id) || sessions[0];
-        if (activeSession) {
-          this.currentSessionId = activeSession.id;
-        }
-      }
-
-      const sessionSelector = this.renderSessionSelector(activeSession, sessions);
-
-      actualContainer.innerHTML = `
-        <div class="session-tabs-section">
-          <div class="section-title">Sessions</div>
-          ${sessionSelector}
-        </div>
-
-        <div class="queue-tabs-section">
-          <div class="section-title">Queues</div>
-          <div id="queue-tabs" class="queue-tabs"></div>
-        </div>
-
-        <div id="queue-content"></div>
-      `;
-
-      this.attachSessionSelectorHandlers(actualContainer, sessions);
-      const tabsContainer = actualContainer.querySelector('#queue-tabs');
-      this.renderQueueTabs(tabsContainer, queues);
-
-      const contentContainer = actualContainer.querySelector('#queue-content');
-      await this.renderQueueContent(contentContainer, this.currentQueueId);
     },
 
-    async reloadAfterQueueOperation() {
-      // After queue operations (create/delete/archive), do a full re-render
-      // but clear and rebuild to avoid DOM duplication
-      const pageContainer = document.getElementById('dashboard-page');
-      if (!pageContainer) return;
-
-      // Clear the container first to prevent duplication
-      pageContainer.innerHTML = '';
-
-      // Now do a full render with fresh data
-      await this.render(pageContainer);
+    async reloadAfterQueueOperation(selectQueueId) {
+      await this.refreshQueues(selectQueueId);
     },
 
     renderQueueTabs(container, queues) {
@@ -265,125 +271,82 @@
       });
 
       // Attach handler to the new queue button created in this render
-      this.attachNewQueueButtonHandler(container);
+      this.attachNewQueueButton(container);
     },
 
-    attachNewQueueHandler(root) {
+    attachNewQueueButton(root) {
       const newQueueBtn = root?.querySelector('#dashboard-new-queue-btn');
       if (!newQueueBtn) {
         return;
       }
 
-      newQueueBtn.addEventListener('click', async () => {
-        // Load sessions for queue creation
-        let sessions = [];
-        try {
-          const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
-          sessions = sessionsResponse?.sessions || [];
-        } catch (err) {
-          console.error('Failed to load sessions:', err);
-          return;
-        }
+      // Clone to drop any old listeners before wiring the single handler
+      const cleanButton = newQueueBtn.cloneNode(true);
+      newQueueBtn.replaceWith(cleanButton);
 
-        if (!sessions.length) {
-          // Auto-create a session when none exist
-          const sessionName = await Utils.showPrompt('Create Session', 'Enter session name:');
-          if (!sessionName || !sessionName.trim()) {
-            return;
-          }
-
-          try {
-            const sessionResponse = await api('POST', '/api/sessions', { name: sessionName.trim() }, { action: 'create session' });
-            const newSession = sessionResponse?.session || sessionResponse;
-            sessions = [newSession];
-          } catch (err) {
-            console.error('Failed to create session:', err);
-            Utils.showToast('Failed to create session', 'error');
-            return;
-          }
-        }
-
-        // Auto-select session or use first available
-        const sessionId = sessions[0].id;
-
-        // Generate a simple queue name with timestamp
-        const timestamp = new Date().toISOString().substring(0, 10).replace(/-/g, '');
-        const queueName = `Queue ${timestamp}`;
-
-        try {
-          const payload = {
-            session_id: sessionId,
-            name: queueName,
-          };
-          await api('POST', '/api/queues', payload, { action: 'create queue' });
-          Utils.showToast(`Queue created`, 'success');
-          await this.reloadAfterQueueOperation();
-        } catch (err) {
-          console.error('Failed to create queue:', err);
-          Utils.showToast('Failed to create queue', 'error');
-        }
-      });
+      cleanButton.addEventListener('click', () => this.handleCreateQueue());
     },
 
-    attachNewQueueButtonHandler(container) {
-      const newQueueBtn = container?.querySelector('#dashboard-new-queue-btn');
-      if (!newQueueBtn) {
+    async handleCreateQueue() {
+      // Load sessions for queue creation
+      let sessions = [];
+      try {
+        const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
+        sessions = sessionsResponse?.sessions || [];
+      } catch (err) {
+        console.error('Failed to load sessions:', err);
         return;
       }
 
-      // Clone and replace to remove any existing listeners
-      const newBtn = newQueueBtn.cloneNode(true);
-      newQueueBtn.replaceWith(newBtn);
-
-      newBtn.addEventListener('click', async () => {
-        // Load sessions for queue creation
-        let sessions = [];
-        try {
-          const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
-          sessions = sessionsResponse?.sessions || [];
-        } catch (err) {
-          console.error('Failed to load sessions:', err);
+      if (!sessions.length) {
+        // Auto-create a session when none exist
+        const sessionName = await Utils.showPrompt('Create Session', 'Enter session name:');
+        if (!sessionName || !sessionName.trim()) {
           return;
         }
 
-        if (!sessions.length) {
-          // Auto-create a session when none exist
-          const sessionName = await Utils.showPrompt('Create Session', 'Enter session name:');
-          if (!sessionName || !sessionName.trim()) {
-            return;
-          }
-
-          try {
-            const sessionResponse = await api('POST', '/api/sessions', { name: sessionName.trim() }, { action: 'create session' });
-            const newSession = sessionResponse?.session || sessionResponse;
-            sessions = [newSession];
-          } catch (err) {
-            console.error('Failed to create session:', err);
-            Utils.showToast('Failed to create session', 'error');
-            return;
-          }
-        }
-
-        // Auto-select session or use first available
-        const sessionId = sessions[0].id;
-
-        // Generate a simple queue name with timestamp
-        const timestamp = new Date().toISOString().substring(0, 10).replace(/-/g, '');
-        const queueName = `Queue ${timestamp}`;
-
         try {
-          const payload = {
-            session_id: sessionId,
-            name: queueName,
-          };
-          await api('POST', '/api/queues', payload, { action: 'create queue' });
-          Utils.showToast(`Queue created`, 'success');
-          await this.reloadAfterQueueOperation();
+          const sessionResponse = await api('POST', '/api/sessions', { name: sessionName.trim() }, { action: 'create session' });
+          const newSession = sessionResponse?.session || sessionResponse;
+          sessions = [newSession];
         } catch (err) {
-          console.error('Failed to create queue:', err);
-          Utils.showToast('Failed to create queue', 'error');
+          console.error('Failed to create session:', err);
+          Utils.showToast('Failed to create session', 'error');
+          return;
         }
-      });
+      }
+
+      const preferredSession = this.currentSessionId
+        ? sessions.find((s) => s.id === this.currentSessionId) || sessions[0]
+        : sessions[0];
+      const sessionId = preferredSession?.id;
+      if (!sessionId) {
+        showError('No session available to create a queue', new Error('No session'));
+        return;
+      }
+
+      this.currentSessionId = sessionId;
+
+      // Generate a simple queue name with timestamp and a short suffix to avoid collisions
+      const timestamp = new Date().toISOString().substring(0, 10).replace(/-/g, '');
+      const suffix = Math.floor(Math.random() * 900 + 100);
+      const queueName = `Queue ${timestamp}-${suffix}`;
+
+      try {
+        const payload = {
+          session_id: sessionId,
+          name: queueName,
+        };
+        console.log('[Dashboard] Creating queue with:', { sessionId, queueName, payload, sessionsCount: sessions.length });
+        const response = await api('POST', '/api/queues', payload, { action: 'create queue' });
+        const newQueueId = response?.id || response?.queue_id || response?.queue?.id;
+        Utils.showToast(`Queue created`, 'success');
+        await this.refreshQueues(newQueueId);
+      } catch (err) {
+        console.error('Failed to create queue:', err);
+        showError(`Failed to create queue: ${err.message || err}`, err);
+        Utils.showToast('Failed to create queue', 'error');
+      }
     },
 
     async renderQueueContent(container, queueId) {
@@ -453,6 +416,51 @@
       });
 
       this.quickAddInstance.render();
+    },
+
+    async refreshQueues(selectQueueId) {
+      const pageContainer = document.getElementById('dashboard-page');
+      const tabsContainer = pageContainer?.querySelector('#queue-tabs');
+      const contentContainer = pageContainer?.querySelector('#queue-content');
+
+      if (!pageContainer || !tabsContainer || !contentContainer) {
+        await this.render(pageContainer || document.getElementById('dashboard-page'));
+        return;
+      }
+
+      let queues = [];
+      try {
+        const response = await api('GET', '/api/queues', null, { action: 'refresh queues' });
+        queues = response?.queues || [];
+      } catch (err) {
+        showError(`Failed to refresh queues: ${err.message || err}`, err);
+        return;
+      }
+
+      this.queuesCache = queues;
+
+      if (!queues.length) {
+        this.currentQueueId = null;
+        tabsContainer.innerHTML = `<button class="new-queue-btn" id="dashboard-new-queue-btn">+ New Queue</button>`;
+        contentContainer.innerHTML = `
+          <div class="card">
+            <p class="muted">No queues yet. Create one to get started.</p>
+          </div>
+        `;
+        this.attachNewQueueButton(pageContainer);
+        return;
+      }
+
+      const queueExists = (id) => queues.some((q) => q.id === id);
+      const activeQueueId = queueExists(selectQueueId)
+        ? selectQueueId
+        : queueExists(this.currentQueueId)
+          ? this.currentQueueId
+          : queues[0].id;
+
+      this.currentQueueId = activeQueueId;
+      this.renderQueueTabs(tabsContainer, queues);
+      await this.renderQueueContent(contentContainer, activeQueueId);
     },
 
     async renderTasks(container, queueId) {
@@ -636,7 +644,7 @@
             if (Object.keys(payload).length > 0) {
               await api('PUT', `/api/queues/${queueId}`, payload, { action: 'update queue' });
               Utils.showToast('Queue updated', 'success');
-              this.render(container);
+              await this.refreshQueues(queueId);
             }
           } catch (err) {
             console.error('Failed to update queue:', err);
@@ -654,7 +662,7 @@
           try {
             await api('PUT', `/api/queues/${queueId}/archive`, null, { action: 'archive queue' });
             Utils.showToast(`Queue "${queueName}" archived`, 'success');
-            await this.reloadAfterQueueOperation();
+            await this.refreshQueues();
           } catch (err) {
             console.error('Failed to archive queue:', err);
             Utils.showToast('Failed to archive queue', 'error');
@@ -671,7 +679,8 @@
           try {
             await api('DELETE', `/api/queues/${queueId}`, null, { action: 'delete queue' });
             Utils.showToast(`Queue "${queueName}" deleted`, 'success');
-            await this.reloadAfterQueueOperation();
+            this.currentQueueId = null;
+            await this.refreshQueues();
           } catch (err) {
             console.error('Failed to delete queue:', err);
             Utils.showToast('Failed to delete queue', 'error');

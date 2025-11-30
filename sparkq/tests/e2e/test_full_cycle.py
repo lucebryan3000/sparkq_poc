@@ -62,7 +62,7 @@ def get_task(task_id: str) -> dict:
     return task
 
 
-def create_session_and_stream(runner: CliRunner, session_name: str, queue_name: str) -> None:
+def create_session_and_queue(runner: CliRunner, session_name: str, queue_name: str) -> None:
     run_cli(runner, ["session", "create", session_name])
     run_cli(runner, ["queue", "create", queue_name, "--session", session_name])
 
@@ -72,7 +72,7 @@ class TestFullTaskLifecycle:
     def test_basic_lifecycle(self, cli_runner: CliRunner):
         session_name = "basic-session"
         queue_name = "basic-queue"
-        create_session_and_stream(cli_runner, session_name, queue_name)
+        create_session_and_queue(cli_runner, session_name, queue_name)
 
         enqueue_output = run_cli(
             cli_runner,
@@ -108,7 +108,7 @@ class TestFullTaskLifecycle:
     def test_failure_and_requeue_lifecycle(self, cli_runner: CliRunner):
         session_name = "fail-session"
         queue_name = "fail-queue"
-        create_session_and_stream(cli_runner, session_name, queue_name)
+        create_session_and_queue(cli_runner, session_name, queue_name)
 
         enqueue_output = run_cli(
             cli_runner,
@@ -149,7 +149,7 @@ class TestFIFOOrdering:
     def test_fifo_order(self, cli_runner: CliRunner):
         session_name = "fifo-session"
         queue_name = "fifo-queue"
-        create_session_and_stream(cli_runner, session_name, queue_name)
+        create_session_and_queue(cli_runner, session_name, queue_name)
 
         enqueued_ids: list[str] = []
         for order in [1, 2, 3]:
@@ -177,23 +177,23 @@ class TestFIFOOrdering:
 
 @pytest.mark.e2e
 class TestMultiStreamIsolation:
-    def test_stream_isolation(self, cli_runner: CliRunner):
+    def test_queue_isolation(self, cli_runner: CliRunner):
         session_name = "multi-session"
-        primary_stream = "alpha-queue"
-        secondary_stream = "beta-queue"
-        create_session_and_stream(cli_runner, session_name, primary_stream)
-        run_cli(cli_runner, ["queue", "create", secondary_stream, "--session", session_name])
+        primary_queue = "alpha-queue"
+        secondary_queue = "beta-queue"
+        create_session_and_queue(cli_runner, session_name, primary_queue)
+        run_cli(cli_runner, ["queue", "create", secondary_queue, "--session", session_name])
 
         enqueue_primary = run_cli(
             cli_runner,
             [
                 "enqueue",
                 "--queue",
-                primary_stream,
+                primary_queue,
                 "--tool",
                 "run-bash",
                 "--metadata",
-                json.dumps({"queue": primary_stream}),
+                json.dumps({"queue": primary_queue}),
             ],
         )
         enqueue_secondary = run_cli(
@@ -201,19 +201,19 @@ class TestMultiStreamIsolation:
             [
                 "enqueue",
                 "--queue",
-                secondary_stream,
+                secondary_queue,
                 "--tool",
                 "run-bash",
                 "--metadata",
-                json.dumps({"queue": secondary_stream}),
+                json.dumps({"queue": secondary_queue}),
             ],
         )
 
         primary_task_id = extract_task_id(enqueue_primary)
         secondary_task_id = extract_task_id(enqueue_secondary)
 
-        claim_primary = extract_task_id(run_cli(cli_runner, ["claim", "--queue", primary_stream]))
-        claim_secondary = extract_task_id(run_cli(cli_runner, ["claim", "--queue", secondary_stream]))
+        claim_primary = extract_task_id(run_cli(cli_runner, ["claim", "--queue", primary_queue]))
+        claim_secondary = extract_task_id(run_cli(cli_runner, ["claim", "--queue", secondary_queue]))
 
         assert claim_primary == primary_task_id
         assert claim_secondary == secondary_task_id
@@ -226,5 +226,5 @@ class TestMultiStreamIsolation:
 
         primary_payload = json.loads(primary_task["payload"])
         secondary_payload = json.loads(secondary_task["payload"])
-        assert primary_payload["metadata"]["queue"] == primary_stream
-        assert secondary_payload["metadata"]["queue"] == secondary_stream
+        assert primary_payload["metadata"]["queue"] == primary_queue
+        assert secondary_payload["metadata"]["queue"] == secondary_queue

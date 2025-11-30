@@ -115,7 +115,7 @@ class TestToolInvocation:
         payload = json.loads(task["payload"])
         assert payload["metadata"]["script"] == "echo 'hello'"
 
-    def test_multiple_tools_in_same_stream(self, tool_runner):
+    def test_multiple_tools_in_same_queue(self, tool_runner):
         """Test that different tools can be used in same queue"""
         runner, storage = tool_runner
 

@@ -56,7 +56,7 @@ def queue(storage, session):
     return storage.create_queue(
         session_id=session["id"],
         name="unit-test-queue",
-        instructions="Stream used in storage unit tests",
+        instructions="Queue used in storage unit tests",
     )
 
 

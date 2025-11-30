@@ -151,18 +151,18 @@ class TestSessionEndpoints:
 class TestStreamEndpoints:
     def test_list_streams(self, api_client, storage_with_stream):
         session = storage_with_stream["session"]
-        response = api_client.get(f"/api/streams?session_id={session['id']}")
+        response = api_client.get(f"/api/queues?session_id={session['id']}")
         assert response.status_code == 200
         data = response.json()
-        assert "streams" in data
-        assert any(queue["id"] == storage_with_stream["queue"]["id"] for queue in data["streams"])
+        assert "queues" in data
+        assert any(queue["id"] == storage_with_stream["queue"]["id"] for queue in data["queues"])
 
-    def test_create_stream(self, api_client, storage_with_stream):
+    def test_create_queue(self, api_client, storage_with_stream):
         session = storage_with_stream["session"]
         queue_name = f"queue-{uuid4().hex[:8]}"
         payload = {"session_id": session["id"], "name": queue_name, "instructions": "New queue"}
 
-        response = api_client.post("/api/streams", json=payload)
+        response = api_client.post("/api/queues", json=payload)
         assert response.status_code == 201
         data = response.json()
         assert "queue" in data

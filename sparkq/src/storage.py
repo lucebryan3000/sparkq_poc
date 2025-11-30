@@ -308,9 +308,30 @@ class Storage:
             )
             return cursor.rowcount > 0
 
-    # === Stream CRUD ===
+    def delete_session(self, session_id: str) -> bool:
+        with self.connection() as conn:
+            # Get all queues for this session to cascade delete their tasks
+            cursor = conn.execute(
+                "SELECT id FROM queues WHERE session_id = ?", (session_id,)
+            )
+            queue_ids = [row[0] for row in cursor.fetchall()]
+
+            # Delete tasks for all queues in this session (cascade)
+            for queue_id in queue_ids:
+                conn.execute("DELETE FROM tasks WHERE queue_id = ?", (queue_id,))
+
+            # Delete all queues in this session
+            conn.execute("DELETE FROM queues WHERE session_id = ?", (session_id,))
+
+            # Finally delete the session itself
+            cursor = conn.execute(
+                "DELETE FROM sessions WHERE id = ?", (session_id,)
+            )
+            return cursor.rowcount > 0
+
+    # === Queue CRUD ===
     def create_queue(self, session_id: str, name: str, instructions: str = None) -> dict:
-        queue_id = gen_stream_id()
+        queue_id = gen_queue_id()
         now = now_iso()
 
         with self.connection() as conn:
@@ -452,7 +473,7 @@ class Storage:
             return [dict(row) for row in cursor.fetchall()]
 
     def get_oldest_queued_task(self, queue_id: str) -> Optional[dict]:
-        """Get oldest queued task for a stream (FIFO ordering)"""
+        """Get oldest queued task for a queue (FIFO ordering)"""
         with self.connection() as conn:
             cursor = conn.execute(
                 "SELECT * FROM tasks WHERE queue_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1",

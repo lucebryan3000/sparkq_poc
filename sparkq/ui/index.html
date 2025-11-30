@@ -24,6 +24,7 @@
 
   <nav class='hamburger-menu' id='nav-menu'>
     <button class='nav-tab active' data-tab='dashboard'>Dashboard</button>
+    <button class='nav-tab' data-tab='sparkqueue'>SparkQueue</button>
     <button class='nav-tab' data-tab='enqueue'>Enqueue</button>
     <button class='nav-tab' data-tab='config'>Config</button>
     <button class='nav-tab' data-tab='scripts'>Scripts</button>
@@ -31,6 +32,7 @@
 
   <main id='app' class='container'>
     <div id='dashboard-page' class='page-content'></div>
+    <div id='sparkqueue-page' class='page-content'></div>
     <div id='enqueue-page' class='page-content'></div>
     <div id='config-page' class='page-content'></div>
     <div id='scripts-page' class='page-content'></div>
@@ -48,7 +50,8 @@
   <script src='/ui/dist/quick-add.18fc37c8.js'></script>
 
   <!-- Pages can load in any order -->
-  <script src='/ui/dist/dashboard.18fc37c8.js'></script>
+  <script src='/ui/dist/dashboard.js'></script>
+  <script src='/ui/pages/sparkqueue.js'></script>
   <script src='/ui/dist/enqueue.18fc37c8.js'></script>
   <script src='/ui/dist/config.18fc37c8.js'></script>
   <script src='/ui/dist/scripts.18fc37c8.js'></script>

@@ -723,13 +723,13 @@ a {
 
 /* Interactive table rows */
 .session-row:hover,
-.stream-row:hover {
+.queue-row:hover {
   background: rgba(74, 158, 255, 0.1);
   transition: background 0.15s ease;
 }
 
 .session-row,
-.stream-row {
+.queue-row {
   transition: background 0.15s ease;
 }
 

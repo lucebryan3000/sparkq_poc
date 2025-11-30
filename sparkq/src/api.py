@@ -234,7 +234,7 @@ async def stats():
     """Get dashboard statistics."""
     try:
         sessions = storage.list_sessions()
-        streams = storage.list_queues()
+        queues = storage.list_queues()
         tasks = storage.list_tasks()
 
         queued_count = sum(1 for t in tasks if t.get("status") == "queued")
@@ -242,7 +242,7 @@ async def stats():
 
         return {
             "sessions": len(sessions),
-            "streams": len(streams),
+            "queues": len(queues),
             "queued_tasks": queued_count,
             "running_tasks": running_count,
         }
@@ -250,7 +250,7 @@ async def stats():
         logger.exception("Failed to compute stats: %s", exc)
         return {
             "sessions": 0,
-            "streams": 0,
+            "queues": 0,
             "queued_tasks": 0,
             "running_tasks": 0,
         }
@@ -333,16 +333,25 @@ async def end_session(session_id: str):
     return {"message": "Session ended", "session": session}
 
 
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str):
+    deleted = storage.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return {"message": "Session deleted (cascade delete with all queues and tasks)"}
+
+
 @app.get("/api/queues")
 async def list_queues(
     session_id: Optional[str] = None,
     limit: int = Query(100, ge=0),
     offset: int = Query(0, ge=0),
 ):
-    streams = storage.list_queues(session_id=session_id)
+    queues = storage.list_queues(session_id=session_id)
 
     # Enhance with stats
-    for queue in streams:
+    for queue in queues:
         queue_id = queue["id"]
 
         # Get task counts
@@ -368,14 +377,14 @@ async def list_queues(
         else:
             queue["status"] = "idle"
 
-    paginated_streams = streams[offset : offset + limit]
-    return {"streams": paginated_streams}
+    paginated_queues = queues[offset : offset + limit]
+    return {"queues": paginated_queues}
 
 
 @app.post("/api/queues", status_code=201)
 async def create_queue(request: QueueCreateRequest):
     if not request.name or not request.name.strip():
-        raise HTTPException(status_code=400, detail="Stream name is required")
+        raise HTTPException(status_code=400, detail="Queue name is required")
 
     session = storage.get_session(request.session_id)
     if not session:
@@ -388,7 +397,7 @@ async def create_queue(request: QueueCreateRequest):
             instructions=request.instructions,
         )
     except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=400, detail="Stream name must be unique") from exc
+        raise HTTPException(status_code=400, detail="Queue name must be unique") from exc
 
     return {"queue": queue}
 
@@ -397,25 +406,25 @@ async def create_queue(request: QueueCreateRequest):
 async def get_queue(queue_id: str):
     queue = storage.get_queue(queue_id)
     if not queue:
-        raise HTTPException(status_code=404, detail="Stream not found")
+        raise HTTPException(status_code=404, detail="Queue not found")
     return {"queue": queue}
 
 
 @app.put("/api/queues/{queue_id}")
-async def update_stream(queue_id: str, request: QueueUpdateRequest):
+async def update_queue(queue_id: str, request: QueueUpdateRequest):
     if request.name is None and request.instructions is None:
         raise HTTPException(status_code=400, detail="No fields provided to update queue")
 
     existing = storage.get_queue(queue_id)
     if not existing:
-        raise HTTPException(status_code=404, detail="Stream not found")
+        raise HTTPException(status_code=404, detail="Queue not found")
 
     updates = []
     params = []
 
     if request.name is not None:
         if not request.name.strip():
-            raise HTTPException(status_code=400, detail="Stream name cannot be empty")
+            raise HTTPException(status_code=400, detail="Queue name cannot be empty")
         updates.append("name = ?")
         params.append(request.name.strip())
 
@@ -430,45 +439,45 @@ async def update_stream(queue_id: str, request: QueueUpdateRequest):
     try:
         with storage.connection() as conn:
             cursor = conn.execute(
-                f"UPDATE streams SET {', '.join(updates)} WHERE id = ?",
+                f"UPDATE queues SET {', '.join(updates)} WHERE id = ?",
                 tuple(params),
             )
             if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="Stream not found")
+                raise HTTPException(status_code=404, detail="Queue not found")
     except sqlite3.IntegrityError as exc:
-        raise HTTPException(status_code=400, detail="Stream name must be unique") from exc
+        raise HTTPException(status_code=400, detail="Queue name must be unique") from exc
 
-    updated_stream = storage.get_queue(queue_id)
-    return {"queue": updated_stream}
+    updated_queue = storage.get_queue(queue_id)
+    return {"queue": updated_queue}
 
 
 @app.put("/api/queues/{queue_id}/end")
 async def end_queue(queue_id: str):
     ended = storage.end_queue(queue_id)
     if not ended:
-        raise HTTPException(status_code=404, detail="Stream not found")
+        raise HTTPException(status_code=404, detail="Queue not found")
 
     queue = storage.get_queue(queue_id)
-    return {"message": "Stream ended", "queue": queue}
+    return {"message": "Queue ended", "queue": queue}
 
 
 @app.put("/api/queues/{queue_id}/archive")
 async def archive_queue(queue_id: str):
     archived = storage.archive_queue(queue_id)
     if not archived:
-        raise HTTPException(status_code=404, detail="Stream not found")
+        raise HTTPException(status_code=404, detail="Queue not found")
 
     queue = storage.get_queue(queue_id)
-    return {"message": "Stream archived", "queue": queue}
+    return {"message": "Queue archived", "queue": queue}
 
 
 @app.delete("/api/queues/{queue_id}")
 async def delete_queue(queue_id: str):
     deleted = storage.delete_queue(queue_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Stream not found")
+        raise HTTPException(status_code=404, detail="Queue not found")
 
-    return {"message": "Stream deleted"}
+    return {"message": "Queue deleted"}
 
 
 @app.get("/api/tasks")
@@ -497,7 +506,7 @@ async def list_tasks(
 async def create_task(request: TaskCreateRequest):
     queue = storage.get_queue(request.queue_id)
     if not queue:
-        raise HTTPException(status_code=404, detail="Stream not found")
+        raise HTTPException(status_code=404, detail="Queue not found")
 
     timeout = _resolve_timeout(request.task_class, request.timeout)
 
@@ -644,7 +653,7 @@ async def quick_add_task(request: QuickAddTaskRequest):
     # Verify queue exists
     queue = storage.get_queue(request.queue_id)
     if not queue:
-        raise HTTPException(status_code=404, detail=f"Stream not found: {request.queue_id}")
+        raise HTTPException(status_code=404, detail=f"Queue not found: {request.queue_id}")
 
     if request.mode == 'llm':
         if not request.prompt:

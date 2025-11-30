@@ -77,7 +77,7 @@ class TestHealthEndpoint:
         # Test a few key API endpoints exist
         endpoints = [
             "/api/sessions",
-            "/api/streams",
+            "/api/queues",
             "/api/tasks",
         ]
 
@@ -106,7 +106,7 @@ class TestHealthEndpoint:
         """Test health check after making database queries"""
         # First, make some API calls that hit the database
         health_client.get("/api/sessions")
-        health_client.get("/api/streams")
+        health_client.get("/api/queues")
 
         # Health check should still work
         response = health_client.get("/health")

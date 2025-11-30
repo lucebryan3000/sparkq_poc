@@ -3,7 +3,7 @@ project:
   repo_path: /tmp/test-repo
   prd_path: null
 server:
-  port: 5555
+  port: 5005
 database:
   path: sparkq/data/sparkq.db
   mode: wal

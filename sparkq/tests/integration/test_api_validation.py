@@ -5,6 +5,7 @@ response validation, and error handling.
 """
 
 import pytest
+import time
 from fastapi.testclient import TestClient
 
 from src.api import app, storage as api_storage
@@ -123,10 +124,10 @@ class TestStreamsAPI:
         resp = client.post("/api/sessions", json={"name": "queue-session"})
         return resp.json()["session"]["id"]
 
-    def test_create_stream(self, client, session_id):
-        """POST /api/streams - Create new queue"""
+    def test_create_queue(self, client, session_id):
+        """POST /api/queues - Create new queue"""
         response = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "test-queue"},
         )
         assert response.status_code == 201
@@ -135,48 +136,48 @@ class TestStreamsAPI:
         assert queue["name"] == "test-queue"
 
     def test_list_streams(self, client, session_id):
-        """GET /api/streams - List streams"""
+        """GET /api/queues - List queues"""
         # Create queue
-        client.post("/api/streams", json={"session_id": session_id, "name": "stream1"})
+        client.post("/api/queues", json={"session_id": session_id, "name": "stream1"})
 
         # List
-        response = client.get("/api/streams")
+        response = client.get("/api/queues")
         assert response.status_code == 200
-        streams = response.json()["streams"]
-        assert any(s["name"] == "stream1" for s in streams)
+        queues = response.json()["queues"]
+        assert any(s["name"] == "stream1" for s in queues)
 
     def test_list_streams_by_session(self, client, session_id):
-        """GET /api/streams?session_id=xxx - Filter by session"""
-        client.post("/api/streams", json={"session_id": session_id, "name": "s1"})
+        """GET /api/queues?session_id=xxx - Filter by session"""
+        client.post("/api/queues", json={"session_id": session_id, "name": "s1"})
 
-        response = client.get(f"/api/streams?session_id={session_id}")
+        response = client.get(f"/api/queues?session_id={session_id}")
         assert response.status_code == 200
-        streams = response.json()["streams"]
-        assert all(s["session_id"] == session_id for s in streams)
+        queues = response.json()["queues"]
+        assert all(s["session_id"] == session_id for s in queues)
 
     def test_get_stream(self, client, session_id):
-        """GET /api/streams/{id} - Get specific queue"""
+        """GET /api/queues/{id} - Get specific queue"""
         create_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "get-test"},
         )
         queue_id = create_resp.json()["queue"]["id"]
 
-        response = client.get(f"/api/streams/{queue_id}")
+        response = client.get(f"/api/queues/{queue_id}")
         assert response.status_code == 200
         queue = response.json()["queue"]
         assert queue["id"] == queue_id
 
     def test_update_stream(self, client, session_id):
-        """PUT /api/streams/{id} - Update queue"""
+        """PUT /api/queues/{id} - Update queue"""
         create_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "original"},
         )
         queue_id = create_resp.json()["queue"]["id"]
 
         response = client.put(
-            f"/api/streams/{queue_id}",
+            f"/api/queues/{queue_id}",
             json={"name": "updated"},
         )
         assert response.status_code == 200
@@ -184,14 +185,14 @@ class TestStreamsAPI:
         assert queue["name"] == "updated"
 
     def test_end_stream(self, client, session_id):
-        """PUT /api/streams/{id}/end - End queue"""
+        """PUT /api/queues/{id}/end - End queue"""
         create_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "to-end"},
         )
         queue_id = create_resp.json()["queue"]["id"]
 
-        response = client.put(f"/api/streams/{queue_id}/end")
+        response = client.put(f"/api/queues/{queue_id}/end")
         assert response.status_code == 200
         queue = response.json()["queue"]
         assert queue["status"] == "ended"
@@ -203,12 +204,14 @@ class TestTasksAPI:
     @pytest.fixture
     def queue_id(self, client):
         """Get a queue ID for task tests"""
-        session_resp = client.post("/api/sessions", json={"name": "task-session"})
+        # Use timestamp to ensure unique queue names
+        unique_id = int(time.time() * 1000000) % 1000000
+        session_resp = client.post("/api/sessions", json={"name": f"task-session-{unique_id}"})
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
-            json={"session_id": session_id, "name": "task-queue"},
+            "/api/queues",
+            json={"session_id": session_id, "name": f"task-queue-{unique_id}"},
         )
         return stream_resp.json()["queue"]["id"]
 
@@ -411,7 +414,7 @@ class TestResponseConsistency:
         required = {"id", "name", "status", "created_at", "updated_at"}
         assert required.issubset(set(session.keys()))
 
-    def test_stream_has_required_fields(self, client):
+    def test_queue_has_required_fields(self, client):
         """Verify queue response has required fields"""
         # Create session
         session_resp = client.post("/api/sessions", json={"name": "test"})
@@ -419,7 +422,7 @@ class TestResponseConsistency:
 
         # Create queue
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "test"},
         )
         queue = stream_resp.json()["queue"]
@@ -430,11 +433,11 @@ class TestResponseConsistency:
     def test_task_has_required_fields(self, client):
         """Verify task response has required fields"""
         # Create session and queue
-        session_resp = client.post("/api/sessions", json={"name": "test"})
+        session_resp = client.post("/api/sessions", json={"name": "task-req-session"})
         session_id = session_resp.json()["session"]["id"]
         stream_resp = client.post(
-            "/api/streams",
-            json={"session_id": session_id, "name": "test"},
+            "/api/queues",
+            json={"session_id": session_id, "name": "task-req-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
 

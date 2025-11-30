@@ -9,7 +9,7 @@ class TestStorageInit:
         with storage.connection() as conn:
             rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         table_names = {row["name"] for row in rows}
-        assert {"projects", "sessions", "streams", "tasks"}.issubset(table_names)
+        assert {"projects", "sessions", "queues", "tasks"}.issubset(table_names)
 
     def test_enables_wal_mode(self, storage):
         with storage.connection() as conn:
@@ -122,24 +122,24 @@ class TestSessionOperations:
 
 
 class TestStreamOperations:
-    def test_create_stream_for_session(self, storage, session):
+    def test_create_queue_for_session(self, storage, session):
         queue = storage.create_queue(
             session_id=session["id"],
             name="queue-alpha",
             instructions="do something",
         )
 
-        assert queue["id"].startswith("str_")
+        assert queue["id"].startswith("que_")
         assert queue["session_id"] == session["id"]
         assert queue["status"] == "active"
 
         with storage.connection() as conn:
-            row = conn.execute("SELECT * FROM streams WHERE id = ?", (queue["id"],)).fetchone()
+            row = conn.execute("SELECT * FROM queues WHERE id = ?", (queue["id"],)).fetchone()
         assert row is not None
         assert row["name"] == "queue-alpha"
         assert row["session_id"] == session["id"]
 
-    def test_stream_name_must_be_unique(self, storage, session):
+    def test_queue_name_must_be_unique(self, storage, session):
         storage.create_queue(session_id=session["id"], name="unique-queue")
         with pytest.raises(sqlite3.IntegrityError):
             storage.create_queue(session_id=session["id"], name="unique-queue")
@@ -152,8 +152,8 @@ class TestStreamOperations:
         storage.create_queue(session_id=session_two["id"], name="s-two")
         second_stream = storage.create_queue(session_id=session_one["id"], name="s-three")
 
-        streams = storage.list_queues(session_id=session_one["id"])
-        stream_ids = {s["id"] for s in streams}
+        queues = storage.list_queues(session_id=session_one["id"])
+        stream_ids = {s["id"] for s in queues}
         assert stream_ids == {first_stream["id"], second_stream["id"]}
 
     def test_get_stream_by_name(self, storage, session):

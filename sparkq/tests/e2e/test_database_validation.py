@@ -20,7 +20,7 @@ class TestDatabaseSchema:
             )
             tables = [row[0] for row in cursor.fetchall()]
 
-        required_tables = {"projects", "sessions", "streams", "tasks"}
+        required_tables = {"projects", "sessions", "queues", "tasks"}
         assert required_tables.issubset(set(tables)), f"Missing tables. Found: {tables}"
 
     def test_projects_table_columns(self, storage):
@@ -63,10 +63,10 @@ class TestDatabaseSchema:
         for col_name, col_type in required_cols.items():
             assert col_name in columns, f"Missing column: {col_name}"
 
-    def test_streams_table_columns(self, storage):
-        """Verify streams table has all required columns"""
+    def test_queues_table_columns(self, storage):
+        """Verify queues table has all required columns"""
         with storage.connection() as conn:
-            cursor = conn.execute("PRAGMA table_info(streams)")
+            cursor = conn.execute("PRAGMA table_info(queues)")
             columns = {row[1]: row[2] for row in cursor.fetchall()}
 
         required_cols = {
@@ -124,21 +124,21 @@ class TestDatabaseSchema:
                 for fk in fk_list
             ), "sessions.project_id should reference projects.id"
 
-            # Check streams.session_id references sessions.id
-            cursor = conn.execute("PRAGMA foreign_key_list(streams)")
+            # Check queues.session_id references sessions.id
+            cursor = conn.execute("PRAGMA foreign_key_list(queues)")
             fk_list = cursor.fetchall()
             assert any(
                 fk[2] == "sessions" and fk[3] == "session_id" and fk[4] == "id"
                 for fk in fk_list
-            ), "streams.session_id should reference sessions.id"
+            ), "queues.session_id should reference sessions.id"
 
-            # Check tasks.queue_id references streams.id
+            # Check tasks.queue_id references queues.id
             cursor = conn.execute("PRAGMA foreign_key_list(tasks)")
             fk_list = cursor.fetchall()
             assert any(
-                fk[2] == "streams" and fk[3] == "queue_id" and fk[4] == "id"
+                fk[2] == "queues" and fk[3] == "queue_id" and fk[4] == "id"
                 for fk in fk_list
-            ), "tasks.queue_id should reference streams.id"
+            ), "tasks.queue_id should reference queues.id"
 
     def test_indexes_exist(self, storage):
         """Verify all performance indexes are created"""
@@ -149,12 +149,12 @@ class TestDatabaseSchema:
             indexes = {row[0] for row in cursor.fetchall()}
 
         required_indexes = {
-            "idx_tasks_stream_status",
+            "idx_tasks_queue_status",
             "idx_tasks_status",
             "idx_tasks_started_at",
             "idx_tasks_created_at",
-            "idx_streams_session",
-            "idx_streams_status",
+            "idx_queues_session",
+            "idx_queues_status",
             "idx_sessions_project",
             "idx_sessions_status",
         }
@@ -236,7 +236,7 @@ class TestCRUDOperations:
         assert updated["status"] == "ended"
         assert updated["ended_at"] is not None
 
-    def test_create_stream(self, storage, session):
+    def test_create_queue(self, storage, session):
         """Test queue creation"""
         queue = storage.create_queue(
             session_id=session["id"],
@@ -244,33 +244,33 @@ class TestCRUDOperations:
             instructions="Test queue instructions",
         )
 
-        assert queue["id"].startswith("str_")
+        assert queue["id"].startswith("que_")
         assert queue["session_id"] == session["id"]
         assert queue["name"] == "test-queue"
         assert queue["instructions"] == "Test queue instructions"
         assert queue["status"] == "active"
         assert queue["created_at"]
 
-    def test_read_stream(self, storage, queue):
+    def test_read_queue(self, storage, queue):
         """Test queue retrieval"""
         retrieved = storage.get_queue(queue["id"])
         assert retrieved is not None
         assert retrieved["id"] == queue["id"]
         assert retrieved["name"] == queue["name"]
 
-    def test_read_stream_by_name(self, storage, queue):
+    def test_read_queue_by_name(self, storage, queue):
         """Test queue retrieval by name"""
         retrieved = storage.get_queue_by_name(queue["name"])
         assert retrieved is not None
         assert retrieved["id"] == queue["id"]
 
-    def test_list_streams(self, storage, session, queue):
-        """Test listing streams"""
-        streams = storage.list_queues(session_id=session["id"])
-        assert len(streams) > 0
-        assert any(s["id"] == queue["id"] for s in streams)
+    def test_list_queues(self, storage, session, queue):
+        """Test listing queues"""
+        queues = storage.list_queues(session_id=session["id"])
+        assert len(queues) > 0
+        assert any(s["id"] == queue["id"] for s in queues)
 
-    def test_end_stream(self, storage, queue):
+    def test_end_queue(self, storage, queue):
         """Test ending a queue"""
         result = storage.end_queue(queue["id"])
         assert result is True
@@ -396,10 +396,10 @@ class TestDataIntegrity:
         ses2 = storage.create_session(name="ses2")
         assert ses1["id"] != ses2["id"]
 
-    def test_stream_id_uniqueness(self, storage, session):
+    def test_queue_id_uniqueness(self, storage, session):
         """Verify queue IDs are unique"""
-        str1 = storage.create_queue(session_id=session["id"], name="stream1")
-        str2 = storage.create_queue(session_id=session["id"], name="stream2")
+        str1 = storage.create_queue(session_id=session["id"], name="queue1")
+        str2 = storage.create_queue(session_id=session["id"], name="queue2")
         assert str1["id"] != str2["id"]
 
     def test_task_id_uniqueness(self, storage, queue):
@@ -420,7 +420,7 @@ class TestDataIntegrity:
         )
         assert tsk1["id"] != tsk2["id"]
 
-    def test_tasks_reference_valid_stream(self, storage, queue, task):
+    def test_tasks_reference_valid_queue(self, storage, queue, task):
         """Verify task references valid queue"""
         assert task["queue_id"] == queue["id"]
 
@@ -434,7 +434,7 @@ class TestDataIntegrity:
         retrieved = storage.get_session(session["id"])
         assert retrieved["project_id"] == "prj_default"
 
-    def test_streams_reference_valid_session(self, storage, session, queue):
+    def test_queues_reference_valid_session(self, storage, session, queue):
         """Verify queue references valid session"""
         assert queue["session_id"] == session["id"]
 

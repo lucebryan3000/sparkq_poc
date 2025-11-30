@@ -83,10 +83,10 @@
       </div>
     `;
 
-    let streams = [];
+    let queues = [];
     try {
       const response = await api('GET', '/api/queues', null, { action: 'load queues' });
-      streams = response?.streams || [];
+      queues = response?.queues || [];
     } catch (err) {
       handleApiError('load queues for enqueue', err);
     }
@@ -98,7 +98,7 @@
       handleApiError('load script index', err);
     }
 
-    const streamOptions = streams
+    const queueOptions = queues
       .map((queue) => {
         const label = queue.name && queue.name !== queue.id ? `${queue.name} (${queue.id})` : queue.name || queue.id;
         return `<option value="${queue.id}">${label}</option>`;
@@ -117,7 +117,7 @@
               <label for="enqueue-queue">Queue</label>
               <input id="enqueue-queue" list="enqueue-queue-options" placeholder="Enter or choose a queue ID" required />
               <datalist id="enqueue-queue-options">
-                ${streamOptions}
+                ${queueOptions}
               </datalist>
             </div>
             <div class="input-group">
@@ -171,7 +171,7 @@
     const timeoutInput = form.querySelector('#enqueue-timeout');
     const taskClassSelect = form.querySelector('#enqueue-task-class');
     const enqueueBtn = form.querySelector('#enqueue-submit');
-    const streamInput = form.querySelector('#enqueue-queue');
+    const queueInput = form.querySelector('#enqueue-queue');
     const promptInput = form.querySelector('#enqueue-prompt-path');
     const metadataInput = form.querySelector('#enqueue-metadata');
 
@@ -340,7 +340,7 @@
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       clearFormErrors(form);
-      const queueId = (streamInput?.value || '').trim();
+      const queueId = (queueInput?.value || '').trim();
       const toolName = (toolInput?.value || '').trim();
       const taskClass = (taskClassSelect?.value || '').trim();
       const timeoutVal = Number(timeoutInput?.value);

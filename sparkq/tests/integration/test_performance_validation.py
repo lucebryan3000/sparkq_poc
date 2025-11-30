@@ -37,7 +37,7 @@ class TestThroughput:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "bulk-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
@@ -79,7 +79,7 @@ class TestThroughput:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "load-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
@@ -127,7 +127,7 @@ class TestThroughput:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "complete-load-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
@@ -184,7 +184,7 @@ class TestQueryPerformance:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "query-perf-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
@@ -223,7 +223,7 @@ class TestQueryPerformance:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "single-task-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
@@ -261,7 +261,7 @@ class TestQueryPerformance:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "filter-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
@@ -329,7 +329,7 @@ class TestConcurrentOperations:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "concurrent-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
@@ -370,7 +370,7 @@ class TestConcurrentOperations:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "mixed-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
@@ -432,7 +432,7 @@ class TestDataIntegrityUnderLoad:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "attempt-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]
@@ -465,9 +465,9 @@ class TestDataIntegrityUnderLoad:
 
         assert task["status"] == "failed"
 
-    def test_stream_task_count_consistency(self, client):
+    def test_queue_task_count_consistency(self, client):
         """
-        Test that task counts are consistent for streams
+        Test that task counts are consistent for queues
         """
         # Setup
         session_resp = client.post(
@@ -476,7 +476,7 @@ class TestDataIntegrityUnderLoad:
         session_id = session_resp.json()["session"]["id"]
 
         stream_resp = client.post(
-            "/api/streams",
+            "/api/queues",
             json={"session_id": session_id, "name": "count-queue"},
         )
         queue_id = stream_resp.json()["queue"]["id"]

@@ -38,7 +38,7 @@ Session & Stream:
   session create <name>  Create a named session
   session list           List all sessions
   session end <id>       End a session
-  stream create <name>   Create a named stream
+  queue create <name>   Create a named queue
 
 Task Operations:
   enqueue                Enqueue a task

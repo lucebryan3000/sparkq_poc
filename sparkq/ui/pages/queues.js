@@ -10,7 +10,7 @@
   let currentQueueName = null;
   let quickAdd = null;
 
-  async function renderStreamsPage(container) {
+  async function renderQueuesPage(container) {
     if (!container) {
       return;
     }
@@ -22,7 +22,7 @@
     `;
 
     let sessions = [];
-    let streams = [];
+    let queues = [];
 
     try {
       const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
@@ -33,8 +33,8 @@
     }
 
     try {
-      const streamsResponse = await api('GET', '/api/queues', null, { action: 'load queues' });
-      streams = streamsResponse?.streams || [];
+      const queuesResponse = await api('GET', '/api/queues', null, { action: 'load queues' });
+      queues = queuesResponse?.queues || [];
     } catch (err) {
       console.error('Failed to load queues:', err);
       showToast('Failed to load queues', 'error');
@@ -45,7 +45,7 @@
       sessionsById[session.id] = session.name || session.id;
     });
 
-    const rows = streams
+    const rows = queues
       .map((queue) => `
         <tr>
           <td><a href="#" class="queue-link" data-queue-id="${queue.id}" data-queue-name="${queue.name || queue.id}">${queue.id}</a></td>
@@ -57,7 +57,7 @@
       `)
       .join('');
 
-    const table = streams.length
+    const table = queues.length
       ? `
           <table class="table">
             <thead>
@@ -93,8 +93,8 @@
     `;
 
     // Attach queue link handlers
-    const streamLinks = container.querySelectorAll('.queue-link');
-    streamLinks.forEach((link) => {
+    const queueLinks = container.querySelectorAll('.queue-link');
+    queueLinks.forEach((link) => {
       link.addEventListener('click', (e) => {
         e.preventDefault();
         const queueId = link.getAttribute('data-queue-id');
@@ -143,7 +143,7 @@
       };
       await api('POST', '/api/queues', payload, { action: 'create queue' });
       showToast(`Queue created`, 'success');
-      renderStreamsPage(container);
+      renderQueuesPage(container);
     } catch (err) {
       console.error('Failed to create queue:', err);
       showToast('Failed to create queue', 'error');
@@ -187,7 +187,7 @@
     try {
       await api('PUT', `/api/queues/${queueId}/archive`, null, { action: 'archive queue' });
       showToast(`Queue "${queueName}" archived`, 'success');
-      renderStreamsPage(container);
+      renderQueuesPage(container);
     } catch (err) {
       console.error('Failed to archive queue:', err);
       showToast('Failed to archive queue', 'error');
@@ -203,7 +203,7 @@
     try {
       await api('DELETE', `/api/queues/${queueId}`, null, { action: 'delete queue' });
       showToast(`Queue "${queueName}" deleted`, 'success');
-      renderStreamsPage(container);
+      renderQueuesPage(container);
     } catch (err) {
       console.error('Failed to delete queue:', err);
       showToast('Failed to delete queue', 'error');
@@ -311,7 +311,7 @@
 
   Pages.Queues = {
     async render(container) {
-      await renderStreamsPage(container);
+      await renderQueuesPage(container);
     }
   };
 

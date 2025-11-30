@@ -535,13 +535,14 @@ function toggleTheme() {
 
 function cachePages() {
   pages.dashboard = document.getElementById('dashboard-page');
+  pages.sparkqueue = document.getElementById('sparkqueue-page');
   pages.enqueue = document.getElementById('enqueue-page');
   pages.config = document.getElementById('config-page');
   pages.scripts = document.getElementById('scripts-page');
 
   // Verify all pages were cached
   const missing = [];
-  ['dashboard', 'enqueue', 'config', 'scripts'].forEach(name => {
+  ['dashboard', 'sparkqueue', 'enqueue', 'config', 'scripts'].forEach(name => {
     if (!pages[name]) {
       missing.push(name);
     }
@@ -598,7 +599,7 @@ function closeHamburgerMenu() {
   }
 }
 
-function router(page = currentPage) {
+async function router(page = currentPage) {
   Object.keys(pages).forEach((pageName) => {
     if (pages[pageName]) {
       pages[pageName].style.display = pageName === page ? 'block' : 'none';
@@ -617,7 +618,7 @@ function router(page = currentPage) {
   const pageKey = page.charAt(0).toUpperCase() + page.slice(1);
   if (window.Pages[pageKey] && typeof window.Pages[pageKey].render === 'function') {
     try {
-      window.Pages[pageKey].render(pages[page]);
+      await window.Pages[pageKey].render(pages[page]);
     } catch (err) {
       console.error('[SparkQ] Error rendering page:', pageKey, err);
       if (pages[page]) {

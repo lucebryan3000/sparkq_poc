@@ -8,7 +8,7 @@ try:
     from src.models import (
         Project,
         Session,
-        Stream,
+        Queue,
         Task,
         TaskClass,
         TaskStatus,
@@ -16,12 +16,12 @@ try:
         StreamStatus,
         gen_project_id,
         gen_session_id,
-        gen_stream_id,
+        gen_queue_id,
         gen_task_id,
     )
 except ImportError:
-    from src.models import Project, Session, Stream, Task, TaskClass, TaskStatus, SessionStatus, StreamStatus
-    from src.storage import gen_project_id, gen_session_id, gen_stream_id, gen_task_id
+    from src.models import Project, Session, Queue, Task, TaskClass, TaskStatus, SessionStatus, StreamStatus
+    from src.storage import gen_project_id, gen_session_id, gen_queue_id, gen_task_id
 
 pytestmark = pytest.mark.unit
 
@@ -39,14 +39,14 @@ class TestIDGeneration:
     def test_gen_session_id_format(self):
         _assert_id_format(gen_session_id(), "ses_")
 
-    def test_gen_stream_id_format(self):
-        _assert_id_format(gen_stream_id(), "str_")
+    def test_gen_queue_id_format(self):
+        _assert_id_format(gen_queue_id(), "que_")
 
     def test_gen_task_id_format(self):
         _assert_id_format(gen_task_id(), "tsk_")
 
     def test_id_generators_produce_unique_values(self):
-        generators = [gen_project_id, gen_session_id, gen_stream_id, gen_task_id]
+        generators = [gen_project_id, gen_session_id, gen_queue_id, gen_task_id]
         for generator in generators:
             ids = {generator() for _ in range(100)}
             assert len(ids) == 100
@@ -132,13 +132,13 @@ class TestSessionModel:
         assert session.ended_at == timestamp
 
 
-class TestStreamModel:
-    def test_stream_creation_with_instructions(self):
+class TestQueueModel:
+    def test_queue_creation_with_instructions(self):
         timestamp = datetime.utcnow()
-        queue = Stream(
-            id="str_deadbeef",
+        queue = Queue(
+            id="que_deadbeef",
             session_id="ses_deadbeef",
-            name="Stream With Instructions",
+            name="Queue With Instructions",
             instructions="Be thorough and concise.",
             created_at=timestamp,
             updated_at=timestamp,
@@ -147,12 +147,12 @@ class TestStreamModel:
         assert queue.instructions == "Be thorough and concise."
         assert queue.status == StreamStatus.ACTIVE
 
-    def test_stream_allows_optional_instructions(self):
+    def test_queue_allows_optional_instructions(self):
         timestamp = datetime.utcnow()
-        queue = Stream(
-            id="str_feedbabe",
+        queue = Queue(
+            id="que_feedbabe",
             session_id="ses_feedbabe",
-            name="Instructionless Stream",
+            name="Instructionless Queue",
             created_at=timestamp,
             updated_at=timestamp,
         )
@@ -166,7 +166,7 @@ class TestTaskModel:
         timestamp = datetime.utcnow()
         task = Task(
             id="tsk_deadbeef",
-            queue_id="str_deadbeef",
+            queue_id="que_deadbeef",
             tool_name="echo",
             task_class=TaskClass.FAST_SCRIPT,
             payload='{"echo": "hello"}',
@@ -185,7 +185,7 @@ class TestTaskModel:
         timestamp = datetime.utcnow()
         task = Task(
             id="tsk_feedbabe",
-            queue_id="str_feedbabe",
+            queue_id="que_feedbabe",
             tool_name="echo",
             task_class=TaskClass.MEDIUM_SCRIPT,
             payload="{}",
@@ -213,7 +213,7 @@ class TestTaskModel:
         payload_json = json.dumps(payload)
         task = Task(
             id="tsk_cafed00d",
-            queue_id="str_cafed00d",
+            queue_id="que_cafed00d",
             tool_name="sql_runner",
             task_class=TaskClass.LLM_LITE,
             payload=payload_json,

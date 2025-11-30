@@ -34,10 +34,10 @@
       </div>
     `;
 
-    let streams = [];
+    let queues = [];
     try {
       const response = await api('GET', '/api/queues', null, { action: 'load queues' });
-      streams = response?.streams || [];
+      queues = response?.queues || [];
     } catch (err) {
       handleApiError('load queues for filters', err);
     }
@@ -68,11 +68,11 @@
     }
 
     const queuesById = {};
-    streams.forEach((queue) => {
+    queues.forEach((queue) => {
       queuesById[queue.id] = queue.name || queue.id;
     });
 
-    const streamOptions = streams
+    const queueOptions = queues
       .map(
         (queue) =>
           `<option value="${queue.id}" ${queue.id === taskFilters.queueId ? 'selected' : ''}>${queue.name || queue.id}</option>`,
@@ -148,7 +148,7 @@
             <label for="task-queue-filter">Queue</label>
             <select id="task-queue-filter">
               <option value="">All queues</option>
-              ${streamOptions}
+              ${queueOptions}
             </select>
           </div>
           <div class="input-group">
@@ -164,13 +164,13 @@
       </div>
     `;
 
-    const streamSelect = container.querySelector('#task-queue-filter');
+    const queueSelect = container.querySelector('#task-queue-filter');
     const statusSelect = container.querySelector('#task-status-filter');
 
-    if (streamSelect) {
-      streamSelect.value = taskFilters.queueId;
-      streamSelect.addEventListener('change', () => {
-        taskFilters.queueId = streamSelect.value;
+    if (queueSelect) {
+      queueSelect.value = taskFilters.queueId;
+      queueSelect.addEventListener('change', () => {
+        taskFilters.queueId = queueSelect.value;
         renderTasksPage(container);
       });
     }
