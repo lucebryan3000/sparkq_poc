@@ -25,6 +25,27 @@
   --mode-btn-hover: rgba(255, 255, 255, 0.05);
   --tools-btn-bg: rgba(255, 255, 255, 0.05);
   --tools-btn-hover: rgba(255, 255, 255, 0.1);
+
+  /* Timeout badge colors - Dark mode */
+  --badge-warning-bg: rgba(255, 193, 7, 0.2);
+  --badge-warning-text: #ffc107;
+  --badge-warning-border: rgba(255, 193, 7, 0.4);
+
+  --badge-error-bg: rgba(244, 67, 54, 0.2);
+  --badge-error-text: #f44336;
+  --badge-error-border: rgba(244, 67, 54, 0.4);
+
+  --badge-critical-bg: rgba(255, 87, 34, 0.25);
+  --badge-critical-text: #ff5722;
+  --badge-critical-border: rgba(255, 87, 34, 0.5);
+
+  --badge-auto-failed-bg: rgba(156, 39, 176, 0.2);
+  --badge-auto-failed-text: #9c27b0;
+  --badge-auto-failed-border: rgba(156, 39, 176, 0.4);
+
+  /* Row background for stale tasks */
+  --row-stale-warning-bg: rgba(255, 193, 7, 0.05);
+  --row-stale-error-bg: rgba(244, 67, 54, 0.05);
 }
 
 /* Light mode theme - Anthropic Design Language */
@@ -152,6 +173,26 @@
   --badge-idle-bg-dark: rgba(148, 163, 184, 0.16);
   --badge-idle-text-dark: #e2e8f0;
   --badge-idle-border-dark: rgba(148, 163, 184, 0.35);
+
+  /* Timeout badge colors - Light mode overrides */
+  --badge-warning-bg: #fff3cd;
+  --badge-warning-text: #d97706;
+  --badge-warning-border: #ffd966;
+
+  --badge-error-bg: #fee;
+  --badge-error-text: #dc2626;
+  --badge-error-border: #fcc;
+
+  --badge-critical-bg: #ffe8e5;
+  --badge-critical-text: #ff5722;
+  --badge-critical-border: #ffccbc;
+
+  --badge-auto-failed-bg: #f3e5f5;
+  --badge-auto-failed-text: #7b1fa2;
+  --badge-auto-failed-border: #e1bee7;
+
+  --row-stale-warning-bg: rgba(255, 243, 205, 0.3);
+  --row-stale-error-bg: rgba(254, 238, 238, 0.3);
 }
 
 * {
@@ -830,6 +871,71 @@ a {
   color: var(--badge-queued-text-dark);
   border: 1px solid var(--badge-queued-border-dark);
 }
+
+/* Timeout badge base styling */
+.timeout-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: 8px;
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* Warning state - Yellow/Orange */
+.timeout-badge-warning {
+  background: var(--badge-warning-bg);
+  color: var(--badge-warning-text);
+  border: 1px solid var(--badge-warning-border);
+}
+
+/* Error state - Red (approaching 2× timeout) */
+.timeout-badge-error {
+  background: var(--badge-error-bg);
+  color: var(--badge-error-text);
+  border: 1px solid var(--badge-error-border);
+  animation: pulse-error 2s ease-in-out infinite;
+}
+
+/* Auto-failed state - Dark red/purple */
+.timeout-badge-auto-failed {
+  background: var(--badge-auto-failed-bg);
+  color: var(--badge-auto-failed-text);
+  border: 1px solid var(--badge-auto-failed-border);
+}
+
+/* Critical state (< 5 minutes remaining) */
+.timeout-badge-critical {
+  background: var(--badge-critical-bg);
+  color: var(--badge-critical-text);
+  border: 1px solid var(--badge-critical-border);
+  animation: pulse-critical 1.5s ease-in-out infinite;
+}
+
+/* Pulse animation for error state */
+@keyframes pulse-error {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes pulse-critical {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Table row highlighting for stale tasks */
+.task-stale-warning {
+  background: var(--row-stale-warning-bg) !important;
+}
+
+.task-stale-error {
+  background: var(--row-stale-error-bg) !important;
+}
+
 /* Interactive table rows */
 .session-row:hover,
 .queue-row:hover {

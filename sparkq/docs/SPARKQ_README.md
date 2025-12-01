@@ -222,6 +222,12 @@ Database path (`database.path`) resolves relative to the active config file; swi
 python -m sparkq.src.cli reload
 ```
 
+### Using config outside the repo
+
+- You can keep `sparkq.yml` in any directory and point SparkQ at it with `SPARKQ_CONFIG=/path/to/sparkq.yml` or `sparkq run --config /path/to/sparkq.yml`.
+- All relative paths inside the config (e.g., `database.path`, script dirs) resolve relative to the config file’s location, so keeping config + DB outside the repo cleanly separates app code from local state.
+- This is useful when SparkQ runs alongside other tools/repos on the same machine—just export `SPARKQ_CONFIG` before running or bake it into your wrapper scripts/Makefile.
+
 ## Features
 
 - **FIFO Queues**: Tasks processed in order per queue

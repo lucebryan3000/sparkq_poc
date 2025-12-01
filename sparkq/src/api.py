@@ -1,6 +1,7 @@
 import inspect
 import json
 import logging
+import os
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -9,11 +10,17 @@ from typing import Any, Dict, Optional
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .constants import TASK_CLASS_TIMEOUTS
+from .constants import (
+    CONFIG_CACHE_TTL_SECONDS,
+    DEFAULT_AUTO_FAIL_INTERVAL_SECONDS,
+    STALE_FAIL_MULTIPLIER,
+    STALE_WARNING_MULTIPLIER,
+    TASK_CLASS_TIMEOUTS,
+)
 from .config import get_database_path, load_config
 from .errors import ConflictError, NotFoundError, SparkQError, ValidationError
 from .index import ScriptIndex
@@ -21,13 +28,20 @@ from .models import TaskStatus
 from .paths import get_build_prompts_dir, get_ui_dir, get_config_path
 from .storage import Storage, now_iso
 from .tools import get_registry, reload_registry
+from .env import get_app_env, is_dev_env
 
 logger = logging.getLogger(__name__)
 CONFIG_PATH = get_config_path()
 _config_boot = load_config(CONFIG_PATH)
 storage = Storage(get_database_path(_config_boot))
 SERVER_BUILD_ID = "b713"
-CONFIG_CACHE_TTL_SECONDS = 60
+APP_ENV = get_app_env()
+DEV_CACHE_BUSTER = os.environ.get("SPARKQ_CACHE_BUSTER") or str(int(time.time()))
+_DEV_NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 _config_cache: Dict[str, Any] = {"data": None, "expires_at": 0.0}
 
 app = FastAPI(title="SparkQ API")
@@ -50,16 +64,21 @@ async def add_no_cache_headers(request: Request, call_next):
     """Add no-cache headers to static files to prevent browser caching during development."""
     response = await call_next(request)
 
-    # Add aggressive no-cache headers to all static UI files
-    if request.url.path.startswith('/ui/'):
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
+    # Add aggressive no-cache headers to all static UI files when in dev mode
+    if is_dev_env() and _is_ui_static_request(request.url.path):
+        for header, value in _DEV_NO_CACHE_HEADERS.items():
+            response.headers[header] = value
         # Remove ETag header if present (prevents 304 Not Modified)
         if "etag" in response.headers:
             del response.headers["etag"]
 
     return response
+
+
+def _is_ui_static_request(path: str) -> bool:
+    """Return True for UI asset paths that should bypass caching in dev."""
+    return path == "/" or path.startswith("/ui") or path == "/ui-cache-buster.js"
+
 
 @app.get("/")
 async def root():
@@ -69,6 +88,29 @@ async def root():
 
 static_dir = get_ui_dir()
 app.mount("/ui", StaticFiles(directory=static_dir, html=True, check_dir=False), name="ui")
+
+
+def _cache_buster_value() -> str:
+    """Return cache-buster token; stable during a single process."""
+    if is_dev_env():
+        return os.environ.get("SPARKQ_CACHE_BUSTER") or DEV_CACHE_BUSTER
+    return os.environ.get("SPARKQ_CACHE_BUSTER") or _current_build_id()
+
+
+@app.get("/ui-cache-buster.js")
+async def ui_cache_buster():
+    """Expose environment and cache-buster details to the UI."""
+    env = APP_ENV
+    cache_buster = _cache_buster_value()
+    body_lines = [
+        f"window.__SPARKQ_ENV__ = {json.dumps(env)};",
+        f"window.__SPARKQ_CACHE_BUSTER__ = {json.dumps(cache_buster)};",
+        f"window.__SPARKQ_BUILD_ID__ = {json.dumps(_current_build_id())};",
+        "window.__BUILD_ID__ = window.__SPARKQ_BUILD_ID__;",
+    ]
+    headers = dict(_DEV_NO_CACHE_HEADERS) if env in {"dev", "test"} else {}
+    return Response(content="\n".join(body_lines), media_type="application/javascript", headers=headers)
+
 
 TASK_STATUS_VALUES = {status.value for status in TaskStatus}
 DEFAULT_TASK_TIMEOUTS = {**TASK_CLASS_TIMEOUTS}
@@ -85,6 +127,11 @@ def _load_yaml_defaults() -> Dict[str, Any]:
         "server": {"port": 8420, "host": "0.0.0.0"},
         "database": {"path": "sparkq/data/sparkq.db", "mode": "wal"},
         "purge": {"older_than_days": 3},
+        "queue_runner": {
+            "poll_interval": 30,
+            "auto_fail_interval_seconds": DEFAULT_AUTO_FAIL_INTERVAL_SECONDS,
+            "base_url": None,
+        },
         "tools": {},
         "task_classes": {},
         "ui": {"build_id": SERVER_BUILD_ID},
@@ -99,6 +146,7 @@ def _load_yaml_defaults() -> Dict[str, Any]:
         defaults["server"] = full.get("server", defaults["server"]) or defaults["server"]
         defaults["database"] = full.get("database", defaults["database"]) or defaults["database"]
         defaults["purge"] = full.get("purge", defaults["purge"]) or defaults["purge"]
+        defaults["queue_runner"] = full.get("queue_runner", defaults["queue_runner"]) or defaults["queue_runner"]
         defaults["tools"] = full.get("tools", {}) or {}
         defaults["task_classes"] = full.get("task_classes", {}) or {}
         defaults["ui"] = {"build_id": SERVER_BUILD_ID}
@@ -122,6 +170,7 @@ def _seed_config_if_empty(defaults: Dict[str, Any]):
             return
         seed_payload = {
             "purge": {"config": defaults.get("purge", {})},
+            "queue_runner": {"config": defaults.get("queue_runner", {})},
             "tools": {"all": defaults.get("tools", {})},
             "task_classes": {"all": defaults.get("task_classes", {})},
             "ui": {"build_id": defaults.get("ui", {}).get("build_id", SERVER_BUILD_ID)},
@@ -240,6 +289,8 @@ def _build_config_response(include_cache: bool = True) -> Dict[str, Any]:
     _seed_tools_task_classes_if_empty(defaults, db_config)
 
     purge = db_config.get("purge", {}).get("config", defaults.get("purge"))
+    raw_queue_runner = db_config.get("queue_runner", {}).get("config")
+    queue_runner_cfg = raw_queue_runner if isinstance(raw_queue_runner, dict) else defaults.get("queue_runner", {}) or {}
     task_class_rows = storage.list_task_classes()
     tool_rows = storage.list_tools_table()
     task_classes = _task_classes_dict(task_class_rows) or defaults.get("task_classes")
@@ -253,11 +304,19 @@ def _build_config_response(include_cache: bool = True) -> Dict[str, Any]:
         "server": defaults.get("server"),
         "database": defaults.get("database"),
         "purge": purge,
+        "queue_runner": queue_runner_cfg,
         "tools": tools,
         "task_classes": task_classes,
         "ui": {"build_id": ui_build_id},
         "features": {"flags": feature_flags},
         "defaults": {"queue": queue_defaults},
+        "stale_handling": {
+            "warn_multiplier": STALE_WARNING_MULTIPLIER,
+            "fail_multiplier": STALE_FAIL_MULTIPLIER,
+            "auto_fail_interval_seconds": queue_runner_cfg.get(
+                "auto_fail_interval_seconds", DEFAULT_AUTO_FAIL_INTERVAL_SECONDS
+            ),
+        },
     }
 
     _config_cache["data"] = response
@@ -282,6 +341,19 @@ def _validate_config_value(namespace: str, key: str, value: Any):
         days = value.get("older_than_days")
         if not isinstance(days, int) or days <= 0:
             raise HTTPException(status_code=400, detail="older_than_days must be a positive integer")
+        return
+    if ns == "queue_runner" and key == "config":
+        if not isinstance(value, dict):
+            raise HTTPException(status_code=400, detail="queue_runner config must be an object")
+        poll = value.get("poll_interval")
+        if poll is not None and (not isinstance(poll, int) or poll <= 0):
+            raise HTTPException(status_code=400, detail="poll_interval must be a positive integer")
+        auto_fail_interval = value.get("auto_fail_interval_seconds")
+        if auto_fail_interval is not None and (not isinstance(auto_fail_interval, int) or auto_fail_interval <= 0):
+            raise HTTPException(status_code=400, detail="auto_fail_interval_seconds must be a positive integer")
+        base_url = value.get("base_url")
+        if base_url is not None and (not isinstance(base_url, str) or not base_url.strip()):
+            raise HTTPException(status_code=400, detail="base_url must be a non-empty string when provided")
         return
     if ns == "tools" and key == "all":
         if not isinstance(value, dict):
@@ -1156,6 +1228,8 @@ async def delete_config(namespace: str, key: str):
         fallback_value = defaults.get("features", {}).get("flags", {})
     elif namespace == "defaults" and key == "queue":
         fallback_value = defaults.get("defaults", {}).get("queue", {})
+    elif namespace == "queue_runner" and key == "config":
+        fallback_value = defaults.get("queue_runner")
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported config namespace/key: {namespace}/{key}")
 

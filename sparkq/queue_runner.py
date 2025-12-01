@@ -12,6 +12,7 @@ Configuration (sparkq.yml):
   queue_runner:
     base_url: http://192.168.1.100:5005  # Optional override; auto-detected if omitted
     poll_interval: 30                      # Seconds between polls in --watch mode
+    lock_dir: /tmp                         # Optional override for lockfile directory (default: system temp or env SPARKQ_RUNNER_LOCK_DIR)
 
 Execution Modes:
   --once: Process one task then exit (testing/debugging)
@@ -38,8 +39,10 @@ Usage Examples:
 """
 
 import argparse
+import atexit
 import json
 import os
+import signal
 import sys
 import time
 from datetime import datetime, timezone
@@ -48,6 +51,7 @@ from typing import Any, Dict, Optional
 
 import requests
 import socket
+import tempfile
 
 # Ensure we import from the package when executed as a script
 ROOT_DIR = Path(__file__).resolve().parent
@@ -143,6 +147,99 @@ def resolve_worker_id(queue_name: str) -> str:
     hostname = socket.gethostname()
     clean_queue_name = queue_name.replace(" ", "_")
     return f"worker-{hostname}-{clean_queue_name}"
+
+
+# Global variable for lockfile path
+LOCK_FILE = None
+
+
+def get_lock_dir() -> str:
+    """
+    Determine lockfile directory.
+
+    Priority:
+    1. Env var SPARKQ_RUNNER_LOCK_DIR (if set)
+    2. queue_runner.lock_dir from config
+    3. System temp directory (default)
+    """
+    qr_config = load_queue_runner_config()
+    lock_dir = os.environ.get("SPARKQ_RUNNER_LOCK_DIR") or qr_config.get("lock_dir")
+    if not lock_dir:
+        lock_dir = tempfile.gettempdir()
+
+    path = Path(lock_dir).expanduser()
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
+def get_lock_path(queue_id: str) -> str:
+    """Build the full path to the lockfile for a queue."""
+    return str(Path(get_lock_dir()) / f"sparkq-runner-{queue_id}.lock")
+
+
+def acquire_lock(queue_id: str) -> None:
+    """
+    Acquire lockfile or exit if already running.
+
+    Creates /tmp/sparkq-runner-{queue_id}.lock containing the PID.
+    Checks if another instance is running before proceeding.
+    Registers cleanup handlers for graceful shutdown.
+    """
+    global LOCK_FILE
+    LOCK_FILE = get_lock_path(queue_id)
+
+    # Check if lockfile exists
+    if os.path.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE, 'r') as f:
+                old_pid = int(f.read().strip())
+        except (ValueError, FileNotFoundError):
+            # Corrupt lockfile, remove it
+            os.remove(LOCK_FILE)
+        else:
+            # Check if process is alive
+            try:
+                os.kill(old_pid, 0)  # Signal 0 = check if process exists
+                # Process is alive - duplicate detected
+                log(f"ERROR: queue_runner already running for queue (PID {old_pid})")
+                log(f"Kill it first: kill {old_pid}")
+                log(f"Or wait for it to finish")
+                sys.exit(1)
+            except OSError:
+                # Process is dead, remove stale lock
+                log(f"Removing stale lockfile (PID {old_pid} no longer exists)")
+                os.remove(LOCK_FILE)
+
+    # Create lockfile with current PID
+    try:
+        with open(LOCK_FILE, 'w') as f:
+            f.write(str(os.getpid()))
+        log(f"Acquired lock: {LOCK_FILE}")
+    except IOError as e:
+        log(f"ERROR: Failed to create lockfile: {e}")
+        sys.exit(1)
+
+    # Register cleanup handlers
+    atexit.register(release_lock)
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+
+
+def release_lock() -> None:
+    """Remove lockfile on exit."""
+    global LOCK_FILE
+    if LOCK_FILE and os.path.exists(LOCK_FILE):
+        try:
+            os.remove(LOCK_FILE)
+            # Don't log here - might be called during shutdown
+        except OSError:
+            pass  # Best effort
+
+
+def handle_signal(signum, frame):
+    """Handle termination signals gracefully."""
+    log(f"Received signal {signum}, shutting down...")
+    sys.exit(0)  # Triggers atexit handlers
 
 
 def log(msg: str) -> None:
@@ -316,7 +413,7 @@ def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = True
     if tool_name == "llm-haiku":
         log(f"🔧 EXECUTE WITH: /haiku {prompt}")
     elif tool_name == "llm-codex":
-        log(f"🔧 EXECUTE WITH: codex exec --full-auto -C /home/luce/apps/sparkqueue \"{prompt}\"")
+        log(f"🔧 EXECUTE WITH: /codex {prompt}")
     elif tool_name == "llm-sonnet":
         log(f"🔧 EXECUTE WITH: Current Sonnet session (answer directly)")
     else:
@@ -388,7 +485,11 @@ def main():
         log(f"ERROR: Queue '{args.queue}' not found")
         sys.exit(1)
 
+    queue_id = queue.get("id")
     queue_name = queue.get("name", args.queue)
+
+    # ACQUIRE LOCK BEFORE ANY PROCESSING
+    acquire_lock(queue_id)
 
     # Derive worker_id from hostname + queue name (stable, no config needed)
     worker_id = resolve_worker_id(queue_name)

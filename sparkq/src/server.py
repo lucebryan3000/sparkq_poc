@@ -1,6 +1,7 @@
 """SparkQ server wrapper with lockfile coordination and startup tasks."""
 
 import atexit
+import fcntl
 import logging
 import os
 import signal
@@ -19,6 +20,13 @@ from .config import (
     get_server_config,
     load_config,
 )
+from .constants import (
+    DEFAULT_AUTO_FAIL_INTERVAL_SECONDS,
+    DEFAULT_PURGE_OLDER_THAN_DAYS,
+    STALE_FAIL_MULTIPLIER,
+    STALE_WARNING_MULTIPLIER,
+)
+from .metrics import incr, observe
 from .paths import get_lockfile_path, get_config_path
 from .storage import Storage
 
@@ -32,15 +40,14 @@ logger = logging.getLogger(__name__)
 
 def get_pid_from_lockfile() -> Optional[int]:
     """Read and return PID stored in lockfile."""
-    with _lockfile_lock:
-        if not LOCKFILE_PATH.exists():
-            return None
+    if not LOCKFILE_PATH.exists():
+        return None
 
-        try:
-            pid_text = LOCKFILE_PATH.read_text().strip()
-        except OSError as exc:
-            logger.warning("Failed to read lockfile: %s", exc)
-            return None
+    try:
+        pid_text = LOCKFILE_PATH.read_text().strip()
+    except OSError as exc:
+        logger.warning("Failed to read lockfile: %s", exc)
+        return None
 
     if not pid_text:
         return None
@@ -72,6 +79,10 @@ def create_lockfile():
             raise RuntimeError("SparkQ server lockfile already exists; is another server running?") from exc
 
         with os.fdopen(fd, "wb") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise RuntimeError("Failed to lock SparkQ server lockfile; another instance may be starting")
             handle.write(lock_bytes)
 
 
@@ -108,17 +119,26 @@ def check_server_running() -> Optional[int]:
     return None
 
 
-def start_auto_purge(storage: Storage, older_than_days: int = 3):
+def start_auto_purge(storage: Storage, older_than_days: int = DEFAULT_PURGE_OLDER_THAN_DAYS):
     """Start background purge of completed tasks."""
 
     def _purge():
         try:
+            start = time.time()
             deleted = storage.purge_old_tasks(older_than_days=older_than_days)
+            duration = (time.time() - start) * 1000
             logger.info(
-                "Auto-purge removed %s tasks older than %s days", deleted, older_than_days
+                "Auto-purge removed %s tasks older than %s days (%.1fms)",
+                deleted,
+                older_than_days,
+                duration,
             )
+            incr("sparkq.purge.runs", tags={"status": "ok"})
+            observe("sparkq.purge.duration_ms", duration, tags={"status": "ok"})
+            incr("sparkq.purge.deleted", deleted)
         except Exception as exc:  # noqa: BLE001 - background thread should log all failures
             logger.exception("Auto-purge failed: %s", exc)
+            incr("sparkq.purge.runs", tags={"status": "error"})
 
     thread = threading.Thread(target=_purge, name="sparkq-auto-purge", daemon=True)
     thread.start()
@@ -139,8 +159,12 @@ def start_auto_fail(storage, check_interval=30):
     def auto_fail_loop():
         while True:
             try:
+                warned_tasks = storage.warn_stale_tasks(timeout_multiplier=STALE_WARNING_MULTIPLIER)
+                if warned_tasks:
+                    logger.info("[AUTO-FAIL] %s tasks approaching timeout", len(warned_tasks))
+
                 # Run auto-fail check
-                failed_tasks = storage.auto_fail_stale_tasks(timeout_multiplier=2.0)
+                failed_tasks = storage.auto_fail_stale_tasks(timeout_multiplier=STALE_FAIL_MULTIPLIER)
 
                 # Log results
                 if failed_tasks:
@@ -176,13 +200,24 @@ def _resolve_runtime_settings(host_override: Optional[str], port_override: Optio
         resolved_port = PORT
     db_path = get_database_path(cfg)
     purge_cfg = cfg.get("purge", {}) or {}
-    older_than_days = purge_cfg.get("older_than_days", 3)
+    older_than_days = purge_cfg.get("older_than_days", DEFAULT_PURGE_OLDER_THAN_DAYS)
     if not isinstance(older_than_days, int) or older_than_days <= 0:
-        older_than_days = 3
+        older_than_days = DEFAULT_PURGE_OLDER_THAN_DAYS
     queue_runner_cfg = get_queue_runner_config(cfg)
-    auto_fail_interval = queue_runner_cfg.get("auto_fail_interval_seconds", 30)
+    auto_fail_interval = queue_runner_cfg.get("auto_fail_interval_seconds", DEFAULT_AUTO_FAIL_INTERVAL_SECONDS)
     if not isinstance(auto_fail_interval, (int, float)) or auto_fail_interval <= 0:
-        auto_fail_interval = 30
+        auto_fail_interval = DEFAULT_AUTO_FAIL_INTERVAL_SECONDS
+    try:
+        # Prefer DB-backed queue_runner config when available
+        temp_storage = Storage(db_path)
+        temp_storage.init_db()
+        qr_db = temp_storage.export_config().get("queue_runner", {}).get("config", {})
+        if isinstance(qr_db, dict):
+            db_interval = qr_db.get("auto_fail_interval_seconds")
+            if isinstance(db_interval, (int, float)) and db_interval > 0:
+                auto_fail_interval = db_interval
+    except Exception:
+        logger.exception("Failed to read queue_runner config from DB; using file/default values")
     return resolved_host, resolved_port, db_path, older_than_days, auto_fail_interval
 
 

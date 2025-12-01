@@ -1,11 +1,15 @@
 """Script discovery and indexing for SparkQ."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .config import load_config
+from .constants import TASK_CLASS_TIMEOUTS
 from .paths import get_config_path
+
+logger = logging.getLogger(__name__)
 
 
 class ScriptIndex:
@@ -53,23 +57,74 @@ class ScriptIndex:
             except ValueError:
                 return None
 
+        # Parse inputs/outputs as comma-separated lists with optional modifiers
+        if key in ("inputs", "outputs"):
+            items = []
+            for item in raw_value.split(","):
+                item = item.strip()
+                if not item:
+                    continue
+
+                # Check for (optional) or (required) suffix
+                optional = False
+                required = False
+                if item.endswith("(optional)"):
+                    optional = True
+                    item = item.replace("(optional)", "").strip()
+                elif item.endswith("(required)"):
+                    required = True
+                    item = item.replace("(required)", "").strip()
+
+                items.append({
+                    "name": item,
+                    "required": required,
+                    "optional": optional,
+                })
+            return items if items else None
+
         return raw_value
+
+    def _validate_metadata(self, file_path: Path, metadata: Dict[str, Any]) -> None:
+        """Log warnings for potentially malformed metadata."""
+        # Warn if timeout is 0 or negative
+        timeout = metadata.get("timeout")
+        if timeout is not None and timeout <= 0:
+            logger.warning(f"Script {file_path} has invalid timeout: {timeout}")
+
+        # Warn if no description
+        if not metadata.get("description"):
+            logger.debug(f"Script {file_path} has no description")
+
+        # Warn if task_class is not recognized
+        task_class = metadata.get("task_class")
+        if task_class and task_class not in TASK_CLASS_TIMEOUTS:
+            logger.warning(f"Script {file_path} has unknown task_class: {task_class}")
 
     def parse_script_header(self, file_path: Path) -> Dict[str, Any]:
         """Parse key/value metadata from comment headers at the top of a script."""
         metadata: Dict[str, Any] = {}
+        current_key = None
+        current_value_parts = []
 
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as handle:
                 for line in handle:
                     stripped = line.strip()
 
+                    # Empty lines are allowed in metadata block
                     if not stripped:
                         continue
 
+                    # Stop at first non-comment line
                     if not stripped.startswith(self.COMMENT_PREFIXES):
+                        # Finalize any pending metadata
+                        if current_key:
+                            metadata[current_key] = self._coerce_metadata_value(
+                                current_key, " ".join(current_value_parts)
+                            )
                         break
 
+                    # Strip comment prefix
                     comment_body = stripped
                     for prefix in self.COMMENT_PREFIXES:
                         if comment_body.startswith(prefix):
@@ -77,18 +132,43 @@ class ScriptIndex:
                             break
 
                     comment_body = comment_body.lstrip("! ").strip()
-                    if not comment_body or ":" not in comment_body:
+
+                    # Skip empty comments
+                    if not comment_body:
                         continue
 
-                    key, _, value = comment_body.partition(":")
-                    key = key.strip().lower()
-                    if not key or key not in self.METADATA_KEYS:
-                        continue
+                    # Check if this is a new key:value pair
+                    if ":" in comment_body:
+                        # Finalize previous key if exists
+                        if current_key:
+                            metadata[current_key] = self._coerce_metadata_value(
+                                current_key, " ".join(current_value_parts)
+                            )
+                            current_value_parts = []
 
-                    metadata[key] = self._coerce_metadata_value(key, value.strip())
+                        key, _, value = comment_body.partition(":")
+                        key = key.strip().lower()
+
+                        if key in self.METADATA_KEYS:
+                            current_key = key
+                            current_value_parts = [value.strip()] if value.strip() else []
+                        else:
+                            current_key = None
+                    else:
+                        # Continuation of previous value
+                        if current_key:
+                            current_value_parts.append(comment_body)
+
+                # Finalize last key if file ended
+                if current_key:
+                    metadata[current_key] = self._coerce_metadata_value(
+                        current_key, " ".join(current_value_parts)
+                    )
+
         except (OSError, UnicodeDecodeError):
             return metadata
 
+        self._validate_metadata(file_path, metadata)
         return metadata
 
     def is_script_file(self, file_path: Path) -> bool:

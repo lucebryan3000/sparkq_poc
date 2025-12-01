@@ -322,7 +322,7 @@
           <div class="queue-tabs-section">
             <div class="section-title" style="display:flex;align-items:center;gap:8px;">
               <span>Queues</span>
-              <div style="display:inline-flex;gap:6px;">
+              <div id="queue-filter-buttons" style="display:inline-flex;gap:6px;">
                 <button id="queue-filter-active" class="button secondary" style="padding:4px 10px;font-size:12px;${this.queueFilter === 'active' ? 'background:#3b82f6;color:#fff;' : ''}">Active</button>
                 <button id="queue-filter-archived" class="button secondary" style="padding:4px 10px;font-size:12px;${this.queueFilter === 'archived' ? 'background:#3b82f6;color:#fff;' : ''}">Archived</button>
               </div>
@@ -421,6 +421,12 @@
           this.currentQueueId = selectedId;
           this.renderQueueTabs(container, this.queuesCache);
 
+          // Hide queue filter buttons when viewing a specific queue
+          const filterButtons = document.getElementById('queue-filter-buttons');
+          if (filterButtons) {
+            filterButtons.style.display = 'none';
+          }
+
           const contentContainer = document.getElementById('queue-content');
           if (contentContainer) {
             this.renderQueueContent(contentContainer, selectedId);
@@ -464,8 +470,14 @@
           if (this.queueFilter !== 'active') {
             this.queueFilter = 'active';
             localStorage.setItem('dashboard.queueFilter', this.queueFilter);
+            this.currentQueueId = null;
             this.refreshQueues(this.currentQueueId);
             setStyles();
+            // Show filter buttons when returning to overview
+            const filterButtons = document.getElementById('queue-filter-buttons');
+            if (filterButtons) {
+              filterButtons.style.display = 'inline-flex';
+            }
           }
         });
       }
@@ -474,8 +486,14 @@
           if (this.queueFilter !== 'archived') {
             this.queueFilter = 'archived';
             localStorage.setItem('dashboard.queueFilter', this.queueFilter);
+            this.currentQueueId = null;
             this.refreshQueues(this.archivedQueueId);
             setStyles();
+            // Show filter buttons when returning to overview
+            const filterButtons = document.getElementById('queue-filter-buttons');
+            if (filterButtons) {
+              filterButtons.style.display = 'inline-flex';
+            }
           }
         });
       }

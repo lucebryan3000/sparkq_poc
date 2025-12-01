@@ -350,6 +350,41 @@ class TestTaskOperations:
         assert len(stale_tasks) == 1
         assert stale_tasks[0]["id"] == task["id"]
 
+    def test_warn_stale_tasks_marks_once(self, storage, queue):
+        task = storage.create_task(
+            queue_id=queue["id"],
+            tool_name="tool-a",
+            task_class="STALE",
+            payload="{}",
+            timeout=1,
+        )
+
+        with storage.connection() as conn:
+            conn.execute(
+                "UPDATE tasks SET status = 'running', claimed_at = ? WHERE id = ?",
+                ("2000-01-01T00:00:00Z", task["id"]),
+            )
+
+        warned = storage.warn_stale_tasks(timeout_multiplier=1.0)
+        assert len(warned) == 1
+        first_warning = warned[0]["stale_warned_at"]
+        assert first_warning is not None
+
+        warned_again = storage.warn_stale_tasks(timeout_multiplier=1.0)
+        assert warned_again == []
+
+        updated = storage.get_task(task["id"])
+        assert updated["stale_warned_at"] == first_warning
+
+    def test_get_stale_tasks_propagates_db_errors(self, storage, monkeypatch):
+        def boom(*args, **kwargs):
+            raise sqlite3.OperationalError("db locked")
+
+        monkeypatch.setattr(storage, "connection", boom)
+
+        with pytest.raises(sqlite3.OperationalError):
+            storage.get_stale_tasks()
+
     def test_list_tasks_enforces_max_limit(self, storage, queue):
         storage.max_task_list_limit = 3
         for i in range(5):

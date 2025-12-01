@@ -3,6 +3,7 @@
 import json
 import logging
 import sqlite3
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from .constants import (
     STALE_FAIL_MULTIPLIER,
     STALE_WARNING_MULTIPLIER,
 )
+from .metrics import incr, observe
 from .errors import ConflictError, NotFoundError, ValidationError
 
 
@@ -1111,37 +1113,44 @@ class Storage:
         """
         stale_tasks: List[TaskRow] = []
 
+        now_ts = datetime.utcnow().timestamp()
         try:
-            now_ts = datetime.utcnow().timestamp()
             with self.connection() as conn:
                 cursor = conn.execute(
                     "SELECT * FROM tasks WHERE status='running' AND (claimed_at IS NOT NULL OR started_at IS NOT NULL)"
                 )
                 rows = cursor.fetchall()
-
-            for row in rows:
-                task: TaskRow = dict(row)
-                claimed_at = task.get("claimed_at") or task.get("started_at")
-                if not claimed_at:
-                    continue
-
-                timeout_seconds = self.get_timeout_for_task(task["id"])
-
-                try:
-                    claimed_dt = datetime.fromisoformat(str(claimed_at).replace("Z", "+00:00"))
-                    claimed_ts = claimed_dt.timestamp()
-                except Exception:
-                    # Skip tasks with invalid timestamps instead of crashing
-                    continue
-
-                deadline_ts = claimed_ts + (timeout_seconds * timeout_multiplier)
-                if now_ts > deadline_ts:
-                    stale_tasks.append(task)
-
-            return stale_tasks
+        except sqlite3.Error as exc:
+            self.logger.exception("Failed to query running tasks for stale detection: %s", exc)
+            incr("sparkq.stale_tasks.runs", tags={"status": "error"})
+            raise
         except Exception:
-            self.logger.exception("Failed to compute stale tasks")
-            return []
+            incr("sparkq.stale_tasks.runs", tags={"status": "error"})
+            raise
+
+        for row in rows:
+            task: TaskRow = dict(row)
+            claimed_at = task.get("claimed_at") or task.get("started_at")
+            if not claimed_at:
+                continue
+
+            timeout_seconds = self.get_timeout_for_task(task["id"])
+
+            try:
+                claimed_dt = datetime.fromisoformat(str(claimed_at).replace("Z", "+00:00"))
+                claimed_ts = claimed_dt.timestamp()
+            except Exception:
+                # Skip tasks with invalid timestamps instead of crashing
+                continue
+
+            deadline_ts = claimed_ts + (timeout_seconds * timeout_multiplier)
+            if now_ts > deadline_ts:
+                stale_tasks.append(task)
+
+        status_tag = "empty" if not stale_tasks else "ok"
+        incr("sparkq.stale_tasks.runs", tags={"status": status_tag})
+        incr("sparkq.stale_tasks.found", len(stale_tasks))
+        return stale_tasks
 
     def mark_stale_warning(self, task_id: str) -> TaskRow:
         """
@@ -1150,6 +1159,8 @@ class Storage:
         task = self.get_task(task_id)
         if not task:
             raise NotFoundError(f"Task {task_id} not found")
+        if task.get("stale_warned_at"):
+            return task
 
         now = now_iso()
         with self.connection() as conn:
@@ -1166,32 +1177,70 @@ class Storage:
         self.logger.info("Marked task %s with stale warning", task_id)
         return updated_task
 
+    def warn_stale_tasks(self, timeout_multiplier: float = STALE_WARNING_MULTIPLIER) -> List[TaskRow]:
+        """
+        Mark running tasks that have crossed the warning threshold.
+        """
+        start = time.time()
+        try:
+            stale_tasks = self.get_stale_tasks(timeout_multiplier=timeout_multiplier)
+        except Exception:
+            incr("sparkq.stale_warn.runs", tags={"status": "error"})
+            raise
+
+        warned: List[TaskRow] = []
+        for task in stale_tasks:
+            if task.get("stale_warned_at"):
+                continue
+
+            try:
+                warned_task = self.mark_stale_warning(task["id"])
+                warned.append(warned_task)
+            except Exception:
+                self.logger.exception("Failed to mark stale warning for task %s", task.get("id"))
+                continue
+
+        duration_ms = (time.time() - start) * 1000
+        status_tag = "empty" if not warned else "ok"
+        self.logger.info("Stale warnings marked for %s tasks (%.1fms)", len(warned), duration_ms)
+        incr("sparkq.stale_warn.runs", tags={"status": status_tag})
+        observe("sparkq.stale_warn.duration_ms", duration_ms, tags={"status": status_tag})
+        incr("sparkq.stale_warn.marked", len(warned))
+        return warned
+
     def auto_fail_stale_tasks(self, timeout_multiplier: float = STALE_FAIL_MULTIPLIER) -> List[TaskRow]:
         """
         Auto-fail tasks that are stale using the provided timeout multiplier.
         """
         auto_failed: List[dict] = []
 
+        start = time.time()
         try:
             stale_tasks = self.get_stale_tasks(timeout_multiplier=timeout_multiplier)
-            for task in stale_tasks:
-                try:
-                    failed_task = self.fail_task(
-                        task["id"],
-                        "Task timeout (auto-failed)",
-                        error_type="TIMEOUT",
-                    )
-                    auto_failed.append(failed_task)
-                except Exception:
-                    # Continue processing other tasks even if one fails, but log it
-                    self.logger.exception("Failed to auto-fail stale task %s", task.get("id"))
-                    continue
-
-            self.logger.info("Auto-failed %s stale tasks", len(auto_failed))
-            return auto_failed
         except Exception:
-            self.logger.exception("Auto-fail stale tasks run failed")
-            return []
+            incr("sparkq.auto_fail.runs", tags={"status": "error"})
+            raise
+
+        for task in stale_tasks:
+            try:
+                failed_task = self.fail_task(
+                    task["id"],
+                    "Task timeout (auto-failed)",
+                    error_type="TIMEOUT",
+                )
+                auto_failed.append(failed_task)
+            except Exception:
+                # Continue processing other tasks even if one fails, but log it
+                self.logger.exception("Failed to auto-fail stale task %s", task.get("id"))
+                continue
+
+        duration_ms = (time.time() - start) * 1000
+        self.logger.info("Auto-failed %s stale tasks (%.1fms)", len(auto_failed), duration_ms)
+        status_tag = "empty" if not auto_failed else "ok"
+        incr("sparkq.auto_fail.runs", tags={"status": status_tag})
+        observe("sparkq.auto_fail.duration_ms", duration_ms, tags={"status": status_tag})
+        incr("sparkq.auto_fail.failed", len(auto_failed))
+        return auto_failed
 
     # === Prompt CRUD ===
     def create_prompt(

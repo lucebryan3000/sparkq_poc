@@ -114,11 +114,43 @@
         const isArchivedQueue = archivedQueues.has(task.queue_id);
         const queueLabel = isArchivedQueue ? `${queueName} (Archived)` : queueName;
         const rowClass = timeStatus.isStale ? 'task-stale-error' : timeStatus.isWarned ? 'task-stale-warning' : '';
-        const staleBadge = timeStatus.isStale
-          ? `<span class="timeout-badge timeout-badge-error">⚠️ TIMEOUT</span>`
-          : timeStatus.isWarned
-            ? `<span class="timeout-badge timeout-badge-warning">⚠️ WARNING</span>`
-            : '';
+
+        // Enhanced badge with tooltips and auto-failed detection
+        const staleBadge = (() => {
+          // Check for auto-failed tasks
+          const isAutoFailed = task.status === 'failed' &&
+                               task.error_message &&
+                               task.error_message.includes('Auto-failed');
+
+          if (isAutoFailed) {
+            const timeout = getTaskTimeout(task);
+            return `<span class="timeout-badge timeout-badge-auto-failed"
+                          title="Task was automatically failed after exceeding 2× timeout (${timeout * 2}s). Original timeout: ${timeout}s.">
+                      💀 AUTO-FAILED
+                    </span>`;
+          }
+
+          if (timeStatus.isStale) {
+            const elapsed = Math.round(timeStatus.elapsed);
+            const timeout = getTaskTimeout(task);
+            const overBy = elapsed - timeout;
+            return `<span class="timeout-badge timeout-badge-error"
+                          title="Task exceeded timeout by ${overBy}s (${elapsed}s elapsed, ${timeout}s timeout). Will be auto-failed at 2× timeout.">
+                      🔴 TIMEOUT
+                    </span>`;
+          }
+
+          if (timeStatus.isWarned) {
+            const remaining = Math.round(timeStatus.remaining);
+            const elapsed = Math.round(timeStatus.elapsed);
+            return `<span class="timeout-badge timeout-badge-warning"
+                          title="Task approaching timeout. ${remaining}s remaining (${elapsed}s elapsed).">
+                      ⚠️ WARNING
+                    </span>`;
+          }
+
+          return '';
+        })();
 
         return `
           <tr class="task-row ${rowClass}" data-task-id="${task.id}" data-archived="${isArchivedQueue ? '1' : '0'}">

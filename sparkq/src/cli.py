@@ -14,6 +14,7 @@ from typing import Optional
 import typer
 
 from .config import get_database_path, load_config
+from . import env as env_module
 from .index import ScriptIndex
 from .models import SessionStatus, QueueStatus, TaskClass, TaskStatus
 from .paths import get_config_path, get_test_logs_dir
@@ -265,6 +266,12 @@ def run(
     ),
     config: Optional[str] = typer.Option(None, "--config", "-c", help="Path to sparkq.yml"),
     e2e: bool = typer.Option(False, "--e2e", help="Run e2e tests and exit"),
+    env: Optional[str] = typer.Option(
+        None,
+        "--env",
+        "-e",
+        help="Environment for caching/behavior (dev|prod|test). Overrides SPARKQ_ENV/APP_ENV.",
+    ),
 ):
     """Start HTTP server.
 
@@ -328,6 +335,24 @@ def run(
 
     # session parameter is reserved for future UI defaults
     _ = session
+
+    # Resolve environment override (dev/prod/test aliases)
+    if env:
+        env_value = env.strip().lower()
+        env_aliases = {
+            "dev": "dev",
+            "development": "dev",
+            "local": "dev",
+            "test": "test",
+            "prod": "prod",
+            "production": "prod",
+            "live": "prod",
+        }
+        normalized_env = env_aliases.get(env_value)
+        if not normalized_env:
+            _invalid_field("env", env, valid_options=["dev", "prod", "test"])
+        os.environ["SPARKQ_ENV"] = normalized_env
+        env_module.reset_env_cache()
 
     # Resolve background flag: explicit --foreground takes precedence
     should_background = background if not foreground else False
@@ -1006,6 +1031,12 @@ def tasks(
 
     # Get tasks with filters
     task_list = get_storage().list_tasks(queue_id=queue_id, status=status, limit=limit or None)
+
+    # Apply stale filter if requested
+    if stale:
+        stale_tasks = get_storage().get_stale_tasks()
+        stale_ids = {t["id"] for t in stale_tasks}
+        task_list = [t for t in task_list if t["id"] in stale_ids]
 
     max_limit = get_storage().max_task_list_limit
     if limit is not None:

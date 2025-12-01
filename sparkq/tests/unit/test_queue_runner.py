@@ -1,8 +1,10 @@
 import types
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
+from sparkq import queue_runner
 from sparkq.queue_runner import process_one
 
 
@@ -79,3 +81,54 @@ def test_process_one_picks_oldest_and_completes(monkeypatch, mock_requests):
     complete_calls = [u for u, _ in mock_requests["post"] if "/complete" in u]
     assert claim_calls[0].endswith("/tsk_old/claim")
     assert complete_calls[0].endswith("/tsk_old/complete")
+
+
+def test_acquire_lock_uses_env_dir_and_blocks_duplicate(tmp_path, monkeypatch):
+    monkeypatch.setenv("SPARKQ_RUNNER_LOCK_DIR", str(tmp_path))
+    queue_runner.LOCK_FILE = None
+
+    queue_runner.acquire_lock("que_abc")
+    lock_path = Path(queue_runner.LOCK_FILE)
+
+    assert lock_path.parent == tmp_path
+    assert lock_path.exists()
+
+    with pytest.raises(SystemExit):
+        queue_runner.acquire_lock("que_abc")
+
+    queue_runner.release_lock()
+    assert not lock_path.exists()
+
+
+def test_acquire_lock_cleans_stale_lock(tmp_path, monkeypatch):
+    monkeypatch.setenv("SPARKQ_RUNNER_LOCK_DIR", str(tmp_path))
+    queue_runner.LOCK_FILE = None
+
+    stale_path = Path(tmp_path) / "sparkq-runner-que_stale.lock"
+    stale_path.write_text("999999")
+
+    def fake_kill(pid, sig):
+        raise OSError("not running")
+
+    monkeypatch.setattr(queue_runner.os, "kill", fake_kill)
+
+    queue_runner.acquire_lock("que_stale")
+
+    assert stale_path.exists()
+    assert stale_path.read_text().strip() == str(queue_runner.os.getpid())
+
+    queue_runner.release_lock()
+    assert not stale_path.exists()
+
+
+def test_get_lock_dir_prefers_config(monkeypatch, tmp_path):
+    monkeypatch.delenv("SPARKQ_RUNNER_LOCK_DIR", raising=False)
+    monkeypatch.setattr(queue_runner, "load_queue_runner_config", lambda: {"lock_dir": str(tmp_path)})
+    queue_runner.LOCK_FILE = None
+
+    queue_runner.acquire_lock("que_cfg")
+    lock_path = Path(queue_runner.LOCK_FILE)
+
+    assert lock_path.parent == tmp_path
+
+    queue_runner.release_lock()

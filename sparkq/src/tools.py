@@ -1,6 +1,5 @@
 """SparkQ Tool Registry"""
 
-import yaml
 from typing import Optional
 
 from .constants import DEFAULT_TOOL_TIMEOUT_SECONDS, TASK_CLASS_TIMEOUTS
@@ -40,12 +39,11 @@ class ToolRegistry:
     def _load_config(self):
         """Load tools and task_classes from YAML config"""
         try:
-            with open(self.config_path, 'r') as f:
-                config = yaml.safe_load(f) or {}
-                self.tools = _seed_default_tools(config.get('tools', {}) or {})
-                self.task_classes = config.get('task_classes', {}) or {}
-        except FileNotFoundError:
-            # Config doesn't exist yet - return empty dicts
+            config = load_config(self.config_path)
+            self.tools = _seed_default_tools(config.get('tools', {}) or {})
+            self.task_classes = config.get('task_classes', {}) or {}
+        except (FileNotFoundError, ValueError):
+            # Config doesn't exist or is invalid - return empty dicts
             self.tools = _seed_default_tools({})
             self.task_classes = {}
     

@@ -4,9 +4,22 @@
   <meta charset='utf-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
   <title>SparkQ</title>
-  <!-- Simple build/version id for cache-busting static assets (update as needed) -->
-  <script>window.__BUILD_ID__ = 'c821';</script>
-  <link rel="stylesheet" href="/ui/style.css?v=c821">
+  <script src="/ui-cache-buster.js"></script>
+  <script>
+    (function() {
+      const env = window.__SPARKQ_ENV__ || 'dev';
+      const buildId = window.__SPARKQ_BUILD_ID__ || window.__BUILD_ID__ || 'dev';
+      window.__BUILD_ID__ = buildId;
+      const isDevLike = env === 'dev' || env === 'test';
+      const cacheBuster = isDevLike ? (window.__SPARKQ_CACHE_BUSTER__ || 'dev') : '';
+      const versionQuery = cacheBuster ? `?v=${cacheBuster}` : '';
+      const stylesheet = document.createElement('link');
+      stylesheet.rel = 'stylesheet';
+      stylesheet.href = `/ui/style.css${versionQuery}`;
+      document.head.appendChild(stylesheet);
+    })();
+  </script>
+  <noscript><link rel="stylesheet" href="/ui/style.css"></noscript>
 </head>
 <body>
   <header class='app-header'>
@@ -42,20 +55,49 @@
 
   <div id='breadcrumbs' class='breadcrumbs'></div>
 
-  <!-- Core must load first -->
-  <script src="/ui/dist/app-core.js?v=c821"></script>
-  <script src="/ui/dist/ui-utils.js?v=c821"></script>
-  <script src="/ui/dist/quick-add.js?v=c821"></script>
-  <script src="/ui/dist/dashboard.js?v=c821"></script>
-  <script src="/ui/dist/queues.js?v=c821"></script>
-  <script src="/ui/dist/enqueue.js?v=c821"></script>
-  <script src="/ui/dist/config.js?v=c821"></script>
-  <script src="/ui/dist/scripts.js?v=c821"></script>
   <script>
     (function() {
+      const env = window.__SPARKQ_ENV__ || 'dev';
+      const isDevLike = env === 'dev' || env === 'test';
+      const cacheBuster = isDevLike ? (window.__SPARKQ_CACHE_BUSTER__ || 'dev') : '';
+      const versionQuery = cacheBuster ? `?v=${cacheBuster}` : '';
+      const assets = [
+        "/ui/dist/app-core.js",
+        "/ui/dist/ui-utils.js",
+        "/ui/dist/quick-add.js",
+        "/ui/dist/dashboard.js",
+        "/ui/dist/queues.js",
+        "/ui/dist/enqueue.js",
+        "/ui/dist/config.js",
+        "/ui/dist/scripts.js",
+      ].map((src) => `${src}${versionQuery}`);
+
+      const loadSequentially = (paths) =>
+        paths.reduce(
+          (chain, path) =>
+            chain.then(
+              () =>
+                new Promise((resolve) => {
+                  const script = document.createElement('script');
+                  script.src = path;
+                  script.async = false;
+                  script.onload = () => resolve();
+                  script.onerror = (err) => {
+                    console.error('Failed to load UI asset', path, err);
+                    resolve();
+                  };
+                  document.body.appendChild(script);
+                }),
+            ),
+          Promise.resolve(),
+        );
+
+      loadSequentially(assets).catch((err) => console.error('Failed to load UI assets', err));
+
       const el = document.getElementById('build-id');
-      if (el && window.__BUILD_ID__) {
-        el.textContent = `UI v${window.__BUILD_ID__}`;
+      const buildId = window.__SPARKQ_BUILD_ID__ || window.__BUILD_ID__;
+      if (el && buildId) {
+        el.textContent = `UI v${buildId}`;
       }
     })();
   </script>
