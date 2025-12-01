@@ -3,11 +3,12 @@
 # Default timeouts (seconds)
 DEFAULT_TASK_TIMEOUT_SECONDS = 300
 DEFAULT_TOOL_TIMEOUT_SECONDS = DEFAULT_TASK_TIMEOUT_SECONDS
+# Align defaults with sparkq.yml so UI/config are consistent with code.
 TASK_CLASS_TIMEOUTS = {
-    "FAST_SCRIPT": 30,
-    "MEDIUM_SCRIPT": 300,
-    "LLM_LITE": 300,
-    "LLM_HEAVY": 900,
+    "FAST_SCRIPT": 120,
+    "MEDIUM_SCRIPT": 600,
+    "LLM_LITE": 480,
+    "LLM_HEAVY": 1200,
 }
 
 # Database defaults

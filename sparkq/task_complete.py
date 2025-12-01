@@ -50,9 +50,17 @@ def complete_task(task_id: str, summary: str, result_data: str = None):
         "result_data": result_data or summary,
     }
 
+    resp = requests.post(f"{base_url}/api/tasks/{task_id}/complete", json=payload, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def reset_task(task_id: str, target_status: str = "running"):
+    """Reset an auto-failed task so it can be completed."""
+    base_url = get_base_url()
     resp = requests.post(
-        f"{base_url}/api/tasks/{task_id}/complete",
-        json=payload,
+        f"{base_url}/api/tasks/{task_id}/reset",
+        json={"target_status": target_status},
         timeout=10,
     )
     resp.raise_for_status()
@@ -78,6 +86,20 @@ def main():
         print(f"✅ Task {args.task_id} marked as succeeded")
         print(f"Result: {json.dumps(result, indent=2)}")
     except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 409 and "status is failed" in e.response.text:
+            print("⚠️ Task is currently failed (likely auto-failed). Attempting reset and retry...")
+            try:
+                reset_task(args.task_id, target_status="running")
+                result = complete_task(args.task_id, args.summary, args.data)
+                print(f"✅ Task {args.task_id} reset and marked as succeeded")
+                print(f"Result: {json.dumps(result, indent=2)}")
+                return
+            except Exception as inner:
+                print(f"❌ Reset + retry failed: {inner}")
+                if isinstance(inner, requests.HTTPError) and inner.response is not None:
+                    print(f"Response: {inner.response.text}")
+                sys.exit(1)
+
         print(f"❌ Error: {e}")
         if e.response is not None:
             print(f"Response: {e.response.text}")

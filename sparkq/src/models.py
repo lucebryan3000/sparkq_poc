@@ -56,6 +56,7 @@ class Queue(BaseModel):
     session_id: str
     name: str
     instructions: Optional[str] = None
+    codex_session_id: Optional[str] = None  # Codex CLI session for context continuity
     status: QueueStatus = QueueStatus.ACTIVE
     created_at: datetime
     updated_at: datetime
@@ -82,7 +83,7 @@ class Task(BaseModel):
 
 class TaskClassDefaults(BaseModel):
     """Default timeouts by task class"""
-    FAST_SCRIPT: int = 30
-    MEDIUM_SCRIPT: int = 300
-    LLM_LITE: int = 300
-    LLM_HEAVY: int = 900
+    FAST_SCRIPT: int = 120
+    MEDIUM_SCRIPT: int = 600
+    LLM_LITE: int = 480
+    LLM_HEAVY: int = 1200

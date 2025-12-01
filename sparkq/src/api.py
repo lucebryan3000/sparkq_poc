@@ -80,6 +80,42 @@ def _is_ui_static_request(path: str) -> bool:
     return path == "/" or path.startswith("/ui") or path == "/ui-cache-buster.js"
 
 
+def _list_build_prompt_files() -> list[str]:
+    """Return non-recursive list of Markdown prompt filenames under _build/prompts."""
+    prompts_dir = get_build_prompts_dir()
+    if not prompts_dir.exists() or not prompts_dir.is_dir():
+        return []
+
+    prompt_files = []
+    for entry in sorted(prompts_dir.iterdir()):
+        if entry.is_file() and entry.suffix.lower() == ".md":
+            prompt_files.append(entry.name)
+    return prompt_files
+
+
+def _read_build_prompt_file(filename: str) -> str:
+    """Load a prompt file by name from _build/prompts with traversal protection."""
+    if not filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=404, detail="Prompt file not found")
+
+    prompts_dir = get_build_prompts_dir().resolve()
+    try:
+        target = (prompts_dir / filename).resolve()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Prompt file not found")
+
+    if target.parent != prompts_dir or target.suffix.lower() != ".md":
+        raise HTTPException(status_code=404, detail="Prompt file not found")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Prompt file not found")
+
+    try:
+        return target.read_text(encoding="utf-8")
+    except OSError:
+        logger.exception("Failed to read prompt file: %s", target)
+        raise HTTPException(status_code=500, detail="Failed to read prompt file")
+
+
 @app.get("/")
 async def root():
     """Redirect root to UI dashboard."""
@@ -474,6 +510,10 @@ class QueueUpdateRequest(BaseModel):
     instructions: Optional[str] = None
 
 
+class CodexSessionRequest(BaseModel):
+    session_id: str
+
+
 class TaskCreateRequest(BaseModel):
     queue_id: str
     tool_name: str
@@ -495,6 +535,10 @@ class TaskCompleteRequest(BaseModel):
 class TaskFailRequest(BaseModel):
     error_message: str
     error_type: Optional[str] = None
+
+
+class TaskResetRequest(BaseModel):
+    target_status: Optional[str] = "running"
 
 
 class QuickAddTaskRequest(BaseModel):
@@ -613,18 +657,20 @@ async def version():
 @app.get("/api/build-prompts")
 async def list_build_prompts():
     """
-    List Markdown prompts under _build/prompts-build (excluding archive-like folders).
-    Returns relative paths from repo root.
+    List Markdown prompts under _build/prompts (non-recursive).
+    Returns relative paths from repo root for compatibility.
     """
     prompts_dir = get_build_prompts_dir()
     repo_root = prompts_dir.parent.parent
     prompts = []
-    if prompts_dir.exists():
-        for path in sorted(prompts_dir.rglob("*.md")):
-            if "archive" in path.parts:
-                continue
+    for name in _list_build_prompt_files():
+        path = (prompts_dir / name).resolve()
+        try:
             rel = path.relative_to(repo_root)
-            prompts.append({"name": path.name, "path": str(rel)})
+            rel_str = str(rel)
+        except ValueError:
+            rel_str = name
+        prompts.append({"name": name, "path": rel_str})
     return {"prompts": prompts}
 
 
@@ -885,6 +931,20 @@ async def unarchive_queue(queue_id: str):
     queue = storage.get_queue(queue_id)
     return {"message": "Queue unarchived", "queue": queue}
 
+
+@app.post("/api/queues/{queue_id}/codex-session")
+async def set_queue_codex_session_endpoint(queue_id: str, request: CodexSessionRequest) -> dict:
+    """Store Codex CLI session ID for queue context continuity"""
+    try:
+        storage.set_queue_codex_session(queue_id, request.session_id)
+        return {
+            "status": "ok",
+            "queue_id": queue_id,
+            "codex_session_id": request.session_id
+        }
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
 @app.delete("/api/queues/{queue_id}")
 async def delete_queue(queue_id: str):
     deleted = storage.delete_queue(queue_id)
@@ -1006,7 +1066,14 @@ async def complete_task(task_id: str, request: TaskCompleteRequest):
         raise HTTPException(status_code=404, detail="Task not found")
     current_status = task.get("status") or "unknown"
     if current_status != "running":
-        raise HTTPException(status_code=409, detail=f"Cannot complete task while status is {current_status}")
+        if current_status == "failed" and storage.is_auto_failed(task):
+            try:
+                task = storage.reset_auto_failed_task(task_id, target_status="running")
+                current_status = task.get("status") or "unknown"
+            except ConflictError as err:
+                raise HTTPException(status_code=409, detail=str(err)) from err
+        else:
+            raise HTTPException(status_code=409, detail=f"Cannot complete task while status is {current_status}")
     if not request.result_summary.strip():
         raise HTTPException(status_code=400, detail="Result summary is required")
 
@@ -1029,6 +1096,24 @@ async def fail_task(task_id: str, request: TaskFailRequest):
     updated_task = storage.fail_task(task_id, request.error_message, request.error_type)
     updated_task.setdefault("failed_at", updated_task.get("finished_at"))
     updated_task.setdefault("error_message", request.error_message)
+
+    return {"task": _serialize_task(updated_task)}
+
+
+@app.post("/api/tasks/{task_id}/reset")
+async def reset_task(task_id: str, request: TaskResetRequest = Body(default_factory=TaskResetRequest)):
+    task = storage.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    target_status = (request.target_status or "running").lower()
+    if target_status not in {"running", "queued"}:
+        raise HTTPException(status_code=400, detail="target_status must be 'running' or 'queued'")
+
+    try:
+        updated_task = storage.reset_auto_failed_task(task_id, target_status=target_status)
+    except ConflictError as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
 
     return {"task": _serialize_task(updated_task)}
 
@@ -1355,7 +1440,11 @@ async def delete_tool(name: str):
 
 
 @app.get("/api/prompts")
-async def list_prompts():
+async def list_prompts(source: str = Query("db", description="db (default) or build for filesystem prompts")):
+    normalized_source = (source or "db").lower()
+    if normalized_source in {"build", "file", "files"}:
+        return {"prompts": _list_build_prompt_files()}
+
     prompts = storage.list_prompts()
     response_prompts = []
     for prompt in prompts:
@@ -1365,7 +1454,19 @@ async def list_prompts():
 
 
 @app.get("/api/prompts/{prompt_id}")
-async def get_prompt(prompt_id: str):
+async def get_prompt(prompt_id: str, source: str = Query("db", description="db (default) or build for filesystem prompts")):
+    normalized_source = (source or "db").lower()
+    should_try_file = normalized_source in {"build", "file", "files"} or prompt_id.lower().endswith(".md")
+
+    if should_try_file:
+        try:
+            content = _read_build_prompt_file(prompt_id)
+            return {"content": content, "filename": prompt_id}
+        except HTTPException as exc:
+            if normalized_source in {"build", "file", "files"} or exc.status_code != 404:
+                raise
+            # If not explicitly requesting a build prompt, fall back to DB lookup on 404
+
     prompt = storage.get_prompt(prompt_id)
     if not prompt:
         raise HTTPException(status_code=404, detail="Prompt not found")
@@ -1432,11 +1533,11 @@ async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
     return {"prompt": prompt}
 
 
-    @app.delete("/api/prompts/{prompt_id}")
-    async def delete_prompt(prompt_id: str):
-        try:
-            storage.delete_prompt(prompt_id)
-        except SparkQError as exc:
-            raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
+@app.delete("/api/prompts/{prompt_id}")
+async def delete_prompt(prompt_id: str):
+    try:
+        storage.delete_prompt(prompt_id)
+    except SparkQError as exc:
+        raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
 
     return {"message": "Prompt deleted successfully"}

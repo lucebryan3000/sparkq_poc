@@ -241,6 +241,32 @@ class TestTaskEndpoints:
         assert data["task"]["queue_id"] == original["queue_id"]
         assert data["task"]["id"] != original["id"]
 
+    def test_reset_and_complete_auto_failed_task(self, api_client, storage_with_stream):
+        storage = storage_with_stream["storage"]
+        queue = storage_with_stream["queue"]
+        task = storage.create_task(
+            queue_id=queue["id"],
+            tool_name="llm-codex",
+            task_class="LLM_HEAVY",
+            payload=_payload(),
+            timeout=1200,
+            prompt_path="prompt.txt",
+            metadata=json.dumps({"source": "autofail"}),
+        )
+        storage.claim_task(task["id"])
+        storage.fail_task(task["id"], "Task timeout (auto-failed)", error_type="TIMEOUT")
+
+        reset_resp = api_client.post(f"/api/tasks/{task['id']}/reset", json={"target_status": "running"})
+        assert reset_resp.status_code == 200
+        assert reset_resp.json()["task"]["status"] == "running"
+
+        complete_resp = api_client.post(
+            f"/api/tasks/{task['id']}/complete",
+            json={"result_summary": "Recovered", "result_data": "Recovered"},
+        )
+        assert complete_resp.status_code == 200
+        assert complete_resp.json()["task"]["status"] == "succeeded"
+
     def test_handle_task_errors(self, api_client):
         response = api_client.get("/api/tasks?status=invalid")
         assert response.status_code == 400

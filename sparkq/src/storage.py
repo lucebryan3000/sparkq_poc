@@ -5,7 +5,7 @@ import logging
 import sqlite3
 import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Optional, List, Dict, Any
@@ -52,6 +52,7 @@ class QueueRow(TypedDict):
     session_id: str
     name: str
     instructions: NotRequired[str]
+    codex_session_id: NotRequired[str]
     status: str
     created_at: str
     updated_at: str
@@ -176,12 +177,14 @@ class Storage:
                 session_id TEXT NOT NULL REFERENCES sessions(id),
                 name TEXT NOT NULL UNIQUE,
                 instructions TEXT,
+                codex_session_id TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
             )
+            _ensure_column("queues", "codex_session_id", "TEXT")
 
             cursor.execute(
                 """
@@ -504,6 +507,27 @@ class Storage:
             cursor = conn.execute("SELECT * FROM queues WHERE name = ?", (name,))
             row = cursor.fetchone()
             return dict(row) if row else None
+
+    def set_queue_codex_session(self, queue_id: str, session_id: str) -> None:
+        """Store Codex session ID for queue continuity"""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "UPDATE queues SET codex_session_id = ?, updated_at = ? WHERE id = ?",
+                (session_id, datetime.now(UTC).isoformat(), queue_id)
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError(f"Queue {queue_id} not found")
+
+    def get_queue_codex_session(self, queue_id: str) -> Optional[str]:
+        """Get Codex session ID for queue (None if not set)"""
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT codex_session_id FROM queues WHERE id = ?",
+                (queue_id,)
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"Queue {queue_id} not found")
+            return row[0]
 
     def get_queue_names(self, queue_ids: List[str]) -> Dict[str, str]:
         """Return a mapping of queue_id -> name for provided IDs."""
@@ -973,6 +997,43 @@ class Storage:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    @staticmethod
+    def is_auto_failed(task: Optional[TaskRow]) -> bool:
+        """Detect if a task failure was produced by the auto-fail daemon."""
+        if not task or (task.get("status") != "failed"):
+            return False
+        error_val = str(task.get("error") or "").lower()
+        return "auto-fail" in error_val or "auto failed" in error_val or "timeout: task timeout" in error_val
+
+    def reset_auto_failed_task(self, task_id: str, target_status: str = "running") -> TaskRow:
+        """
+        Reset an auto-failed task so a worker can finish it.
+
+        Only allows reset when the failure reason was produced by the auto-fail daemon.
+        Clears error/finished timestamps and moves status to target_status.
+        """
+        task = self.get_task(task_id)
+        if not task:
+            raise NotFoundError(f"Task {task_id} not found")
+        if not self.is_auto_failed(task):
+            raise ConflictError("Task is not auto-failed or already recovered")
+
+        now = now_iso()
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE tasks
+                SET status = ?, error = NULL, finished_at = NULL, stale_warned_at = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (target_status, now, task_id),
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError(f"Task {task_id} not found")
+
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            return dict(row) if row else task
+
     def requeue_task(self, task_id: str) -> TaskRow:
         """Reset a failed task to queued status (clone as new task with new ID)"""
         # Get the original task
@@ -1060,10 +1121,9 @@ class Storage:
 
         Returns timeout in seconds, defaulting to task-class defaults on errors.
         """
-        from .constants import TASK_CLASS_TIMEOUTS
+        from .tools import default_timeout_for_task_class, get_registry
 
-        default_timeouts = TASK_CLASS_TIMEOUTS
-        fallback_default = default_timeouts.get("MEDIUM_SCRIPT", DEFAULT_TASK_TIMEOUT_SECONDS)
+        fallback_default = default_timeout_for_task_class("MEDIUM_SCRIPT")
         task_class = None
         try:
             task = self.get_task(task_id)
@@ -1085,24 +1145,22 @@ class Storage:
             registry = getattr(self, "registry", None)
             if registry is None:
                 try:
-                    from .tools import get_registry
-
                     registry = get_registry()
                 except Exception:
                     registry = None
 
             if registry:
                 try:
-                    registry_timeout = registry.get_timeout(tool_name) if tool_name else None
+                    registry_timeout = registry.get_timeout(tool_name, task_class=task_class) if tool_name else None
                 except Exception:
                     registry_timeout = None
 
                 if registry_timeout is not None and registry_timeout > 0:
                     return registry_timeout
 
-            return default_timeouts.get(task_class, fallback_default)
+            return default_timeout_for_task_class(task_class)
         except Exception:
-            return default_timeouts.get(task_class, fallback_default)
+            return default_timeout_for_task_class(task_class)
 
     def get_stale_tasks(self, timeout_multiplier: float = STALE_WARNING_MULTIPLIER) -> List[TaskRow]:
         """
@@ -1113,7 +1171,7 @@ class Storage:
         """
         stale_tasks: List[TaskRow] = []
 
-        now_ts = datetime.utcnow().timestamp()
+        now_dt = datetime.now(timezone.utc)
         try:
             with self.connection() as conn:
                 cursor = conn.execute(
@@ -1135,16 +1193,29 @@ class Storage:
                 continue
 
             timeout_seconds = self.get_timeout_for_task(task["id"])
-
-            try:
-                claimed_dt = datetime.fromisoformat(str(claimed_at).replace("Z", "+00:00"))
-                claimed_ts = claimed_dt.timestamp()
-            except Exception:
-                # Skip tasks with invalid timestamps instead of crashing
+            if timeout_seconds is None or timeout_seconds <= 0:
                 continue
 
-            deadline_ts = claimed_ts + (timeout_seconds * timeout_multiplier)
-            if now_ts > deadline_ts:
+            try:
+                claimed_dt = datetime.fromisoformat(str(claimed_at).replace("Z", "+00:00")).astimezone(timezone.utc)
+            except Exception:
+                # Skip tasks with invalid timestamps instead of crashing
+                self.logger.warning("Skipping stale check for task %s due to invalid claimed_at=%s", task.get("id"), claimed_at)
+                continue
+
+            deadline_dt = claimed_dt + timedelta(seconds=timeout_seconds * timeout_multiplier)
+            if now_dt >= deadline_dt:
+                self.logger.info(
+                    "Task %s considered stale (status=%s class=%s timeout=%ss multiplier=%.2f claimed_at=%s deadline=%s now=%s)",
+                    task.get("id"),
+                    task.get("status"),
+                    task.get("task_class"),
+                    timeout_seconds,
+                    timeout_multiplier,
+                    claimed_dt.isoformat(),
+                    deadline_dt.isoformat(),
+                    now_dt.isoformat(),
+                )
                 stale_tasks.append(task)
 
         status_tag = "empty" if not stale_tasks else "ok"
@@ -1227,6 +1298,15 @@ class Storage:
                     task["id"],
                     "Task timeout (auto-failed)",
                     error_type="TIMEOUT",
+                )
+                self.logger.warning(
+                    "Auto-failed task %s (class=%s timeout=%s multiplier=%.2f claimed_at=%s started_at=%s)",
+                    task.get("id"),
+                    task.get("task_class"),
+                    self.get_timeout_for_task(task["id"]),
+                    timeout_multiplier,
+                    task.get("claimed_at"),
+                    task.get("started_at"),
                 )
                 auto_failed.append(failed_task)
             except Exception:
