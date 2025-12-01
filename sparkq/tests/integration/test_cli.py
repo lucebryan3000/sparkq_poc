@@ -538,4 +538,4 @@ class TestCliBehavior:
         assert result.exit_code == 0
         assert output.exists()
         contents = output.read_text()
-        assert "project:" in contents
+        assert "features:" in contents
