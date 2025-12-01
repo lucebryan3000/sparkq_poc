@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-Queue runner for SparkQ with smart defaults and multiple execution modes.
+Queue runner for SparkQ - streams task prompts to Claude-in-chat for execution.
+
+Execution Model:
+  - Queue runner streams prompts to stdout
+  - Claude (in chat) reads prompts and executes them
+  - Queue runner auto-completes tasks via API
+  - Context preserved across tasks (single chat thread)
 
 Configuration (sparkq.yml):
   queue_runner:
@@ -37,12 +43,25 @@ import os
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
-import yaml
 import socket
-from pathlib import Path
+
+# Ensure we import from the package when executed as a script
+ROOT_DIR = Path(__file__).resolve().parent
+SRC_DIR = ROOT_DIR / "src"
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from src.config import (  # type: ignore
+    get_queue_runner_config as config_queue_runner_config,
+    get_server_config as config_server_config,
+    load_config,
+)
 
 try:
     from anthropic import Anthropic, APIError
@@ -61,14 +80,8 @@ def load_queue_runner_config():
 
     Returns empty dict if config file doesn't exist (all defaults apply).
     """
-    config_path = Path("sparkq.yml")
-    if not config_path.exists():
-        return {}
-
-    with open(config_path) as f:
-        full_config = yaml.safe_load(f) or {}
-
-    return full_config.get("queue_runner", {})
+    cfg = load_config()
+    return config_queue_runner_config(cfg)
 
 
 def get_server_config():
@@ -80,14 +93,8 @@ def get_server_config():
 
     Returns default if config file doesn't exist.
     """
-    config_path = Path("sparkq.yml")
-    if not config_path.exists():
-        return {"port": 5005}
-
-    with open(config_path) as f:
-        full_config = yaml.safe_load(f) or {}
-
-    return full_config.get("server", {"port": 5005})
+    cfg = load_config()
+    return config_server_config(cfg)
 
 
 def get_default_base_url():
@@ -254,77 +261,25 @@ def fail_task(base_url: str, task_id: str, message: str, stderr_text: str = "") 
     resp.raise_for_status()
 
 
-def execute_with_claude(
-    prompt_text: str,
-    timeout: int = 30,
-    task_id: str = "",
-) -> Dict[str, Any]:
+def display_queue_instructions(queue: dict) -> None:
     """
-    Execute a prompt via Claude Haiku API.
+    Display queue instructions once at the start of queue processing.
 
-    Args:
-        prompt_text: The prompt to execute
-        timeout: Execution timeout in seconds (default 30)
-        task_id: Task ID for logging
-
-    Returns:
-        Dict with keys:
-        - response: Claude's response text or None
-        - input_tokens: Number of input tokens used
-        - output_tokens: Number of output tokens used
-        - error: Error message if failed, None otherwise
+    Instructions provide context, guardrails, and scope boundaries for all tasks.
+    Once displayed, they remain in LLM context for subsequent tasks.
     """
-    if Anthropic is None:
-        return {
-            "response": None,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "error": "anthropic package not installed. Install with: pip install anthropic",
-        }
+    instructions = queue.get("instructions", "").strip()
+    if not instructions:
+        return
 
-    try:
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            return {
-                "response": None,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "error": "ANTHROPIC_API_KEY environment variable not set",
-            }
-
-        client = Anthropic(api_key=api_key)
-        message = client.messages.create(
-            model="claude-3-5-haiku-20241022",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt_text}],
-            timeout=timeout,
-        )
-
-        response_text = message.content[0].text if message.content else ""
-
-        return {
-            "response": response_text,
-            "input_tokens": getattr(message.usage, "input_tokens", 0),
-            "output_tokens": getattr(message.usage, "output_tokens", 0),
-            "error": None,
-        }
-    except APIError as exc:
-        return {
-            "response": None,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "error": f"Claude API error: {exc}",
-        }
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "response": None,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "error": f"Unexpected error: {exc}",
-        }
+    print("\n" + "="*80)
+    print("📋 QUEUE INSTRUCTIONS")
+    print("="*80)
+    print(instructions)
+    print("="*80 + "\n")
 
 
-def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = False) -> bool:
+def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = True) -> bool:
     tasks = fetch_tasks(base_url, queue["id"])
     # Oldest-first: sort by created_at ascending
     tasks = sorted(tasks, key=lambda t: t.get("created_at") or "")
@@ -334,6 +289,7 @@ def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = Fals
 
     task = queued[0]
     task_id = task["id"]
+    tool_name = task.get("tool_name", "llm-haiku")
 
     claimed = claim_task(base_url, task_id, worker_id)
     if not claimed:
@@ -352,27 +308,28 @@ def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = Fals
         prompt = payload.get("prompt") or json.dumps(payload)
 
     friendly_id = task.get("friendly_id", task_id)
-    log(f"Task: {friendly_id}")
+    log(f"Task: {friendly_id} ({task_id})")
+    log(f"Tool: {tool_name}")
     log(f"Prompt:\n{prompt}\n")
 
-    try:
-        if execute:
-            result = execute_with_claude(prompt, timeout=task.get("timeout") or 30, task_id=task_id)
-            summary = result.get("error") or "Claude execution succeeded"
-            complete_task(base_url, task_id, summary, result, stdout_text=result.get("response") or "")
-        else:
-            result_summary = "Executed externally"
-            result_data = {"prompt": prompt, "note": "Completed by queue_runner (dry-run)"}
-            complete_task(base_url, task_id, result_summary, result_data)
-        log(f"✅ Completed: {friendly_id}")
-        return True
-    except Exception as exc:  # noqa: BLE001
-        log(f"❌ Error executing task {friendly_id}: {exc}")
-        try:
-            fail_task(base_url, task_id, str(exc))
-        except Exception as fail_exc:  # noqa: BLE001
-            log(f"Failed to mark task {friendly_id} as failed: {fail_exc}")
-        return True  # Made progress
+    # Generate explicit execution instruction based on tool_name
+    if tool_name == "llm-haiku":
+        log(f"🔧 EXECUTE WITH: /haiku {prompt}")
+    elif tool_name == "llm-codex":
+        log(f"🔧 EXECUTE WITH: codex exec --full-auto -C /home/luce/apps/sparkqueue \"{prompt}\"")
+    elif tool_name == "llm-sonnet":
+        log(f"🔧 EXECUTE WITH: Current Sonnet session (answer directly)")
+    else:
+        log(f"🔧 EXECUTE WITH: Unknown tool '{tool_name}' - use Sonnet as fallback")
+
+    log(f"⏳ Status: Running (claimed by {worker_id})")
+    log(f"✅ COMPLETE WITH: ./sparkq/task_complete.py {task_id} \"<summary>\" --data \"<result>\"\n")
+
+    # If execute is False, immediately mark complete as a dry-run; otherwise let external execution handle it
+    if not execute:
+        complete_task(base_url, task_id, summary="Completed by queue_runner (dry-run)", result="Completed by queue_runner (dry-run)")
+    # Task is now in 'running' status from claim_task() (or completed if dry-run)
+    return True  # Made progress (task is now running or completed)
 
 
 def main():
@@ -413,12 +370,6 @@ def main():
         help="Continuous polling mode: keep running and poll every N seconds (honors --poll/config)"
     )
 
-    parser.add_argument(
-        "--execute",
-        action="store_true",
-        help="Execute prompts via Claude Haiku (requires ANTHROPIC_API_KEY)"
-    )
-
     args = parser.parse_args()
 
     # Apply smart defaults (all from config)
@@ -445,12 +396,15 @@ def main():
     # Log startup info
     log(f"Starting worker for queue '{queue_name}' as {worker_id}")
     log(f"Server: {base_url}")
-    log("Mode: Dry-run (log prompts only)")
+    log("Mode: Stream prompts to Claude-in-chat")
+
+    # Display queue instructions once at the start (if present)
+    display_queue_instructions(queue)
 
     # Determine execution mode (default: run once through queue, then exit)
     if args.once:
         log("Mode: Process one task then exit (--once)")
-        did_work = process_one(base_url, queue, worker_id, execute=args.execute)
+        did_work = process_one(base_url, queue, worker_id)
         if not did_work:
             log("No tasks available")
         sys.exit(0)
@@ -460,7 +414,7 @@ def main():
         log("Press Ctrl+C to stop")
         try:
             while True:
-                did_work = process_one(base_url, queue, worker_id, execute=args.execute)
+                did_work = process_one(base_url, queue, worker_id)
                 if not did_work:
                     time.sleep(poll_interval)
         except KeyboardInterrupt:
@@ -474,7 +428,7 @@ def main():
     log("Mode: Process queue until empty then exit (--run, default)")
     tasks_processed = 0
     while True:
-        did_work = process_one(base_url, queue, worker_id, execute=args.execute)
+        did_work = process_one(base_url, queue, worker_id)
         if did_work:
             tasks_processed += 1
         else:

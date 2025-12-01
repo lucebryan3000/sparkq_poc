@@ -63,7 +63,7 @@ npm run test:all
 ## Environment Variables
 
 **Python Tests:**
-- No special env vars required (uses isolated test databases)
+- Uses isolated configs/DBs per test; fixtures set `SPARKQ_CONFIG` to a temp `sparkq.yml` and call `paths.reset_paths_cache()`. When adding new tests that rely on config resolution, set those the same way.
 
 **Browser Tests:**
 - `PUPPETEER_DEBUG=1` - Verbose logging (requests, responses, cache headers)
@@ -105,7 +105,7 @@ cd sparkq && pytest tests/e2e/test_queue_lifecycle.py -v
 # - Failure handling
 # - Requeue
 # - FIFO ordering
-# - Stream isolation
+# - Queue isolation
 ```
 
 ### Check Server Health

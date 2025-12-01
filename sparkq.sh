@@ -24,9 +24,9 @@ SparkQ CLI Wrapper
 Usage: ./sparkq.sh [COMMAND] [OPTIONS]
 
 Server Commands:
-  start                  Start server in background
+  start                  Start server in background (uses sparkq.yml host/port unless overridden)
   restart                Stop, wait 5 seconds, then start (clean restart)
-  run [--foreground|--e2e]     Start server (--foreground for interactive, --e2e to run e2e tests)
+  run [--foreground|--e2e]     Start server (--foreground for interactive, --e2e to run full pytest suite)
   stop                   Stop the server
   status                 Check server status
 
@@ -34,7 +34,7 @@ Database & Config:
   setup                  Interactive setup (create sparkq.yml + database)
   reload                 Reload configuration and script index
 
-Session & Stream:
+Session & Queue:
   session create <name>  Create a named session
   session list           List all sessions
   session end <id>       End a session
@@ -55,7 +55,8 @@ Options:
   -h, --help             Show this help message
 
 Examples:
-  ./sparkq.sh start                  # Start server in background
+  ./sparkq.sh start                  # Start server in background (reads host/port/db from sparkq.yml)
+  ./sparkq.sh run --config /path/to/sparkq.yml  # Use a specific config file
   ./sparkq.sh restart                # Stop, wait 5s, then start
   ./sparkq.sh run                    # Start server in foreground
   ./sparkq.sh setup                  # Interactive setup

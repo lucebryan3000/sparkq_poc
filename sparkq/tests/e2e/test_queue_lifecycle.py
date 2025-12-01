@@ -3,6 +3,7 @@ E2E Queue Lifecycle Tests
 Tests the complete lifecycle of tasks through SparkQ without browser
 """
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -14,6 +15,7 @@ from typer.testing import CliRunner
 from src.cli import app
 from src.storage import Storage
 from src.tools import reload_registry
+from src import paths
 
 
 @pytest.fixture
@@ -47,6 +49,8 @@ def queue_runner(tmp_path):
         storage.create_project(name="queue-test", repo_path=str(temp_dir), prd_path=None)
 
         reload_registry()
+        paths.reset_paths_cache()
+        os.environ["SPARKQ_CONFIG"] = str(Path.cwd() / "sparkq.yml")
         yield runner, storage
 
 

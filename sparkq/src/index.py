@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import yaml
+from .config import load_config
+from .paths import get_config_path
 
 
 class ScriptIndex:
@@ -14,20 +15,15 @@ class ScriptIndex:
     METADATA_KEYS = {"name", "description", "inputs", "outputs", "tags", "timeout", "task_class"}
     COMMENT_PREFIXES = ("#", "//")
 
-    def __init__(self, config_path: str = "sparkq.yml"):
-        self.config_path = Path(config_path)
+    def __init__(self, config_path: str | None = None):
+        # Resolve config path at runtime to honor current working directory
+        resolved = Path(config_path) if config_path is not None else get_config_path()
+        self.config_path = Path(resolved)
         self.index: List[Dict[str, Any]] = []
 
     def _load_config(self) -> Dict[str, Any]:
         """Load YAML config, returning an empty dict on any error."""
-        if not self.config_path.exists():
-            return {}
-
-        try:
-            with open(self.config_path, "r", encoding="utf-8", errors="ignore") as handle:
-                return yaml.safe_load(handle) or {}
-        except (yaml.YAMLError, OSError):
-            return {}
+        return load_config(self.config_path)
 
     def _resolve_script_dirs(self) -> List[Path]:
         """Return configured script directories as absolute paths."""

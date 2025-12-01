@@ -121,7 +121,7 @@ class TestSessionOperations:
         assert updated["ended_at"].endswith("Z")
 
 
-class TestStreamOperations:
+class TestQueueOperations:
     def test_create_queue_for_session(self, storage, session):
         queue = storage.create_queue(
             session_id=session["id"],
@@ -144,25 +144,36 @@ class TestStreamOperations:
         with pytest.raises(sqlite3.IntegrityError):
             storage.create_queue(session_id=session["id"], name="unique-queue")
 
-    def test_list_streams_filters_by_session(self, storage, project):
+    def test_list_queues_filters_by_session(self, storage, project):
         session_one = storage.create_session(name="session-one")
         session_two = storage.create_session(name="session-two")
 
-        first_stream = storage.create_queue(session_id=session_one["id"], name="s-one")
+        first_queue = storage.create_queue(session_id=session_one["id"], name="s-one")
         storage.create_queue(session_id=session_two["id"], name="s-two")
-        second_stream = storage.create_queue(session_id=session_one["id"], name="s-three")
+        second_queue = storage.create_queue(session_id=session_one["id"], name="s-three")
 
         queues = storage.list_queues(session_id=session_one["id"])
-        stream_ids = {s["id"] for s in queues}
-        assert stream_ids == {first_stream["id"], second_stream["id"]}
+        queue_ids = {s["id"] for s in queues}
+        assert queue_ids == {first_queue["id"], second_queue["id"]}
 
-    def test_get_stream_by_name(self, storage, session):
+    def test_get_queue_by_name(self, storage, session):
         queue = storage.create_queue(session_id=session["id"], name="lookup-queue")
 
         retrieved = storage.get_queue_by_name("lookup-queue")
         assert retrieved is not None
         assert retrieved["id"] == queue["id"]
         assert retrieved["name"] == "lookup-queue"
+
+    def test_get_queue_names_returns_id_map(self, storage, session):
+        queue_one = storage.create_queue(session_id=session["id"], name="queue-one")
+        queue_two = storage.create_queue(session_id=session["id"], name="queue-two")
+
+        names = storage.get_queue_names([queue_one["id"], queue_two["id"], queue_one["id"]])
+
+        assert names == {
+            queue_one["id"]: "queue-one",
+            queue_two["id"]: "queue-two",
+        }
 
 
 class TestTaskOperations:
@@ -328,17 +339,46 @@ class TestTaskOperations:
             timeout=1,
         )
 
-        # Add claimed_at column for stale detection and mark task as claimed long ago
+        # Mark task as running with an old claim timestamp
         with storage.connection() as conn:
-            conn.execute("ALTER TABLE tasks ADD COLUMN claimed_at TEXT")
             conn.execute(
-                "UPDATE tasks SET status = 'claimed', claimed_at = ? WHERE id = ?",
+                "UPDATE tasks SET status = 'running', claimed_at = ? WHERE id = ?",
                 ("2000-01-01T00:00:00Z", task["id"]),
             )
 
         stale_tasks = storage.get_stale_tasks(timeout_multiplier=1.0)
         assert len(stale_tasks) == 1
         assert stale_tasks[0]["id"] == task["id"]
+
+    def test_list_tasks_enforces_max_limit(self, storage, queue):
+        storage.max_task_list_limit = 3
+        for i in range(5):
+            storage.create_task(
+                queue_id=queue["id"],
+                tool_name=f"tool-{i}",
+                task_class="LIMIT",
+                payload="{}",
+                timeout=10,
+            )
+
+        tasks = storage.list_tasks(queue_id=queue["id"], status=None, limit=None)
+        assert len(tasks) == 3
+
+    def test_get_queue_stats_returns_counts(self, storage, queue):
+        # create tasks with different statuses
+        storage.create_task(queue_id=queue["id"], tool_name="t1", task_class="A", payload="{}", timeout=10)
+        running = storage.create_task(queue_id=queue["id"], tool_name="t2", task_class="B", payload="{}", timeout=10)
+        queued = storage.create_task(queue_id=queue["id"], tool_name="t3", task_class="C", payload="{}", timeout=10)
+        storage.claim_task(running["id"])
+        storage.claim_task(queued["id"])
+        storage.fail_task(queued["id"], error_message="fail")
+        stats = storage.get_queue_stats([queue["id"]])
+        assert queue["id"] in stats
+        assert stats[queue["id"]]["total"] == 3
+        assert stats[queue["id"]]["running"] == 1
+        # One task remains queued because only two were claimed above
+        assert stats[queue["id"]]["queued"] == 1
+        assert stats[queue["id"]]["done"] == 0
 
 
 class TestTaskCounts:

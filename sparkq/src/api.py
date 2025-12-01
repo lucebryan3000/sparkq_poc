@@ -4,10 +4,8 @@ import logging
 import sqlite3
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,14 +13,21 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .constants import TASK_CLASS_TIMEOUTS
+from .config import get_database_path, load_config
+from .errors import ConflictError, NotFoundError, SparkQError, ValidationError
 from .index import ScriptIndex
+from .models import TaskStatus
+from .paths import get_build_prompts_dir, get_ui_dir, get_config_path
 from .storage import Storage, now_iso
 from .tools import get_registry, reload_registry
 
 logger = logging.getLogger(__name__)
-storage = Storage()
+CONFIG_PATH = get_config_path()
+_config_boot = load_config(CONFIG_PATH)
+storage = Storage(get_database_path(_config_boot))
 SERVER_BUILD_ID = "b713"
-CONFIG_CACHE_TTL_SECONDS = 5
+CONFIG_CACHE_TTL_SECONDS = 60
 _config_cache: Dict[str, Any] = {"data": None, "expires_at": 0.0}
 
 app = FastAPI(title="SparkQ API")
@@ -62,16 +67,11 @@ async def root():
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/ui/")
 
-static_dir = Path(__file__).resolve().parent.parent / "ui"
+static_dir = get_ui_dir()
 app.mount("/ui", StaticFiles(directory=static_dir, html=True, check_dir=False), name="ui")
 
-TASK_STATUS_VALUES = {"queued", "running", "succeeded", "failed"}
-DEFAULT_TASK_TIMEOUTS = {
-    "FAST_SCRIPT": 30,
-    "MEDIUM_SCRIPT": 300,
-    "LLM_LITE": 300,
-    "LLM_HEAVY": 900,
-}
+TASK_STATUS_VALUES = {status.value for status in TaskStatus}
+DEFAULT_TASK_TIMEOUTS = {**TASK_CLASS_TIMEOUTS}
 
 _LIST_HAS_OFFSET = "offset" in inspect.signature(storage.list_tasks).parameters
 _CREATE_HAS_PAYLOAD = "payload" in inspect.signature(storage.create_task).parameters
@@ -81,7 +81,6 @@ _CLAIM_HAS_WORKER = "worker_id" in inspect.signature(storage.claim_task).paramet
 # === Config helpers (Phase 20) ===
 def _load_yaml_defaults() -> Dict[str, Any]:
     """Load defaults from sparkq.yml; fallback to sane defaults."""
-    config_path = Path("sparkq.yml")
     defaults = {
         "server": {"port": 8420, "host": "0.0.0.0"},
         "database": {"path": "sparkq/data/sparkq.db", "mode": "wal"},
@@ -92,22 +91,21 @@ def _load_yaml_defaults() -> Dict[str, Any]:
         "features": {"flags": {}},
         "defaults": {"queue": {}},
     }
-    if not config_path.exists():
+    full = load_config(get_config_path())
+    if not full:
         return defaults
+
     try:
-        with open(config_path) as f:
-            full = yaml.safe_load(f) or {}
-            defaults["server"] = full.get("server", defaults["server"]) or defaults["server"]
-            defaults["database"] = full.get("database", defaults["database"]) or defaults["database"]
-            defaults["purge"] = full.get("purge", defaults["purge"]) or defaults["purge"]
-            defaults["tools"] = full.get("tools", {}) or {}
-            defaults["task_classes"] = full.get("task_classes", {}) or {}
-            defaults["ui"] = {"build_id": SERVER_BUILD_ID}
-            defaults["features"] = {"flags": {}}
-            defaults["defaults"] = {"queue": {}}
+        defaults["server"] = full.get("server", defaults["server"]) or defaults["server"]
+        defaults["database"] = full.get("database", defaults["database"]) or defaults["database"]
+        defaults["purge"] = full.get("purge", defaults["purge"]) or defaults["purge"]
+        defaults["tools"] = full.get("tools", {}) or {}
+        defaults["task_classes"] = full.get("task_classes", {}) or {}
+        defaults["ui"] = {"build_id": SERVER_BUILD_ID}
+        defaults["features"] = {"flags": {}}
+        defaults["defaults"] = {"queue": {}}
     except Exception:
-        # Fall back to baked defaults if YAML is invalid
-        logger.exception("Failed to load sparkq.yml; using defaults")
+        logger.exception("Failed to load %s; using defaults", get_config_path())
     return defaults
 
 
@@ -207,8 +205,8 @@ def _sync_task_classes_payload(payload: Dict[str, Any]):
     for name in stale:
         try:
             storage.delete_task_class(name)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except SparkQError as exc:
+            raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
 
 
 def _sync_tools_payload(payload: Dict[str, Any]):
@@ -222,8 +220,8 @@ def _sync_tools_payload(payload: Dict[str, Any]):
             raise HTTPException(status_code=400, detail=f"tool '{name}' missing task_class")
         try:
             storage.upsert_tool_record(name, task_class, description)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except SparkQError as exc:
+            raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
 
     stale = existing - incoming
     for name in stale:
@@ -332,6 +330,19 @@ def _format_error(message: Optional[str]) -> str:
 
 def _error_response(message: Optional[str], status_code: int) -> JSONResponse:
     return JSONResponse({"error": _format_error(message), "status": status_code}, status_code=status_code)
+
+
+def _status_code_for_error(exc: Exception) -> int:
+    if isinstance(exc, NotFoundError):
+        return 404
+    if isinstance(exc, ConflictError):
+        return 409
+    return 400
+
+
+@app.exception_handler(SparkQError)
+async def sparkq_exception_handler(request: Request, exc: SparkQError):
+    return _error_response(str(exc), _status_code_for_error(exc))
 
 
 @app.exception_handler(ValueError)
@@ -472,7 +483,7 @@ class PromptUpdateRequest(BaseModel):
     description: Optional[str] = None
 
 
-def _serialize_task(task: Dict[str, Any]) -> Dict[str, Any]:
+def _serialize_task(task: Dict[str, Any], queue_names: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Normalize task fields for API responses."""
     serialized = dict(task)
 
@@ -480,8 +491,11 @@ def _serialize_task(task: Dict[str, Any]) -> Dict[str, Any]:
     queue_name = None
     queue_id = serialized.get("queue_id")
     if queue_id:
-        queue_obj = storage.get_queue(queue_id)
-        queue_name = queue_obj["name"] if queue_obj else None
+        if queue_names:
+            queue_name = queue_names.get(queue_id)
+        if queue_name is None:
+            queue_obj = storage.get_queue(queue_id)
+            queue_name = queue_obj["name"] if queue_obj else None
     friendly_prefix = (queue_name or queue_id or "TASK")
     friendly_prefix = friendly_prefix.upper()
     short_id = (str(serialized.get("id") or "")[-4:] or "0000")
@@ -509,12 +523,6 @@ def _serialize_task(task: Dict[str, Any]) -> Dict[str, Any]:
     return serialized
 
 
-def _resolve_timeout(task_class: str, timeout: Optional[int]) -> int:
-    if timeout is not None:
-        return timeout
-    return DEFAULT_TASK_TIMEOUTS.get(task_class, 300)
-
-
 @app.get("/health")
 async def health():
     return {
@@ -536,8 +544,8 @@ async def list_build_prompts():
     List Markdown prompts under _build/prompts-build (excluding archive-like folders).
     Returns relative paths from repo root.
     """
-    repo_root = Path(__file__).resolve().parents[2]
-    prompts_dir = repo_root / "_build" / "prompts-build"
+    prompts_dir = get_build_prompts_dir()
+    repo_root = prompts_dir.parent.parent
     prompts = []
     if prompts_dir.exists():
         for path in sorted(prompts_dir.rglob("*.md")):
@@ -669,17 +677,19 @@ async def list_queues(
 ):
     queues = storage.list_queues(session_id=session_id)
 
+    queue_ids = [q["id"] for q in queues]
+    stats_map = storage.get_queue_stats(queue_ids)
+
     # Enhance with stats
     for queue in queues:
         queue_id = queue["id"]
         existing_status = str(queue.get("status") or "").lower()
 
-        # Get task counts
-        all_tasks = storage.list_tasks(queue_id=queue_id)
-        total = len(all_tasks)
-        done = len([t for t in all_tasks if t.get("status") == "succeeded"])
-        running = len([t for t in all_tasks if t.get("status") == "running"])
-        queued = len([t for t in all_tasks if t.get("status") == "queued"])
+        counts = stats_map.get(queue_id, {"total": 0, "done": 0, "running": 0, "queued": 0})
+        total = counts["total"]
+        done = counts["done"]
+        running = counts["running"]
+        queued = counts["queued"]
 
         queue["stats"] = {
             "total": total,
@@ -823,15 +833,29 @@ async def list_tasks(
         allowed_statuses = ", ".join(sorted(TASK_STATUS_VALUES))
         raise HTTPException(status_code=400, detail=f"Invalid status filter. Allowed values: {allowed_statuses}")
 
+    effective_limit = min(limit, storage.max_task_list_limit)
+    truncated = limit > storage.max_task_list_limit
+
     if _LIST_HAS_OFFSET:
-        tasks = storage.list_tasks(queue_id=queue_id, status=status, limit=limit, offset=offset)
+        tasks = storage.list_tasks(queue_id=queue_id, status=status, limit=effective_limit, offset=offset)
     else:
         all_tasks = storage.list_tasks(queue_id=queue_id, status=status, limit=None)
         start = offset or 0
-        end = start + limit if limit is not None else None
+        end = start + effective_limit if effective_limit is not None else None
         tasks = all_tasks[start:end]
+        truncated = truncated or (limit is None and len(all_tasks) > storage.max_task_list_limit)
 
-    return {"tasks": [_serialize_task(task) for task in tasks]}
+    queue_ids = {task.get("queue_id") for task in tasks if task.get("queue_id")}
+    queue_names = storage.get_queue_names(list(queue_ids)) if queue_ids else {}
+
+    response = {
+        "tasks": [_serialize_task(task, queue_names) for task in tasks],
+        "truncated": truncated,
+        "limit_applied": effective_limit,
+    }
+    if truncated:
+        response["max_limit"] = storage.max_task_list_limit
+    return response
 
 
 @app.post("/api/tasks")
@@ -840,7 +864,8 @@ async def create_task(request: TaskCreateRequest):
     if not queue:
         raise HTTPException(status_code=404, detail="Queue not found")
 
-    timeout = _resolve_timeout(request.task_class, request.timeout)
+    registry = get_registry()
+    timeout = registry.get_timeout(request.tool_name, override=request.timeout, task_class=request.task_class)
 
     if _CREATE_HAS_PAYLOAD:
         payload_data = {"prompt_path": request.prompt_path, "metadata": request.metadata}
@@ -993,51 +1018,57 @@ async def quick_add_task(request: QuickAddTaskRequest):
     if not queue:
         raise HTTPException(status_code=404, detail=f"Queue not found: {request.queue_id}")
 
+    registry = get_registry()
+
     if request.mode == 'llm':
         if not request.prompt:
             raise HTTPException(status_code=400, detail="Prompt required for LLM mode")
+        prompt_text = request.prompt.strip()
+        if not prompt_text:
+            raise HTTPException(status_code=400, detail="Prompt must not be empty or whitespace")
 
-        registry = get_registry()
         # If UI provided tool_name, honor it; otherwise auto-pick by word count.
         if request.tool_name:
             tool_name = request.tool_name
             task_class = registry.get_task_class(tool_name) or 'LLM_LITE'
-            timeout = registry.get_timeout(tool_name)
+            timeout = registry.get_timeout(tool_name, task_class=task_class)
         else:
             # Auto-determine tool and task class based on prompt length
-            word_count = len(request.prompt.split())
+            word_count = len(prompt_text.split())
             if word_count < 50:
                 tool_name = 'llm-haiku'
                 task_class = 'LLM_LITE'
-                timeout = 300  # 5 minutes
             else:
                 tool_name = 'llm-sonnet'
                 task_class = 'LLM_HEAVY'
-                timeout = 900  # 15 minutes
+            timeout = registry.get_timeout(tool_name, task_class=task_class)
 
         payload = json.dumps({
-            "prompt": request.prompt,
+            "prompt": prompt_text,
             "mode": "chat"
         })
 
     elif request.mode == 'script':
         if not request.script_path:
             raise HTTPException(status_code=400, detail="Script path required for script mode")
+        script_path = request.script_path.strip()
+        if not script_path:
+            raise HTTPException(status_code=400, detail="Script path must not be empty or whitespace")
 
         # Determine tool from script extension
-        if request.script_path.endswith('.py'):
+        if script_path.endswith('.py'):
             tool_name = 'run-python'
         else:
             tool_name = 'run-bash'
 
         task_class = 'MEDIUM_SCRIPT'
-        timeout = 300
+        timeout = registry.get_timeout(tool_name, task_class=task_class)
 
         # Parse args
         args = request.script_args.split() if request.script_args else []
 
         payload = json.dumps({
-            "script_path": request.script_path,
+            "script_path": script_path,
             "args": args
         })
 
@@ -1068,7 +1099,7 @@ async def quick_add_task(request: QuickAddTaskRequest):
 
 @app.get("/api/scripts/index")
 async def build_script_index():
-    script_index = ScriptIndex(config_path=Path("sparkq.yml"))
+    script_index = ScriptIndex(config_path=str(get_config_path()))
     try:
         script_index.build()
     except Exception:
@@ -1186,8 +1217,8 @@ async def update_task_class(name: str, payload: TaskClassPayload):
 async def delete_task_class(name: str):
     try:
         storage.delete_task_class(name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SparkQError as exc:
+        raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
     storage.upsert_config_entry("task_classes", "all", _task_classes_dict(storage.list_task_classes()), updated_by="api")
     storage.log_audit(actor="api", action="task_class.delete", details={"name": name})
     _invalidate_config_cache()
@@ -1211,8 +1242,8 @@ async def create_tool(payload: ToolPayload):
         raise HTTPException(status_code=400, detail="task_class is required")
     try:
         storage.upsert_tool_record(name, payload.task_class, payload.description)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SparkQError as exc:
+        raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
     storage.upsert_config_entry("tools", "all", _tools_dict(storage.list_tools_table()), updated_by="api")
     storage.log_audit(actor="api", action="tool.create", details={"name": name})
     _invalidate_config_cache()
@@ -1228,8 +1259,8 @@ async def update_tool(name: str, payload: ToolPayload):
         raise HTTPException(status_code=400, detail="name is required")
     try:
         storage.upsert_tool_record(target_name, payload.task_class, payload.description)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SparkQError as exc:
+        raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
     storage.upsert_config_entry("tools", "all", _tools_dict(storage.list_tools_table()), updated_by="api")
     storage.log_audit(actor="api", action="tool.update", details={"name": target_name})
     _invalidate_config_cache()
@@ -1283,8 +1314,8 @@ async def create_prompt(request: PromptCreateRequest):
 
     try:
         prompt = storage.create_prompt(command, label, template_text, description)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SparkQError as exc:
+        raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
 
     return {"prompt": prompt}
 
@@ -1321,20 +1352,17 @@ async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
             template_text=template_text,
             description=description,
         )
-    except ValueError as exc:
-        message = str(exc)
-        if "not found" in message.lower():
-            raise HTTPException(status_code=404, detail=message) from exc
-        raise HTTPException(status_code=400, detail=message) from exc
+    except SparkQError as exc:
+        raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
 
     return {"prompt": prompt}
 
 
-@app.delete("/api/prompts/{prompt_id}")
-async def delete_prompt(prompt_id: str):
-    try:
-        storage.delete_prompt(prompt_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    @app.delete("/api/prompts/{prompt_id}")
+    async def delete_prompt(prompt_id: str):
+        try:
+            storage.delete_prompt(prompt_id)
+        except SparkQError as exc:
+            raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc
 
     return {"message": "Prompt deleted successfully"}

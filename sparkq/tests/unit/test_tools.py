@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import os
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -9,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src import tools
+from src.constants import DEFAULT_TOOL_TIMEOUT_SECONDS, TASK_CLASS_TIMEOUTS
 from src.tools import ToolRegistry, reload_registry
 
 
@@ -44,6 +46,10 @@ DEFAULT_CONFIG = {
 def temp_config(tmp_path):
     config_path = tmp_path / "sparkq.yml"
     config_path.write_text(yaml.safe_dump(DEFAULT_CONFIG))
+    # Ensure path helpers use this config during the test
+    from src import paths
+    paths.reset_paths_cache()
+    os.environ["SPARKQ_CONFIG"] = str(config_path)
     return config_path
 
 
@@ -76,6 +82,16 @@ class TestToolRegistry:
 
         override_timeout = 45
         assert tool_registry.get_timeout("run-bash", override=override_timeout) == override_timeout
+
+    def test_timeout_priority_and_fallback(self, tool_registry):
+        override_timeout = 123
+        assert tool_registry.get_timeout("missing", override=override_timeout, task_class="FAST_SCRIPT") == override_timeout
+
+        # Falls back to provided task_class when tool missing
+        assert tool_registry.get_timeout("missing", task_class="FAST_SCRIPT") == TASK_CLASS_TIMEOUTS["FAST_SCRIPT"]
+
+        # Falls back to global default when no task_class info available
+        assert tool_registry.get_timeout("missing") == DEFAULT_TOOL_TIMEOUT_SECONDS
 
     def test_reload_registry(self, tool_registry, temp_config, monkeypatch):
         monkeypatch.chdir(temp_config.parent)

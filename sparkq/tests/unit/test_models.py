@@ -13,14 +13,14 @@ try:
         TaskClass,
         TaskStatus,
         SessionStatus,
-        StreamStatus,
+        QueueStatus,
         gen_project_id,
         gen_session_id,
         gen_queue_id,
         gen_task_id,
     )
 except ImportError:
-    from src.models import Project, Session, Queue, Task, TaskClass, TaskStatus, SessionStatus, StreamStatus
+    from src.models import Project, Session, Queue, Task, TaskClass, TaskStatus, SessionStatus, QueueStatus
     from src.storage import gen_project_id, gen_session_id, gen_queue_id, gen_task_id
 
 pytestmark = pytest.mark.unit
@@ -145,7 +145,7 @@ class TestQueueModel:
         )
 
         assert queue.instructions == "Be thorough and concise."
-        assert queue.status == StreamStatus.ACTIVE
+        assert queue.status == QueueStatus.ACTIVE
 
     def test_queue_allows_optional_instructions(self):
         timestamp = datetime.utcnow()
@@ -158,7 +158,7 @@ class TestQueueModel:
         )
 
         assert queue.instructions is None
-        assert queue.status == StreamStatus.ACTIVE
+        assert queue.status == QueueStatus.ACTIVE
 
 
 class TestTaskModel:

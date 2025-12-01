@@ -14,13 +14,13 @@ project_script_dirs:
 - scripts
 task_classes:
   FAST_SCRIPT:
-    timeout: 120
+    timeout: 30
   MEDIUM_SCRIPT:
-    timeout: 600
+    timeout: 300
   LLM_LITE:
-    timeout: 480
+    timeout: 300
   LLM_HEAVY:
-    timeout: 1200
+    timeout: 900
 tools:
   run-bash:
     description: Bash script

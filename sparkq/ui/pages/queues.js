@@ -134,20 +134,25 @@
       return;
     }
 
+    // Prompt user for queue name
+    const timestamp = new Date().toISOString().substring(0, 10).replace(/-/g, '');
+    const defaultName = `Queue ${timestamp}`;
+    const queueName = await Utils.showPrompt('Create New Queue', 'Queue name:', defaultName);
+
+    if (!queueName || !queueName.trim()) {
+      return;
+    }
+
     // Auto-select session or use first available
     const sessionId = sessions[0].id;
-
-    // Generate a simple queue name with timestamp
-    const timestamp = new Date().toISOString().substring(0, 10).replace(/-/g, '');
-    const queueName = `Queue ${timestamp}`;
 
     try {
       const payload = {
         session_id: sessionId,
-        name: queueName,
+        name: queueName.trim(),
       };
       await api('POST', '/api/queues', payload, { action: 'create queue' });
-      showToast(`Queue created`, 'success');
+      showToast(`Queue "${queueName.trim()}" created`, 'success');
       renderQueuesPage(container);
     } catch (err) {
       console.error('Failed to create queue:', err);
@@ -161,15 +166,10 @@
       return;
     }
 
-    const instructions = await Utils.showPrompt('Queue Instructions', 'Enter queue instructions (optional):', '', { textarea: true });
-
     try {
       const payload = {};
       if (newName.trim() !== queueName) {
         payload.name = newName.trim();
-      }
-      if (instructions && instructions.trim()) {
-        payload.instructions = instructions;
       }
 
       if (Object.keys(payload).length > 0) {
@@ -215,6 +215,33 @@
     }
   }
 
+  function buildInstructionsSection(queueDetails, isArchived) {
+    const instructions = queueDetails?.instructions;
+
+    if (instructions && instructions.trim()) {
+      return `
+        <div class="instructions-section" style="margin-bottom: 20px; padding: 16px; background: rgba(59, 130, 246, 0.1); border-left: 3px solid #3b82f6; border-radius: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <h4 style="margin: 0; font-size: 14px; font-weight: 600;">📋 Queue Instructions</h4>
+            ${!isArchived ? `<button class="button-link" onclick="window.quickAdd?.showInstructions()" style="font-size: 12px; color: #3b82f6; background: none; border: none; cursor: pointer; text-decoration: underline;">Edit</button>` : ''}
+          </div>
+          <div class="instructions-content" style="white-space: pre-wrap; font-size: 13px; color: rgba(255,255,255,0.9); line-height: 1.5; font-family: ui-monospace, monospace;">
+${instructions}</div>
+        </div>
+      `;
+    } else if (!isArchived) {
+      return `
+        <div class="instructions-section" style="margin-bottom: 20px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; text-align: center;">
+          <button class="button secondary" onclick="window.quickAdd?.showInstructions()" style="font-size: 13px; padding: 8px 12px;">
+            + Add Queue Instructions
+          </button>
+          <span class="muted" style="margin-left: 8px; font-size: 12px;">Provide context and guardrails for this queue</span>
+        </div>
+      `;
+    }
+    return '';
+  }
+
   async function loadQueueDetails(container, queueId, queueName, queueStatus) {
     currentQueueId = queueId;
     currentQueueName = queueName;
@@ -226,11 +253,19 @@
 
     detailsContainer.innerHTML = `
       <div class="card">
-        <div class="muted"><span class="loading"></span> Loading tasks from queue…</div>
+        <div class="muted"><span class="loading"></span> Loading queue details…</div>
       </div>
     `;
 
     let tasks = [];
+    let queueDetails = null;
+
+    try {
+      const queueResponse = await api('GET', `/api/queues/${queueId}`, null, { action: 'load queue' });
+      queueDetails = queueResponse?.queue;
+    } catch (err) {
+      console.error('Failed to load queue details:', err);
+    }
 
     try {
       const tasksResponse = await api('GET', `/api/queues/${queueId}/tasks`, null, { action: 'load tasks' });
@@ -302,7 +337,9 @@
             </div>
           ` : ''}
         </div>
-        ${isArchived ? '<div class="muted" style="margin-bottom:16px;">Archived queues are read-only. Task actions and Quick Add are disabled.</div>' : '<div id="quick-add-container" style="margin-bottom: 24px;"></div>'}
+        ${isArchived ? '<div class="muted" style="margin-bottom:16px;">Archived queues are read-only. Task actions and Quick Add are disabled.</div>' : ''}
+        ${buildInstructionsSection(queueDetails, isArchived)}
+        ${isArchived ? '' : '<div id="quick-add-container" style="margin-bottom: 24px;"></div>'}
         ${taskTable}
       </div>
     `;
@@ -350,5 +387,8 @@
       await renderQueuesPage(container);
     }
   };
+
+  // Alias for sparkqueue tab
+  Pages.Sparkqueue = Pages.Queues;
 
 })(window.Pages, window.API, window.Utils);

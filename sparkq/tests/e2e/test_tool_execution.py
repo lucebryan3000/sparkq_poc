@@ -3,6 +3,7 @@ E2E Tool Execution and Validation Tests
 Tests tool invocation, payload validation, and quarantine behavior
 """
 import json
+import os
 import re
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from typer.testing import CliRunner
 from src.cli import app
 from src.storage import Storage
 from src.tools import reload_registry, ToolRegistry
+from src import paths
 
 
 @pytest.fixture
@@ -45,6 +47,10 @@ def tool_runner(tmp_path):
                     "description": "Quick validation check",
                     "task_class": "FAST_SCRIPT",
                 },
+                "script-index": {
+                    "description": "Index repository scripts",
+                    "task_class": "MEDIUM_SCRIPT",
+                },
             },
         }
 
@@ -57,6 +63,8 @@ def tool_runner(tmp_path):
         storage.create_project(name="tool-test", repo_path=str(temp_dir), prd_path=None)
 
         reload_registry()
+        paths.reset_paths_cache()
+        os.environ["SPARKQ_CONFIG"] = str(Path.cwd() / "sparkq.yml")
         yield runner, storage
 
 

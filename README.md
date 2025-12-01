@@ -29,10 +29,10 @@ Use the convenience wrapper script:
 
 ```bash
 ./sparkq.sh setup                # Initialize database (one-time)
-./sparkq.sh --start              # Start server in background (recommended)
+./sparkq.sh start                # Start server in background (recommended)
 ./sparkq.sh run                  # Start server in foreground
 ./sparkq.sh session create       # Create session
-./sparkq.sh --stop               # Stop server
+./sparkq.sh stop                 # Stop server
 ./sparkq.sh status               # Check status
 ```
 
@@ -76,35 +76,53 @@ sparkqueue/
 
 ## Features
 
-- **FIFO Queues**: Tasks processed in order per stream
+- **FIFO Queues**: Tasks processed in order per queue
+- **Queue Management**: Archive/unarchive queues to organize completed work
+- **Session & Context**: Track work sessions with context management
 - **Auto-Fail**: Stale tasks auto-fail after 2× timeout
-- **Auto-Purge**: Completed tasks auto-deleted after configurable days
-- **Web UI**: Dashboard at `http://localhost:5005/` (redirects from `/ui/`)
-- **REST API**: Full API with interactive docs at `/docs`
-- **CLI**: Typer-based command-line interface
+- **Auto-Purge**: Completed tasks auto-deleted after configurable days (default: 3 days)
+- **Web UI**: Dashboard at `http://localhost:5005/` with light mode support
+- **REST API**: Full API with interactive docs at `/docs`. Note: `/api/tasks` returns pagination/truncation metadata (`limit_applied`, `truncated`, `max_limit` when capped) alongside the `tasks` array. Use `SPARKQ_CONFIG` or the CLI `--config` flag to point to a specific `sparkq.yml` (resolution order: env override → CWD `sparkq.yml` → repo root).
+- **CLI**: Typer-based command-line interface via `./sparkq.sh`
 - **SQLite WAL**: Efficient concurrent access with WAL mode
+
+**Configuration defaults**
+- Host/port pulled from `sparkq.yml` (defaults 0.0.0.0:5005); `sparkq run --host/--port` overrides per run.
+- Database path resolves relative to the active config file and is created if missing; set `database.path` in `sparkq.yml` or export `SPARKQ_CONFIG` to switch configs.
 
 ## Common Commands
 
 ```bash
 # Server management
-./sparkq.sh --start                      # Start server in background (recommended)
-./sparkq.sh run --background             # Start in background (verbose)
+./sparkq.sh start                        # Start server in background (recommended)
+./sparkq.sh restart                      # Stop, wait 5s, then start (clean restart)
 ./sparkq.sh run                          # Start server in foreground
-./sparkq.sh --stop                       # Stop server
+./sparkq.sh stop                         # Stop server
 ./sparkq.sh status                       # Check if running
 
-# Session & stream management
+# Session & queue management
 ./sparkq.sh session create my-session    # Create session
 ./sparkq.sh session list                 # List sessions
-./sparkq.sh stream create my-stream      # Create stream
+./sparkq.sh session end <id>             # End a session
+./sparkq.sh queue create my-queue        # Create queue
+./sparkq.sh queue list                   # List queues
+./sparkq.sh queue end <id>               # End a queue
 
-# Task operations (with venv activated)
-python -m sparkq.src.cli enqueue --stream my-stream --tool run-bash
-python -m sparkq.src.cli peek --stream my-stream
-python -m sparkq.src.cli claim --stream my-stream
-python -m sparkq.src.cli complete --task-id [id] --summary "Done"
-python -m sparkq.src.cli tasks --stream my-stream
+# Task operations
+./sparkq.sh enqueue                      # Enqueue a task
+./sparkq.sh peek                         # Check next task in queue
+./sparkq.sh claim                        # Claim a task
+./sparkq.sh complete                     # Mark task as completed
+./sparkq.sh fail                         # Mark task as failed
+./sparkq.sh tasks                        # List tasks with filters
+./sparkq.sh task                         # Show detailed task info
+./sparkq.sh requeue                      # Move task back to queued status
+./sparkq.sh purge                        # Delete old succeeded/failed tasks
+
+# Configuration
+./sparkq.sh reload                       # Reload configuration and script index
+./sparkq.sh config-export                # Export DB-backed config to YAML
+./sparkq.sh scripts                      # Manage and discover scripts
 ```
 
 ## Background Service Management
@@ -112,28 +130,28 @@ python -m sparkq.src.cli tasks --stream my-stream
 SparkQ server can run in the background without tying up your terminal:
 
 ```bash
-# Start server in background (recommended - doesn't block terminal)
-./sparkq.sh --start
+# Start server in background (recommended)
+./sparkq.sh start
 
-# Access dashboard at:
-# http://localhost:5005
+# Access dashboard at http://localhost:5005
 
 # Check if server is running
 ./sparkq.sh status
 
 # Stop the background server
-./sparkq.sh --stop
+./sparkq.sh stop
 
-# Alternatively, use verbose form
-./sparkq.sh run --background    # Start with explicit flag
+# Clean restart (stop, wait 5s, start)
+./sparkq.sh restart
 ```
 
 The background server:
 - Runs as a detached daemon process
 - Persists the PID in `sparkq.lock` for tracking
-- Can be stopped at any time with `./sparkq.sh --stop`
+- Can be stopped at any time with `./sparkq.sh stop`
 - Returns immediately, allowing you to continue using the terminal
-- Dashboard accessible at root URL: `http://localhost:5005/`
+- Dashboard accessible at `http://localhost:5005`
+- Logs written to `sparkq/logs/sparkq.log`
 
 ## Troubleshooting
 

@@ -1,22 +1,38 @@
 """SparkQ Tool Registry"""
 
 import yaml
-from pathlib import Path
 from typing import Optional
 
+from .constants import DEFAULT_TOOL_TIMEOUT_SECONDS, TASK_CLASS_TIMEOUTS
+from .config import get_database_path, load_config
+from .paths import get_config_path
+from .models import TaskClassDefaults
+
 # Helper imports inside functions to avoid circular dependencies
+
+
+TASK_CLASS_DEFAULT_TIMEOUTS = TaskClassDefaults().dict()
+
+
+def default_timeout_for_task_class(task_class: str | None) -> int:
+    """Return default timeout for a task class (fallback to configured defaults)."""
+    if not task_class:
+        return DEFAULT_TOOL_TIMEOUT_SECONDS
+    if task_class in TASK_CLASS_TIMEOUTS:
+        return TASK_CLASS_TIMEOUTS[task_class]
+    return TASK_CLASS_DEFAULT_TIMEOUTS.get(task_class, DEFAULT_TOOL_TIMEOUT_SECONDS)
 
 
 class ToolRegistry:
     """Manages tool definitions and task class timeouts from config."""
 
-    def __init__(self, config_path: str = "sparkq.yml", config_dict: dict | None = None, source: str = "yaml"):
-        self.config_path = config_path
+    def __init__(self, config_path: str | None = None, config_dict: dict | None = None, source: str = "yaml"):
+        self.config_path = str(config_path) if config_path is not None else str(get_config_path())
         self.tools: dict = {}
         self.task_classes: dict = {}
         self.source: str = source
         if config_dict is not None:
-            self.tools = config_dict.get("tools", {}) or {}
+            self.tools = _seed_default_tools(config_dict.get("tools", {}) or {})
             self.task_classes = config_dict.get("task_classes", {}) or {}
         else:
             self._load_config()
@@ -26,11 +42,11 @@ class ToolRegistry:
         try:
             with open(self.config_path, 'r') as f:
                 config = yaml.safe_load(f) or {}
-                self.tools = config.get('tools', {}) or {}
+                self.tools = _seed_default_tools(config.get('tools', {}) or {})
                 self.task_classes = config.get('task_classes', {}) or {}
         except FileNotFoundError:
             # Config doesn't exist yet - return empty dicts
-            self.tools = {}
+            self.tools = _seed_default_tools({})
             self.task_classes = {}
     
     def get_tool(self, name: str) -> dict | None:
@@ -40,25 +56,26 @@ class ToolRegistry:
     def list_tools(self) -> list[str]:
         """Get list of all tool names"""
         return list(self.tools.keys())
-    
-    def get_timeout(self, tool_name: str, override: int | None = None) -> int:
+
+    def get_timeout(self, tool_name: str | None, override: int | None = None, task_class: str | None = None) -> int:
         """
-        Resolve timeout for a tool.
-        Priority: override > task_class timeout > default 300
+        Resolve timeout for a tool or task class.
+
+        Priority: override > configured task_class timeout > default per task_class.
         """
         if override is not None:
             return override
-        
-        tool = self.get_tool(tool_name)
-        if not tool:
-            return 300  # Default fallback
-        
-        task_class_name = tool.get('task_class')
-        if not task_class_name:
-            return 300  # Default fallback
-        
-        task_class = self.task_classes.get(task_class_name, {})
-        return task_class.get('timeout', 300)
+
+        tool_cfg = self.get_tool(tool_name) if tool_name else None
+        task_class_name = task_class or (tool_cfg.get("task_class") if tool_cfg else None)
+
+        if task_class_name:
+            task_class_cfg = self.task_classes.get(task_class_name, {}) if isinstance(self.task_classes, dict) else {}
+            timeout_value = task_class_cfg.get("timeout") if isinstance(task_class_cfg, dict) else None
+            if timeout_value is not None:
+                return timeout_value
+
+        return default_timeout_for_task_class(task_class_name)
     
     def get_task_class(self, tool_name: str) -> str | None:
         """Get task class name for a tool"""
@@ -114,24 +131,26 @@ def reload_registry(config: dict | None = None) -> ToolRegistry:
 
 def _load_registry_from_db_or_yaml() -> ToolRegistry:
     """Attempt to build registry from DB config; fallback to YAML."""
-    db_config = _load_tools_from_db_config()
+    cfg = load_config()
+    yaml_tools = cfg.get("tools") or {}
+    yaml_task_classes = cfg.get("task_classes") or {}
+
+    if yaml_tools or yaml_task_classes:
+        return ToolRegistry(config_dict={"tools": yaml_tools, "task_classes": yaml_task_classes}, source="yaml")
+
+    db_config = _load_tools_from_db_config(cfg)
     if db_config:
         return ToolRegistry(config_dict=db_config, source="db")
-    return ToolRegistry()
+    return ToolRegistry(config_dict={"tools": _seed_default_tools({}), "task_classes": {}}, source="default")
 
 
-def _load_tools_from_db_config() -> Optional[dict]:
+def _load_tools_from_db_config(cfg: Optional[dict] = None) -> Optional[dict]:
     """Load tools/task_classes from config table if available."""
     try:
         from .storage import Storage
-        import yaml
         # Determine DB path from YAML bootstrap
-        db_path = "sparkq/data/sparkq.db"
-        config_path = Path("sparkq.yml")
-        if config_path.exists():
-            with open(config_path) as f:
-                cfg = yaml.safe_load(f) or {}
-                db_path = cfg.get("database", {}).get("path", db_path)
+        config_payload = cfg or load_config()
+        db_path = get_database_path(config_payload)
         st = Storage(db_path)
         st.init_db()
         # Prefer dedicated tables (Phase 20.1)
@@ -140,7 +159,7 @@ def _load_tools_from_db_config() -> Optional[dict]:
         if task_class_rows or tool_rows:
             tc_dict = {row["name"]: {"timeout": row.get("timeout"), "description": row.get("description")} for row in task_class_rows}
             tool_dict = {row["name"]: {"description": row.get("description"), "task_class": row.get("task_class")} for row in tool_rows}
-            return {"tools": tool_dict, "task_classes": tc_dict}
+            return {"tools": _seed_default_tools(tool_dict), "task_classes": tc_dict}
 
         # Fallback to config table if tables not populated yet
         entries = st.list_config_entries()
@@ -161,3 +180,22 @@ def _load_tools_from_db_config() -> Optional[dict]:
         }
     except Exception:
         return None
+
+
+def _seed_default_tools(existing: dict) -> dict:
+    """
+    Ensure baseline tools exist when config is empty.
+
+    If caller provides tools, respect them as-is to avoid surprising additions.
+    """
+    if existing:
+        return existing
+    return {
+        "run-bash": {"description": "Bash script", "task_class": "MEDIUM_SCRIPT"},
+        "run-python": {"description": "Python script", "task_class": "MEDIUM_SCRIPT"},
+        "llm-haiku": {"description": "Haiku", "task_class": "LLM_LITE"},
+        "llm-sonnet": {"description": "Sonnet", "task_class": "LLM_HEAVY"},
+        "llm-codex": {"description": "Codex", "task_class": "LLM_HEAVY"},
+        "quick-check": {"description": "Quick validation check", "task_class": "FAST_SCRIPT"},
+        "script-index": {"description": "Index project scripts", "task_class": "MEDIUM_SCRIPT"},
+    }

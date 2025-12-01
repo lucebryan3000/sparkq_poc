@@ -357,6 +357,7 @@
         const textarea = document.createElement('textarea');
         textarea.value = defaultValue;
         textarea.placeholder = options.placeholder || '';
+        textarea.rows = options.rows || 4;
         textarea.style.cssText = `
           width: 100%;
           padding: 10px 12px;
@@ -367,7 +368,8 @@
           font-size: 14px;
           box-sizing: border-box;
           min-height: 100px;
-          font-family: inherit;
+          font-family: ui-monospace, monospace;
+          line-height: 1.5;
         `;
         contentEl.appendChild(textarea);
       } else {

@@ -34,7 +34,7 @@ class TestConcurrentAccess:
                 queue_id=queue["id"],
                 tool_name="worker",
                 task_class="concurrent",
-                payload=f"payload-{idx}",
+                payload='{"data": "%s"}' % idx,
                 timeout=60,
             )
             with lock:
@@ -55,7 +55,7 @@ class TestConcurrentAccess:
             queue_id=queue["id"],
             tool_name="worker",
             task_class="concurrent",
-            payload="single",
+            payload='{"data": "single"}',
             timeout=60,
         )
 
@@ -67,8 +67,9 @@ class TestConcurrentAccess:
             start_barrier.wait()
             try:
                 claimed = storage.claim_task(task["id"])
-                with lock:
-                    claimed_tasks.append(claimed["id"])
+                if claimed:
+                    with lock:
+                        claimed_tasks.append(claimed["id"])
             except Exception:
                 # Ignore failures so we can count successful claims
                 pass
@@ -83,16 +84,17 @@ class TestConcurrentAccess:
 
     def test_concurrent_complete(self, tmp_path):
         storage, queue = _bootstrap_storage(tmp_path, "complete")
-        tasks = [
-            storage.create_task(
-                queue_id=queue["id"],
-                tool_name="worker",
-                task_class="concurrent",
-                payload=f"payload-{i}",
-                timeout=60,
+        tasks = []
+        for i in range(10):
+            tasks.append(
+                storage.create_task(
+                    queue_id=queue["id"],
+                    tool_name="worker",
+                    task_class="concurrent",
+                    payload='{"data": "%s"}' % i,
+                    timeout=60,
+                )
             )
-            for i in range(10)
-        ]
 
         claimed_tasks = [storage.claim_task(task["id"]) for task in tasks]
 

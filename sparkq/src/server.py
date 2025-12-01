@@ -13,9 +13,16 @@ from typing import Optional
 
 import uvicorn
 
+from .config import (
+    get_database_path,
+    get_queue_runner_config,
+    get_server_config,
+    load_config,
+)
+from .paths import get_lockfile_path, get_config_path
 from .storage import Storage
 
-LOCKFILE_PATH = Path("sparkq.lock")
+LOCKFILE_PATH = get_lockfile_path()
 HOST = "0.0.0.0"
 PORT = 5005
 
@@ -57,8 +64,15 @@ def is_process_running(pid: int) -> bool:
 def create_lockfile():
     """Write current PID to lockfile in a thread-safe manner."""
     pid = os.getpid()
+    lock_bytes = str(pid).encode()
     with _lockfile_lock:
-        LOCKFILE_PATH.write_text(str(pid))
+        try:
+            fd = os.open(LOCKFILE_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError as exc:
+            raise RuntimeError("SparkQ server lockfile already exists; is another server running?") from exc
+
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(lock_bytes)
 
 
 def remove_lockfile():
@@ -74,14 +88,23 @@ def remove_lockfile():
 
 def check_server_running() -> Optional[int]:
     """Return PID if server lockfile points to a running process, else clean up stale lock."""
-    pid = get_pid_from_lockfile()
-    if pid is None:
-        return None
+    with _lockfile_lock:
+        pid = get_pid_from_lockfile()
+        if pid is None:
+            return None
 
-    if is_process_running(pid):
-        return pid
+        if is_process_running(pid):
+            return pid
 
-    remove_lockfile()
+        # Stale lock: remove atomically while we hold the lock to avoid TOCTOU
+        try:
+            LOCKFILE_PATH.unlink()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            logger.warning("Failed to remove stale lockfile: %s", exc)
+            return None
+
     return None
 
 
@@ -110,7 +133,6 @@ def start_auto_fail(storage, check_interval=30):
         storage: Storage instance
         check_interval: Seconds between checks (default 30)
     """
-
     import threading
     import time
 
@@ -123,15 +145,14 @@ def start_auto_fail(storage, check_interval=30):
                 # Log results
                 if failed_tasks:
                     log_msg = f"Auto-fail: {len(failed_tasks)} tasks auto-failed due to timeout"
-                    print(f"[AUTO-FAIL] {log_msg}")
-                    # Also log to server logs if available
+                    logger.info("[AUTO-FAIL] %s", log_msg)
 
                 # Sleep until next check
                 time.sleep(check_interval)
 
             except Exception as e:
                 # Log error but don't crash
-                print(f"[AUTO-FAIL ERROR] {str(e)}")
+                logger.exception("[AUTO-FAIL ERROR] %s", str(e))
                 time.sleep(check_interval)
 
     # Start daemon thread
@@ -141,11 +162,33 @@ def start_auto_fail(storage, check_interval=30):
     return thread
 
 
-def run_server_background(port: int = PORT, host: str = HOST):
+def _resolve_runtime_settings(host_override: Optional[str], port_override: Optional[int]):
+    """
+    Resolve runtime settings from config with optional CLI overrides.
+    """
+    cfg = load_config(get_config_path())
+    server_cfg = get_server_config(cfg)
+    resolved_host = host_override if host_override is not None else server_cfg.get("host", HOST)
+    resolved_port = port_override if port_override is not None else server_cfg.get("port", PORT)
+    try:
+        resolved_port = int(resolved_port)
+    except Exception:
+        resolved_port = PORT
+    db_path = get_database_path(cfg)
+    purge_cfg = cfg.get("purge", {}) or {}
+    older_than_days = purge_cfg.get("older_than_days", 3)
+    if not isinstance(older_than_days, int) or older_than_days <= 0:
+        older_than_days = 3
+    queue_runner_cfg = get_queue_runner_config(cfg)
+    auto_fail_interval = queue_runner_cfg.get("auto_fail_interval_seconds", 30)
+    if not isinstance(auto_fail_interval, (int, float)) or auto_fail_interval <= 0:
+        auto_fail_interval = 30
+    return resolved_host, resolved_port, db_path, older_than_days, auto_fail_interval
+
+
+def run_server_background(port: Optional[int] = None, host: Optional[str] = None):
     """Start SparkQ server in background (daemonized)."""
-    # Override any host/port arguments (SparkQ binds to fixed address)
-    host = HOST
-    port = PORT
+    host, port, db_path, purge_days, auto_fail_interval = _resolve_runtime_settings(host, port)
 
     running_pid = check_server_running()
     if running_pid is not None:
@@ -172,10 +215,6 @@ def run_server_background(port: int = PORT, host: str = HOST):
         raise RuntimeError("Failed to start server in background")
 
     # Child process continues below
-    # Change to project root to ensure relative paths work
-    from pathlib import Path
-    project_root = Path(__file__).parent.parent.parent
-    os.chdir(project_root)
     os.setsid()
     os.umask(0)
 
@@ -196,9 +235,9 @@ def run_server_background(port: int = PORT, host: str = HOST):
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    storage = Storage("sparkq/data/sparkq.db")
-    start_auto_purge(storage)
-    start_auto_fail(storage, check_interval=30)
+    storage = Storage(db_path)
+    start_auto_purge(storage, older_than_days=purge_days)
+    start_auto_fail(storage, check_interval=auto_fail_interval)
 
     from .api import app
 
@@ -208,27 +247,18 @@ def run_server_background(port: int = PORT, host: str = HOST):
         remove_lockfile()
 
 
-def run_server(port: int = PORT, host: str = HOST, background: bool = False):
+def run_server(port: Optional[int] = None, host: Optional[str] = None, background: bool = False):
     """Start SparkQ server with lockfile coordination and signal cleanup.
 
     Args:
-        port: Server port (default 8420)
-        host: Bind host (default 0.0.0.0)
+        port: Server port (falls back to config or 5005)
+        host: Bind host (falls back to config or 0.0.0.0)
         background: If True, daemonize and return immediately; if False, run in foreground
     """
     if background:
         return run_server_background(port=port, host=host)
 
-    if host != HOST or port != PORT:
-        logger.warning(
-            "SparkQ server binds to %s:%s; overriding requested %s:%s",
-            HOST,
-            PORT,
-            host,
-            port,
-        )
-        host = HOST
-        port = PORT
+    host, port, db_path, purge_days, auto_fail_interval = _resolve_runtime_settings(host, port)
 
     running_pid = check_server_running()
     if running_pid is not None:
@@ -249,9 +279,9 @@ def run_server(port: int = PORT, host: str = HOST, background: bool = False):
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    storage = Storage("sparkq/data/sparkq.db")
-    start_auto_purge(storage)
-    start_auto_fail(storage, check_interval=30)
+    storage = Storage(db_path)
+    start_auto_purge(storage, older_than_days=purge_days)
+    start_auto_fail(storage, check_interval=auto_fail_interval)
 
     from .api import app
 

@@ -25,7 +25,7 @@ class SessionStatus(str, Enum):
     ENDED = "ended"
 
 
-class StreamStatus(str, Enum):
+class QueueStatus(str, Enum):
     ACTIVE = "active"
     ENDED = "ended"
 
@@ -56,7 +56,7 @@ class Queue(BaseModel):
     session_id: str
     name: str
     instructions: Optional[str] = None
-    status: StreamStatus = StreamStatus.ACTIVE
+    status: QueueStatus = QueueStatus.ACTIVE
     created_at: datetime
     updated_at: datetime
 

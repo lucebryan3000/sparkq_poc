@@ -1,7 +1,7 @@
 """Unit tests for API helper functions"""
 
 import pytest
-from src.api import _format_error, _error_response
+from src.api import _format_error, _error_response, _serialize_task, storage
 
 
 class TestErrorFormatting:
@@ -49,3 +49,15 @@ class TestErrorResponse:
             assert response.status_code == code
             body = response.body.decode()
             assert str(code) in body
+
+
+class TestSerializeTask:
+    def test_serialize_task_prefers_prefetched_queue_names(self, monkeypatch):
+        # If queue_names is provided, storage lookup should be skipped.
+        monkeypatch.setattr(storage, "get_queue", lambda queue_id: (_ for _ in ()).throw(AssertionError("get_queue called")))
+        task = {"id": "tsk_1234", "queue_id": "que_1", "status": "queued"}
+
+        serialized = _serialize_task(task, {"que_1": "Inbox"})
+
+        assert serialized["friendly_id"] == "INBOX-1234"
+        assert serialized["claimed_at"] is None

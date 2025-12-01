@@ -1,10 +1,11 @@
 import json
+import os
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
-from src import api
+from src import api, paths
 from src.storage import Storage
 
 pytestmark = pytest.mark.integration
@@ -21,6 +22,12 @@ def storage(tmp_path, monkeypatch):
     storage.init_db()
     storage.create_project("integration-project", repo_path=str(tmp_path), prd_path=None)
     monkeypatch.setattr(api, "storage", storage)
+    # Reset tool registry to defaults for isolation across tests
+    from src import tools
+    tools.reload_registry(config={"tools": {}, "task_classes": {k: {"timeout": v} for k, v in tools.TASK_CLASS_TIMEOUTS.items()}})
+    # Point config path to test-specific sparkq.yml if present
+    paths.reset_paths_cache()
+    os.environ["SPARKQ_CONFIG"] = str(tmp_path / "sparkq.yml")
     return storage
 
 
@@ -90,6 +97,7 @@ def script_index_env(tmp_path, monkeypatch):
         "  - scripts\n",
         encoding="utf-8",
     )
+    monkeypatch.setattr(api, "CONFIG_PATH", tmp_path / "sparkq.yml")
     monkeypatch.chdir(tmp_path)
     return {"scripts_dir": scripts_dir, "script_file": script_file}
 
@@ -193,7 +201,10 @@ class TestTaskEndpoints:
         assert data["task"]["queue_id"] == queue["id"]
         assert data["task"]["tool_name"] == payload["tool_name"]
         assert data["task"]["task_class"] == payload["task_class"]
-        assert data["task"]["timeout"] == api.DEFAULT_TASK_TIMEOUTS["FAST_SCRIPT"]
+        from src.models import TaskClassDefaults
+
+        defaults = TaskClassDefaults().dict()
+        assert data["task"]["timeout"] == defaults["FAST_SCRIPT"]
 
     def test_get_task(self, api_client, queued_task):
         response = api_client.get(f"/api/tasks/{queued_task['id']}")

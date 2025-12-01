@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from typer.testing import CliRunner
 from src.cli import app
 from src.storage import Storage
 from src.tools import reload_registry
+from src import paths
 
 
 @pytest.fixture()
@@ -41,6 +43,8 @@ def cli_runner(tmp_path):
         storage.create_project(name="e2e-project", repo_path=str(temp_dir), prd_path=None)
 
         reload_registry()
+        paths.reset_paths_cache()
+        os.environ["SPARKQ_CONFIG"] = str(Path.cwd() / "sparkq.yml")
         yield runner
 
 

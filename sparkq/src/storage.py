@@ -1,12 +1,79 @@
 """SparkQ SQLite Storage Layer"""
 
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Optional, List, Dict, Any
+
+try:
+    from typing import TypedDict, NotRequired
+except ImportError:
+    from typing_extensions import TypedDict, NotRequired
+
+from .constants import (
+    DB_LOCK_TIMEOUT_SECONDS,
+    DEFAULT_TASK_TIMEOUT_SECONDS,
+    MAX_TASK_LIST_LIMIT,
+    STALE_FAIL_MULTIPLIER,
+    STALE_WARNING_MULTIPLIER,
+)
+from .errors import ConflictError, NotFoundError, ValidationError
+
+
+class ProjectRow(TypedDict):
+    id: str
+    name: str
+    repo_path: NotRequired[str]
+    prd_path: NotRequired[str]
+    created_at: str
+    updated_at: str
+
+
+class SessionRow(TypedDict):
+    id: str
+    project_id: str
+    name: str
+    description: NotRequired[str]
+    status: str
+    started_at: str
+    ended_at: NotRequired[str]
+    created_at: str
+    updated_at: str
+
+
+class QueueRow(TypedDict):
+    id: str
+    session_id: str
+    name: str
+    instructions: NotRequired[str]
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class TaskRow(TypedDict):
+    id: str
+    queue_id: str
+    tool_name: str
+    task_class: str
+    payload: str
+    status: str
+    timeout: int
+    attempts: int
+    result: NotRequired[str]
+    error: NotRequired[str]
+    stdout: NotRequired[str]
+    stderr: NotRequired[str]
+    created_at: str
+    updated_at: str
+    started_at: NotRequired[str]
+    finished_at: NotRequired[str]
+    claimed_at: NotRequired[str]
+    stale_warned_at: NotRequired[str]
 
 
 # ID generation helpers
@@ -36,11 +103,19 @@ def now_iso() -> str:
 
 class Storage:
     def __init__(self, db_path: str = "sparkq/data/sparkq.db"):
-        self.db_path = db_path
+        resolved = Path(db_path).expanduser().resolve()
+        try:
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # If we cannot create the directory, surface the original path resolution
+            raise
+        self.db_path = str(resolved)
+        self.logger = logging.getLogger(__name__)
+        self.max_task_list_limit = MAX_TASK_LIST_LIMIT
 
     @contextmanager
-    def connection(self):
-        conn = sqlite3.connect(self.db_path)
+    def connection(self, timeout: float = DB_LOCK_TIMEOUT_SECONDS):
+        conn = sqlite3.connect(self.db_path, timeout=timeout)
         conn.row_factory = sqlite3.Row
         try:
             yield conn
@@ -52,6 +127,12 @@ class Storage:
         """Create tables if they don't exist"""
         with self.connection() as conn:
             cursor = conn.cursor()
+
+            def _ensure_column(table: str, column: str, ddl_type: str):
+                """Add missing column to a table if it is absent."""
+                info = cursor.execute(f"PRAGMA table_info({table})").fetchall()
+                if not any(row["name"] == column for row in info):
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
 
             # Enable WAL mode
             cursor.execute("PRAGMA journal_mode=WAL")
@@ -115,6 +196,8 @@ class Storage:
                 error TEXT,
                 stdout TEXT,
                 stderr TEXT,
+                claimed_at TEXT,
+                stale_warned_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 started_at TEXT,
@@ -122,6 +205,8 @@ class Storage:
             )
             """
             )
+            _ensure_column("tasks", "claimed_at", "TEXT")
+            _ensure_column("tasks", "stale_warned_at", "TEXT")
 
             # Create prompts table for text expanders (Phase 14A)
             cursor.execute(
@@ -146,6 +231,9 @@ class Storage:
             # Create indexes
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_tasks_queue_status ON tasks(queue_id, status)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_tasks_queue_created ON tasks(queue_id, created_at DESC)"
             )
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
             cursor.execute(
@@ -270,7 +358,7 @@ class Storage:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_config_namespace ON config(namespace)")
 
     # === Project CRUD ===
-    def create_project(self, name: str, repo_path: str = None, prd_path: str = None) -> dict:
+    def create_project(self, name: str, repo_path: str = None, prd_path: str = None) -> ProjectRow:
         project_id = gen_project_id()
         now = now_iso()
 
@@ -290,7 +378,7 @@ class Storage:
             "updated_at": now,
         }
 
-    def get_project(self) -> Optional[dict]:
+    def get_project(self) -> Optional[ProjectRow]:
         """Get the single project (v1: single project only)"""
         with self.connection() as conn:
             cursor = conn.execute("SELECT * FROM projects LIMIT 1")
@@ -298,14 +386,14 @@ class Storage:
             return dict(row) if row else None
 
     # === Session CRUD ===
-    def create_session(self, name: str, description: str = None) -> dict:
+    def create_session(self, name: str, description: str = None) -> SessionRow:
         session_id = gen_session_id()
         now = now_iso()
 
         # Get project (assumes single project exists)
         project = self.get_project()
         if not project:
-            raise ValueError("No project found. Run 'sparkq setup' first.")
+            raise NotFoundError("No project found. Run 'sparkq setup' first.")
 
         with self.connection() as conn:
             conn.execute(
@@ -326,19 +414,19 @@ class Storage:
             "updated_at": now,
         }
 
-    def get_session(self, session_id: str) -> Optional[dict]:
+    def get_session(self, session_id: str) -> Optional[SessionRow]:
         with self.connection() as conn:
             cursor = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def get_session_by_name(self, name: str) -> Optional[dict]:
+    def get_session_by_name(self, name: str) -> Optional[SessionRow]:
         with self.connection() as conn:
             cursor = conn.execute("SELECT * FROM sessions WHERE name = ?", (name,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def list_sessions(self, status: str = None) -> List[dict]:
+    def list_sessions(self, status: str = None) -> List[SessionRow]:
         with self.connection() as conn:
             if status:
                 cursor = conn.execute(
@@ -382,7 +470,7 @@ class Storage:
             return cursor.rowcount > 0
 
     # === Queue CRUD ===
-    def create_queue(self, session_id: str, name: str, instructions: str = None) -> dict:
+    def create_queue(self, session_id: str, name: str, instructions: str = None) -> QueueRow:
         queue_id = gen_queue_id()
         now = now_iso()
 
@@ -403,19 +491,33 @@ class Storage:
             'updated_at': now
         }
 
-    def get_queue(self, queue_id: str) -> Optional[dict]:
+    def get_queue(self, queue_id: str) -> Optional[QueueRow]:
         with self.connection() as conn:
             cursor = conn.execute("SELECT * FROM queues WHERE id = ?", (queue_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def get_queue_by_name(self, name: str) -> Optional[dict]:
+    def get_queue_by_name(self, name: str) -> Optional[QueueRow]:
         with self.connection() as conn:
             cursor = conn.execute("SELECT * FROM queues WHERE name = ?", (name,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def list_queues(self, session_id: str = None, status: str = None) -> List[dict]:
+    def get_queue_names(self, queue_ids: List[str]) -> Dict[str, str]:
+        """Return a mapping of queue_id -> name for provided IDs."""
+        unique_ids = [qid for qid in dict.fromkeys(queue_ids) if qid]
+        if not unique_ids:
+            return {}
+
+        placeholders = ",".join("?" for _ in unique_ids)
+        with self.connection() as conn:
+            rows = conn.execute(
+                f"SELECT id, name FROM queues WHERE id IN ({placeholders})", tuple(unique_ids)
+            ).fetchall()
+
+        return {row["id"]: row["name"] for row in rows}
+
+    def list_queues(self, session_id: str = None, status: str = None) -> List[QueueRow]:
         with self.connection() as conn:
             query = "SELECT * FROM queues WHERE 1=1"
             params = []
@@ -475,15 +577,29 @@ class Storage:
     def create_task(
         self, queue_id: str, tool_name: str, task_class: str, payload: str, timeout: int,
         prompt_path: str = None, metadata: str = None
-    ) -> dict:
+    ) -> TaskRow:
         task_id = gen_task_id()
         now = now_iso()
 
         with self.connection() as conn:
             conn.execute(
-                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, status, timeout, attempts, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (task_id, queue_id, tool_name, task_class, payload, 'queued', timeout, 0, now, now)
+                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, status, timeout, attempts,
+                                      claimed_at, stale_warned_at, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    task_id,
+                    queue_id,
+                    tool_name,
+                    task_class,
+                    payload,
+                    'queued',
+                    timeout,
+                    0,
+                    None,
+                    None,
+                    now,
+                    now,
+                )
             )
 
         return {
@@ -499,19 +615,21 @@ class Storage:
             'error': None,
             'stdout': None,
             'stderr': None,
+            'claimed_at': None,
+            'stale_warned_at': None,
             'created_at': now,
             'updated_at': now,
             'started_at': None,
             'finished_at': None
         }
 
-    def get_task(self, task_id: str) -> Optional[dict]:
+    def get_task(self, task_id: str) -> Optional[TaskRow]:
         with self.connection() as conn:
             cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def list_tasks(self, queue_id: str = None, status: str = None, limit: int = None) -> List[dict]:
+    def list_tasks(self, queue_id: str = None, status: str = None, limit: int = None, offset: int = 0) -> List[TaskRow]:
         with self.connection() as conn:
             query = "SELECT * FROM tasks WHERE 1=1"
             params = []
@@ -526,58 +644,123 @@ class Storage:
 
             query += " ORDER BY created_at DESC"
 
-            if limit:
-                query += " LIMIT ?"
-                params.append(limit)
+            # Enforce an upper bound to avoid unbounded result sets
+            effective_limit = self.max_task_list_limit
+            if limit is not None:
+                effective_limit = min(limit, self.max_task_list_limit)
+
+            query += " LIMIT ? OFFSET ?"
+            params.extend([effective_limit, offset])
 
             cursor = conn.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_oldest_queued_task(self, queue_id: str) -> Optional[dict]:
+    def get_queue_stats(self, queue_ids: List[str]) -> Dict[str, Dict[str, int]]:
+        """
+        Return aggregated task counts per queue to avoid N+1 fetching.
+        """
+        if not queue_ids:
+            return {}
+
+        placeholders = ",".join(["?"] * len(queue_ids))
+        query = f"""
+            SELECT
+                queue_id,
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) as done,
+                SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+                SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued
+            FROM tasks
+            WHERE queue_id IN ({placeholders})
+            GROUP BY queue_id
+        """
+        with self.connection() as conn:
+            cursor = conn.execute(query, queue_ids)
+            rows = cursor.fetchall()
+
+        stats_map: Dict[str, Dict[str, int]] = {}
+        for row in rows:
+            stats_map[row["queue_id"]] = {
+                "total": row["total"] or 0,
+                "done": row["done"] or 0,
+                "running": row["running"] or 0,
+                "queued": row["queued"] or 0,
+            }
+
+        return stats_map
+
+    def get_queue_names(self, queue_ids: List[str]) -> Dict[str, str]:
+        """
+        Return a mapping of queue_id -> queue name for display without per-task lookups.
+        """
+        if not queue_ids:
+            return {}
+        placeholders = ",".join(["?"] * len(queue_ids))
+        query = f"SELECT id, name FROM queues WHERE id IN ({placeholders})"
+        with self.connection() as conn:
+            rows = conn.execute(query, queue_ids).fetchall()
+        return {row["id"]: row["name"] for row in rows}
+
+    def get_oldest_queued_task(self, queue_id: str) -> Optional[TaskRow]:
         """Get oldest queued task for a queue (FIFO ordering)"""
         with self.connection() as conn:
             cursor = conn.execute(
-                "SELECT * FROM tasks WHERE queue_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1",
-                (queue_id,)
+                """
+                SELECT
+                    *,
+                    json_extract(payload, '$.prompt') AS prompt_text
+                FROM tasks
+                WHERE queue_id = ? AND status = 'queued'
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (queue_id,),
             )
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def claim_task(self, task_id: str) -> dict:
-        """Claim a task by setting status to 'running' and started_at timestamp"""
+    def claim_task(self, task_id: str) -> TaskRow:
+        """Claim a task by setting status to 'running' and claimed_at/started_at timestamps."""
         now = now_iso()
-        # Set isolation level to None (autocommit OFF) to use explicit transactions
-        conn = sqlite3.connect(self.db_path, timeout=10.0)
-        conn.isolation_level = None  # autocommit OFF for explicit transactions
-        conn.row_factory = sqlite3.Row
-        try:
-            # Use EXCLUSIVE transaction to serialize all concurrent claims
-            conn.execute("BEGIN EXCLUSIVE")
-
-            # Update status to running (only if currently queued)
-            cursor = conn.execute(
-                """UPDATE tasks SET status = 'running', started_at = ?, updated_at = ?, attempts = attempts + 1
-                   WHERE id = ? AND status = 'queued'""",
-                (now, now, task_id)
-            )
-
-            if cursor.rowcount == 0:
-                conn.execute("ROLLBACK")
-                raise ValueError(f"Task {task_id} not found or already claimed")
-
-            # Fetch and return the updated task
-            cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
-            row = cursor.fetchone()
-            conn.execute("COMMIT")
-            return dict(row) if row else None
-        except Exception:
+        with self.connection(timeout=10.0) as conn:
+            # Enable explicit transaction control for serialized claims
+            conn.isolation_level = None
             try:
-                conn.execute("ROLLBACK")
+                conn.execute("BEGIN EXCLUSIVE")
+
+                cursor = conn.execute(
+                    """UPDATE tasks
+                       SET status = 'running',
+                           started_at = COALESCE(started_at, ?),
+                           claimed_at = COALESCE(claimed_at, ?),
+                           updated_at = ?,
+                           attempts = attempts + 1
+                       WHERE id = ? AND status = 'queued'""",
+                    (now, now, now, task_id),
+                )
+
+                if cursor.rowcount == 0:
+                    conn.execute("ROLLBACK")
+                    raise ConflictError(f"Task {task_id} not found or already claimed")
+
+                cursor = conn.execute(
+                    """
+                    SELECT
+                        *,
+                        json_extract(payload, '$.prompt') AS prompt_text
+                    FROM tasks
+                    WHERE id = ?
+                    """,
+                    (task_id,),
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
             except Exception:
-                pass
-            raise
-        finally:
-            conn.close()
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    self.logger.exception("Failed to rollback claim for task %s", task_id)
+                raise
 
     # === Config helpers (Phase 20) ===
     def _serialize_value(self, value: Any) -> str:
@@ -685,9 +868,9 @@ class Storage:
 
     def upsert_task_class(self, name: str, timeout: int, description: Optional[str] = None):
         if not name or not isinstance(name, str):
-            raise ValueError("task_class name required")
+            raise ValidationError("task_class name required")
         if not isinstance(timeout, int) or timeout <= 0:
-            raise ValueError("timeout must be a positive integer")
+            raise ValidationError("timeout must be a positive integer")
         now = now_iso()
         with self.connection() as conn:
             conn.execute(
@@ -705,7 +888,7 @@ class Storage:
             # Prevent delete if referenced by any tool
             ref = conn.execute("SELECT 1 FROM tools WHERE task_class = ? LIMIT 1", (name,)).fetchone()
             if ref:
-                raise ValueError("Cannot delete task_class in use by tools")
+                raise ConflictError("Cannot delete task_class in use by tools")
             conn.execute("DELETE FROM task_classes WHERE name = ?", (name,))
 
     def list_tools_table(self) -> List[dict]:
@@ -725,15 +908,15 @@ class Storage:
 
     def upsert_tool_record(self, name: str, task_class: str, description: Optional[str] = None):
         if not name or not isinstance(name, str):
-            raise ValueError("tool name required")
+            raise ValidationError("tool name required")
         if not task_class or not isinstance(task_class, str):
-            raise ValueError("task_class required for tool")
+            raise ValidationError("task_class required for tool")
         now = now_iso()
         with self.connection() as conn:
             # Ensure task_class exists
             tc = conn.execute("SELECT 1 FROM task_classes WHERE name = ?", (task_class,)).fetchone()
             if not tc:
-                raise ValueError(f"task_class '{task_class}' does not exist")
+                raise NotFoundError(f"task_class '{task_class}' does not exist")
             conn.execute(
                 """
                 INSERT INTO tools (name, description, task_class, created_at, updated_at)
@@ -749,7 +932,7 @@ class Storage:
             conn.execute("DELETE FROM tools WHERE name = ?", (name,))
 
     def complete_task(self, task_id: str, result_summary: str, result_data: str = None,
-                     stdout: str = None, stderr: str = None) -> dict:
+                     stdout: str = None, stderr: str = None) -> TaskRow:
         """Mark task as succeeded with result data"""
         now = now_iso()
         with self.connection() as conn:
@@ -760,7 +943,7 @@ class Storage:
             )
 
             if cursor.rowcount == 0:
-                raise ValueError(f"Task {task_id} not found")
+                raise NotFoundError(f"Task {task_id} not found")
 
             # Fetch and return the updated task
             cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
@@ -768,7 +951,7 @@ class Storage:
             return dict(row) if row else None
 
     def fail_task(self, task_id: str, error_message: str, error_type: str = None,
-                  stdout: str = None, stderr: str = None) -> dict:
+                  stdout: str = None, stderr: str = None) -> TaskRow:
         """Mark task as failed with error information"""
         now = now_iso()
         error_data = error_message if not error_type else f"{error_type}: {error_message}"
@@ -781,19 +964,19 @@ class Storage:
             )
 
             if cursor.rowcount == 0:
-                raise ValueError(f"Task {task_id} not found")
+                raise NotFoundError(f"Task {task_id} not found")
 
             # Fetch and return the updated task
             cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def requeue_task(self, task_id: str) -> dict:
+    def requeue_task(self, task_id: str) -> TaskRow:
         """Reset a failed task to queued status (clone as new task with new ID)"""
         # Get the original task
         original_task = self.get_task(task_id)
         if not original_task:
-            raise ValueError(f"Task {task_id} not found")
+            raise NotFoundError(f"Task {task_id} not found")
 
         # Create a new task with same parameters but fresh state
         new_task_id = gen_task_id()
@@ -801,11 +984,23 @@ class Storage:
 
         with self.connection() as conn:
             conn.execute(
-                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, status, timeout, attempts, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (new_task_id, original_task['queue_id'], original_task['tool_name'],
-                 original_task['task_class'], original_task['payload'], 'queued',
-                 original_task['timeout'], 0, now, now)
+                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, status, timeout, attempts,
+                                      claimed_at, stale_warned_at, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    new_task_id,
+                    original_task['queue_id'],
+                    original_task['tool_name'],
+                    original_task['task_class'],
+                    original_task['payload'],
+                    'queued',
+                    original_task['timeout'],
+                    0,
+                    None,
+                    None,
+                    now,
+                    now,
+                )
             )
 
             # Fetch and return the new task
@@ -813,7 +1008,7 @@ class Storage:
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def update_task(self, task_id: str, **updates) -> Optional[dict]:
+    def update_task(self, task_id: str, **updates) -> Optional[TaskRow]:
         """Update task fields. Allowed fields: tool_name, payload, timeout, status. Returns updated task or None if not found."""
         existing = self.get_task(task_id)
         if not existing:
@@ -861,12 +1056,17 @@ class Storage:
         """
         Resolve timeout for a task using explicit value or tool registry fallback.
 
-        Returns timeout in seconds, defaulting to 3600 on errors.
+        Returns timeout in seconds, defaulting to task-class defaults on errors.
         """
+        from .constants import TASK_CLASS_TIMEOUTS
+
+        default_timeouts = TASK_CLASS_TIMEOUTS
+        fallback_default = default_timeouts.get("MEDIUM_SCRIPT", DEFAULT_TASK_TIMEOUT_SECONDS)
+        task_class = None
         try:
             task = self.get_task(task_id)
             if not task:
-                return 3600
+                return fallback_default
 
             timeout_value = task.get("timeout")
             if timeout_value is not None:
@@ -877,10 +1077,19 @@ class Storage:
 
                 if timeout_int is not None and timeout_int > 0:
                     return timeout_int
+            task_class = task.get("task_class")
 
+            tool_name = task.get("tool_name")
             registry = getattr(self, "registry", None)
+            if registry is None:
+                try:
+                    from .tools import get_registry
+
+                    registry = get_registry()
+                except Exception:
+                    registry = None
+
             if registry:
-                tool_name = task.get("tool_name")
                 try:
                     registry_timeout = registry.get_timeout(tool_name) if tool_name else None
                 except Exception:
@@ -889,37 +1098,37 @@ class Storage:
                 if registry_timeout is not None and registry_timeout > 0:
                     return registry_timeout
 
-            return 3600
+            return default_timeouts.get(task_class, fallback_default)
         except Exception:
-            return 3600
+            return default_timeouts.get(task_class, fallback_default)
 
-    def get_stale_tasks(self, timeout_multiplier: float = 1.0) -> List[dict]:
+    def get_stale_tasks(self, timeout_multiplier: float = STALE_WARNING_MULTIPLIER) -> List[TaskRow]:
         """
-        Return tasks that have exceeded their claimed timeout threshold.
+        Return running tasks that have exceeded their claimed timeout threshold.
 
-        A task is stale if status is 'claimed', it has a claimed_at timestamp,
+        A task is stale if status is 'running', it has a claimed_at/started_at timestamp,
         and now > claimed_at + (timeout * timeout_multiplier).
         """
-        stale_tasks: List[dict] = []
+        stale_tasks: List[TaskRow] = []
 
         try:
             now_ts = datetime.utcnow().timestamp()
             with self.connection() as conn:
                 cursor = conn.execute(
-                    "SELECT * FROM tasks WHERE status='claimed' AND claimed_at IS NOT NULL"
+                    "SELECT * FROM tasks WHERE status='running' AND (claimed_at IS NOT NULL OR started_at IS NOT NULL)"
                 )
                 rows = cursor.fetchall()
 
             for row in rows:
-                task = dict(row)
-                claimed_at = task.get("claimed_at")
+                task: TaskRow = dict(row)
+                claimed_at = task.get("claimed_at") or task.get("started_at")
                 if not claimed_at:
                     continue
 
                 timeout_seconds = self.get_timeout_for_task(task["id"])
 
                 try:
-                    claimed_dt = datetime.fromisoformat(claimed_at.replace("Z", "+00:00"))
+                    claimed_dt = datetime.fromisoformat(str(claimed_at).replace("Z", "+00:00"))
                     claimed_ts = claimed_dt.timestamp()
                 except Exception:
                     # Skip tasks with invalid timestamps instead of crashing
@@ -931,35 +1140,33 @@ class Storage:
 
             return stale_tasks
         except Exception:
+            self.logger.exception("Failed to compute stale tasks")
             return []
 
-    def mark_stale_warning(self, task_id: str) -> dict:
+    def mark_stale_warning(self, task_id: str) -> TaskRow:
         """
         Mark a task with a stale warning timestamp.
         """
-        try:
-            task = self.get_task(task_id)
-            if not task:
-                return {}
+        task = self.get_task(task_id)
+        if not task:
+            raise NotFoundError(f"Task {task_id} not found")
 
-            now = now_iso()
-            with self.connection() as conn:
-                conn.execute(
-                    "UPDATE tasks SET stale_warned_at = ? WHERE id = ?",
-                    (now, task_id),
-                )
-                cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
-                row = cursor.fetchone()
+        now = now_iso()
+        with self.connection() as conn:
+            conn.execute(
+                "UPDATE tasks SET stale_warned_at = ? WHERE id = ?",
+                (now, task_id),
+            )
+            cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+            row = cursor.fetchone()
 
-            updated_task = dict(row) if row else task
-            updated_task["stale_warned_at"] = updated_task.get("stale_warned_at") or now
+        updated_task: TaskRow = dict(row) if row else task
+        updated_task["stale_warned_at"] = updated_task.get("stale_warned_at") or now
 
-            print(f"Marked task {task_id} with stale warning")
-            return updated_task
-        except Exception:
-            return {}
+        self.logger.info("Marked task %s with stale warning", task_id)
+        return updated_task
 
-    def auto_fail_stale_tasks(self, timeout_multiplier: float = 2.0) -> List[dict]:
+    def auto_fail_stale_tasks(self, timeout_multiplier: float = STALE_FAIL_MULTIPLIER) -> List[TaskRow]:
         """
         Auto-fail tasks that are stale using the provided timeout multiplier.
         """
@@ -976,12 +1183,14 @@ class Storage:
                     )
                     auto_failed.append(failed_task)
                 except Exception:
-                    # Continue processing other tasks even if one fails
+                    # Continue processing other tasks even if one fails, but log it
+                    self.logger.exception("Failed to auto-fail stale task %s", task.get("id"))
                     continue
 
-            print(f"Auto-failed {len(auto_failed)} stale tasks")
+            self.logger.info("Auto-failed %s stale tasks", len(auto_failed))
             return auto_failed
         except Exception:
+            self.logger.exception("Auto-fail stale tasks run failed")
             return []
 
     # === Prompt CRUD ===
@@ -991,7 +1200,7 @@ class Storage:
         import re
 
         if not re.match(r"^[a-z0-9][a-z0-9-]*$", command):
-            raise ValueError("Command must match pattern ^[a-z0-9][a-z0-9-]*$")
+            raise ValidationError("Command must match pattern ^[a-z0-9][a-z0-9-]*$")
 
         with self.connection() as conn:
             cursor = conn.execute(
@@ -999,7 +1208,7 @@ class Storage:
                 (command,),
             )
             if cursor.fetchone():
-                raise ValueError(f"Prompt command '{command}' already exists")
+                raise ConflictError(f"Prompt command '{command}' already exists")
 
             prompt_id = gen_prompt_id()
             now = now_iso()
@@ -1048,7 +1257,7 @@ class Storage:
 
         existing_prompt = self.get_prompt(prompt_id)
         if not existing_prompt:
-            raise ValueError(f"Prompt {prompt_id} not found")
+            raise NotFoundError(f"Prompt {prompt_id} not found")
 
         updates = []
         params = []
@@ -1056,14 +1265,14 @@ class Storage:
         with self.connection() as conn:
             if command is not None:
                 if not re.match(r"^[a-z0-9][a-z0-9-]*$", command):
-                    raise ValueError("Command must match pattern ^[a-z0-9][a-z0-9-]*$")
+                    raise ValidationError("Command must match pattern ^[a-z0-9][a-z0-9-]*$")
 
                 cursor = conn.execute(
                     "SELECT 1 FROM prompts WHERE command = ? AND id != ?",
                     (command, prompt_id),
                 )
                 if cursor.fetchone():
-                    raise ValueError(f"Prompt command '{command}' already exists")
+                    raise ConflictError(f"Prompt command '{command}' already exists")
 
                 updates.append("command = ?")
                 params.append(command)
@@ -1094,4 +1303,4 @@ class Storage:
         with self.connection() as conn:
             cursor = conn.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
             if cursor.rowcount == 0:
-                raise ValueError(f"Prompt {prompt_id} not found")
+                raise NotFoundError(f"Prompt {prompt_id} not found")

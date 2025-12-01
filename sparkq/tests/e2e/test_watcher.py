@@ -1,10 +1,11 @@
 import json
+import os
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
-import queue_runner
+import sparkq.queue_runner as queue_runner
 from src import api as api_module
 from src.storage import Storage
 
@@ -26,13 +27,18 @@ def queue_runner_env(tmp_path, monkeypatch):
     # Point the API at the temporary storage and route queue_runner HTTP calls through it.
     monkeypatch.setattr(api_module, "storage", storage)
     client = TestClient(api_module.app)
-    monkeypatch.setattr("queue_runner.requests", client)
+    monkeypatch.setattr("sparkq.queue_runner.requests", client)
+    # Ensure isolated config is used by path helpers
+    from src import paths
+    paths.reset_paths_cache()
+    os.environ["SPARKQ_CONFIG"] = str(tmp_path / "sparkq.yml")
 
     yield {
         "storage": storage,
         "queue": queue,
         "base_url": str(client.base_url),
         "worker_id": queue_runner.resolve_worker_id(queue["name"]),
+        "client": client,
     }
 
     client.close()
@@ -72,8 +78,9 @@ class TestQueueRunnerBehavior:
         updated_newer = storage.get_task(newer_task["id"])
         assert updated_older["status"] == "succeeded"
         assert updated_newer["status"] == "queued"
-        result_payload = json.loads(updated_older["result"])
-        assert result_payload["note"] == "Completed by queue_runner (dry-run)"
+        result_payload = updated_older.get("result")
+        # Dry-run completion uses summary text directly
+        assert "dry-run" in (result_payload or "")
 
         second_run = queue_runner.process_one(base_url, queue_from_api, worker_id, execute=False)
         assert second_run is True

@@ -144,18 +144,27 @@
       container.innerHTML = `
         <div class="quick-add-bar" style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
 
-          <div class="mode-toggle" style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <div class="mode-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div style="display: flex; gap: 8px;">
+              <button
+                class="mode-btn ${this.mode === 'llm' ? 'active' : ''}"
+                onclick="window.quickAdd.setMode('llm')"
+                style="padding: 8px 16px; background: ${this.mode === 'llm' ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)'}; border: 1px solid ${this.mode === 'llm' ? '#3b82f6' : '#444'}; border-radius: 6px; color: #fff; cursor: pointer; transition: all 0.2s;">
+                💬 Prompt
+              </button>
+              <button
+                class="mode-btn ${this.mode === 'script' ? 'active' : ''}"
+                onclick="window.quickAdd.setMode('script')"
+                style="padding: 8px 16px; background: ${this.mode === 'script' ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)'}; border: 1px solid ${this.mode === 'script' ? '#3b82f6' : '#444'}; border-radius: 6px; color: #fff; cursor: pointer; transition: all 0.2s;">
+                📄 Script
+              </button>
+            </div>
             <button
-              class="mode-btn ${this.mode === 'llm' ? 'active' : ''}"
-              onclick="window.quickAdd.setMode('llm')"
-              style="padding: 8px 16px; background: ${this.mode === 'llm' ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)'}; border: 1px solid ${this.mode === 'llm' ? '#3b82f6' : '#444'}; border-radius: 6px; color: #fff; cursor: pointer; transition: all 0.2s;">
-              💬 Prompt
-            </button>
-            <button
-              class="mode-btn ${this.mode === 'script' ? 'active' : ''}"
-              onclick="window.quickAdd.setMode('script')"
-              style="padding: 8px 16px; background: ${this.mode === 'script' ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)'}; border: 1px solid ${this.mode === 'script' ? '#3b82f6' : '#444'}; border-radius: 6px; color: #fff; cursor: pointer; transition: all 0.2s;">
-              📄 Script
+              class="button secondary"
+              onclick="window.quickAdd.showInstructions()"
+              title="Edit queue instructions"
+              style="padding: 8px 16px; font-size: 14px; white-space: nowrap;">
+              📋 Queue Instructions
             </button>
           </div>
 
@@ -344,6 +353,51 @@
       if (event.key === 'Enter' && !event.shiftKey && !this.popupVisible) {
         event.preventDefault();
         this.addLLMTask();
+      }
+    }
+
+    async showInstructions() {
+      try {
+        // Fetch current queue data to get instructions
+        const queueResponse = await API.api('GET', `/api/queues/${this.queueId}`, null, { action: 'load queue' });
+        const currentInstructions = queueResponse?.queue?.instructions || '';
+
+        // Show modal with textarea
+        const newInstructions = await Utils.showPrompt(
+          `Queue Instructions for ${this.queueName}`,
+          'Enter instructions for this queue (context, guardrails, scope):',
+          currentInstructions,
+          { textarea: true, rows: 10, placeholder: 'e.g., Project context, coding standards, scope boundaries, guardrails...' }
+        );
+
+        // Only update if user didn't cancel and value changed
+        if (newInstructions !== null && newInstructions !== currentInstructions) {
+          await this.saveInstructions(newInstructions);
+        }
+      } catch (err) {
+        console.error('[QuickAdd] Failed to show instructions:', err);
+        Utils.showToast('Failed to load queue instructions', 'error');
+      }
+    }
+
+    async saveInstructions(instructions) {
+      try {
+        const trimmed = instructions.trim();
+        await API.api(
+          'PUT',
+          `/api/queues/${this.queueId}`,
+          { instructions: trimmed ? trimmed : '' },
+          { action: 'update queue instructions' }
+        );
+        Utils.showToast(trimmed ? 'Queue instructions updated' : 'Queue instructions cleared', 'success');
+
+        // Trigger refresh callback if set (will reload queue details including instructions display)
+        if (this.refreshCallback) {
+          this.refreshCallback();
+        }
+      } catch (err) {
+        console.error('[QuickAdd] Failed to save instructions:', err);
+        Utils.showToast('Failed to update instructions', 'error');
       }
     }
 

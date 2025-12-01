@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 from pathlib import Path
@@ -49,9 +50,15 @@ tools:
 
 @pytest.fixture
 def cli_runner():
-    runner = CliRunner(mix_stderr=False)
+    runner = CliRunner()
     with runner.isolated_filesystem():
         write_default_config()
+        # Ensure this isolated config is picked up by path helpers
+        from src import paths
+        paths.reset_paths_cache()
+        os.environ["SPARKQ_CONFIG"] = str(Path.cwd() / "sparkq.yml")
+        if str(Path.cwd()) not in sys.path:
+            sys.path.insert(0, str(Path.cwd()))
         # Create scripts directory with sample scripts
         Path("scripts").mkdir(parents=True, exist_ok=True)
         Path("scripts/hello.sh").write_text(
@@ -83,15 +90,15 @@ def extract_task_id(text: str) -> str:
     return match.group(0)
 
 
-def create_session_and_stream(runner: CliRunner, session_name: str, queue_name: str, instructions: str | None = None):
+def create_session_and_queue(runner: CliRunner, session_name: str, queue_name: str, instructions: str | None = None):
     session_result = runner.invoke(app, ["session", "create", session_name])
     assert session_result.exit_code == 0
-    stream_args = ["queue", "create", queue_name, "--session", session_name]
+    queue_args = ["queue", "create", queue_name, "--session", session_name]
     if instructions:
-        stream_args.extend(["--instructions", instructions])
-    stream_result = runner.invoke(app, stream_args)
-    assert stream_result.exit_code == 0
-    return session_result, stream_result
+        queue_args.extend(["--instructions", instructions])
+    queue_result = runner.invoke(app, queue_args)
+    assert queue_result.exit_code == 0
+    return session_result, queue_result
 
 
 def create_sample_scripts():
@@ -130,7 +137,7 @@ class TestSessionCommands:
         assert ended and ended["status"] == "ended"
 
 
-class TestStreamCommands:
+class TestQueueCommands:
     def test_queue_create(self, cli_runner: CliRunner):
         session_result = cli_runner.invoke(app, ["session", "create", "queue-session"])
         assert session_result.exit_code == 0
@@ -154,7 +161,7 @@ class TestStreamCommands:
         assert "Instructions" in stream_result.stdout
 
     def test_queue_list(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "list-session", "list-queue")
+        create_session_and_queue(cli_runner, "list-session", "list-queue")
 
         list_result = cli_runner.invoke(app, ["queue", "list"])
 
@@ -165,7 +172,7 @@ class TestStreamCommands:
 
 class TestTaskCommands:
     def test_enqueue_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-queue")
+        create_session_and_queue(cli_runner, "task-session", "task-queue")
 
         result = cli_runner.invoke(
             app,
@@ -186,7 +193,7 @@ class TestTaskCommands:
         assert "task-queue" in result.stdout
 
     def test_enqueue_invalid_tool(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-queue")
+        create_session_and_queue(cli_runner, "task-session", "task-queue")
 
         result = cli_runner.invoke(
             app,
@@ -204,7 +211,7 @@ class TestTaskCommands:
         assert "sparkq list tools" in result.stderr
 
     def test_enqueue_invalid_json(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-queue")
+        create_session_and_queue(cli_runner, "task-session", "task-queue")
 
         result = cli_runner.invoke(
             app,
@@ -224,7 +231,7 @@ class TestTaskCommands:
         assert "Provide valid JSON" in result.stderr
 
     def test_peek_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-queue")
+        create_session_and_queue(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
@@ -245,7 +252,7 @@ class TestTaskCommands:
         assert "run-bash" in peek_result.stdout
 
     def test_claim_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-queue")
+        create_session_and_queue(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
@@ -263,17 +270,17 @@ class TestTaskCommands:
         assert claim_result.exit_code == 0
         claimed_id = extract_task_id(claim_result.stdout)
         assert claimed_id == queued_id
-        assert "Stream: task-queue" in claim_result.stdout
+        assert "Queue: task-queue" in claim_result.stdout
 
     def test_claim_without_stream_errors(self, cli_runner: CliRunner):
         result = cli_runner.invoke(app, ["claim"])
 
         assert result.exit_code == 1
-        assert "Stream is required" in result.stderr
+        assert "Queue is required" in result.stderr
         assert "sparkq queue list" in result.stderr
 
     def test_complete_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-queue")
+        create_session_and_queue(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
@@ -304,7 +311,7 @@ class TestTaskCommands:
         assert task and task["status"] == "succeeded"
 
     def test_complete_missing_summary(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-queue")
+        create_session_and_queue(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
@@ -335,7 +342,7 @@ class TestTaskCommands:
         assert task and task["status"] == "running"
 
     def test_fail_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-queue")
+        create_session_and_queue(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
@@ -368,7 +375,7 @@ class TestTaskCommands:
         assert task and task["status"] == "failed"
 
     def test_requeue_task(self, cli_runner: CliRunner):
-        create_session_and_stream(cli_runner, "task-session", "task-queue")
+        create_session_and_queue(cli_runner, "task-session", "task-queue")
         enqueue_result = cli_runner.invoke(
             app,
             [
@@ -405,7 +412,6 @@ class TestTaskCommands:
 
 
 class TestScriptCommands:
-    @pytest.mark.xfail(reason="scripts CLI command not yet implemented")
     def test_script_list(self, cli_runner: CliRunner):
         create_sample_scripts()
 
@@ -415,7 +421,6 @@ class TestScriptCommands:
         assert "hello-world" in result.stdout
         assert "cleanup-db" in result.stdout
 
-    @pytest.mark.xfail(reason="scripts CLI command not yet implemented")
     def test_script_search(self, cli_runner: CliRunner):
         create_sample_scripts()
 

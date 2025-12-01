@@ -5,8 +5,8 @@ import sys
 import os
 from pathlib import Path
 
-# Add sparkq parent directory to path
-sys.path.insert(0, '/home/luce/apps/sparkqueue')
+# Add sparkq parent directory to path dynamically
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sparkq.src.storage import Storage
 
@@ -33,7 +33,7 @@ def test_integration():
     print("\n[2/8] Testing project creation...")
     project = storage.create_project(
         name="test-project",
-        repo_path="/home/luce/apps/sparkqueue",
+        repo_path=str(Path(__file__).resolve().parent.parent),
         prd_path=None
     )
     assert project['name'] == "test-project"

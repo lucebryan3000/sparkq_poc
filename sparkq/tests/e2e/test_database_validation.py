@@ -8,6 +8,8 @@ import pytest
 import sqlite3
 from pathlib import Path
 
+from src.errors import ConflictError
+
 
 class TestDatabaseSchema:
     """Validate database schema and table structure"""
@@ -101,6 +103,8 @@ class TestDatabaseSchema:
             "error": "TEXT",
             "stdout": "TEXT",
             "stderr": "TEXT",
+            "claimed_at": "TEXT",
+            "stale_warned_at": "TEXT",
             "created_at": "TEXT",
             "updated_at": "TEXT",
             "started_at": "TEXT",
@@ -482,7 +486,7 @@ class TestConcurrentAccess:
         assert claimed1["attempts"] == 1
 
         # Try to claim again - should fail
-        with pytest.raises(ValueError, match="not found or already claimed"):
+        with pytest.raises(ConflictError, match="not found or already claimed"):
             storage.claim_task(task["id"])
 
     def test_task_status_transitions(self, storage, queue):
