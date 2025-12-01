@@ -17,6 +17,55 @@
       stylesheet.rel = 'stylesheet';
       stylesheet.href = `/ui/style.css${versionQuery}`;
       document.head.appendChild(stylesheet);
+
+      const assets = [
+        "/ui/dist/app-core.js", // defines globals (API/Utils/Pages) and deferred init hook
+        "/ui/dist/ui-utils.js",
+        "/ui/dist/quick-add.js",
+        "/ui/dist/dashboard.js",
+        "/ui/dist/queues.js",
+        "/ui/dist/enqueue.js",
+        "/ui/dist/config.js",
+        "/ui/dist/scripts.js",
+      ].map((src) => `${src}${versionQuery}`);
+
+      const loadSequentially = (paths) => {
+        const target = document.body || document.head || document.documentElement;
+        if (!target) return Promise.resolve();
+        return paths.reduce(
+          (chain, path) =>
+            chain.then(
+              () =>
+                new Promise((resolve) => {
+                  const script = document.createElement('script');
+                  script.src = path;
+                  script.async = false;
+                  script.onload = () => resolve();
+                  script.onerror = (err) => {
+                    console.error('Failed to load UI asset', path, err);
+                    resolve();
+                  };
+                  target.appendChild(script);
+                }),
+            ),
+          Promise.resolve(),
+        );
+      };
+
+      const startLoading = () =>
+        loadSequentially(assets)
+          .then(() => {
+            if (typeof window.__SPARKQ_RUN_APP === 'function') {
+              window.__SPARKQ_RUN_APP();
+            }
+          })
+          .catch((err) => console.error('Failed to load UI assets', err));
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startLoading);
+      } else {
+        startLoading();
+      }
     })();
   </script>
   <noscript><link rel="stylesheet" href="/ui/style.css"></noscript>
@@ -57,43 +106,6 @@
 
   <script>
     (function() {
-      const env = window.__SPARKQ_ENV__ || 'dev';
-      const isDevLike = env === 'dev' || env === 'test';
-      const cacheBuster = isDevLike ? (window.__SPARKQ_CACHE_BUSTER__ || 'dev') : '';
-      const versionQuery = cacheBuster ? `?v=${cacheBuster}` : '';
-      const assets = [
-        "/ui/dist/app-core.js",
-        "/ui/dist/ui-utils.js",
-        "/ui/dist/quick-add.js",
-        "/ui/dist/dashboard.js",
-        "/ui/dist/queues.js",
-        "/ui/dist/enqueue.js",
-        "/ui/dist/config.js",
-        "/ui/dist/scripts.js",
-      ].map((src) => `${src}${versionQuery}`);
-
-      const loadSequentially = (paths) =>
-        paths.reduce(
-          (chain, path) =>
-            chain.then(
-              () =>
-                new Promise((resolve) => {
-                  const script = document.createElement('script');
-                  script.src = path;
-                  script.async = false;
-                  script.onload = () => resolve();
-                  script.onerror = (err) => {
-                    console.error('Failed to load UI asset', path, err);
-                    resolve();
-                  };
-                  document.body.appendChild(script);
-                }),
-            ),
-          Promise.resolve(),
-        );
-
-      loadSequentially(assets).catch((err) => console.error('Failed to load UI assets', err));
-
       const el = document.getElementById('build-id');
       const buildId = window.__SPARKQ_BUILD_ID__ || window.__BUILD_ID__;
       if (el && buildId) {

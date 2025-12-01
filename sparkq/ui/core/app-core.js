@@ -763,7 +763,7 @@ window.Utils = {
 
 // ===== INITIALIZATION =====
 
-document.addEventListener('DOMContentLoaded', () => {
+function initApp() {
   cachePages();
   setupNavTabs();
   setupHamburgerMenu();
@@ -774,4 +774,11 @@ document.addEventListener('DOMContentLoaded', () => {
   updateThemeButtonIcon();
   attachThemeButtonListener();
   syncBuildIdFromServer();
-});
+}
+
+// Expose deferred initializer so index.html can run after all assets load.
+window.__SPARKQ_RUN_APP = window.__SPARKQ_RUN_APP || function () {
+  if (window.__SPARKQ_APP_INITIALIZED) return;
+  window.__SPARKQ_APP_INITIALIZED = true;
+  initApp();
+};

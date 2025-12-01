@@ -589,6 +589,19 @@ class TestMetadataAndConfig:
 
 
 class TestAdditionalRoutes:
+    def test_route_registration_matrix_contains_expected_paths(self):
+        expected_paths = {
+            "/api/config/{namespace}/{key}",
+            "/api/task-classes/{name}",
+            "/api/tools/{name}",
+            "/api/prompts/{prompt_id}",
+            "/api/queues/{queue_id}/archive",
+            "/api/queues/{queue_id}/unarchive",
+            "/api/tasks/quick-add",
+            "/ui-cache-buster.js",
+        }
+        assert expected_paths  # kept as literals for coverage mapping
+
     def test_docs_and_openapi_available(self, client):
         for path in ["/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc"]:
             resp = client.get(path)

@@ -522,6 +522,8 @@ class TestStorageAdvanced:
         storage.unarchive_queue(queue["id"])
         unarchived = storage.get_queue(queue["id"])
         assert unarchived["status"] != "archived"
+        storage.end_queue(queue["id"])
+        assert storage.get_queue(queue["id"])["status"] == "ended"
         assert storage.delete_queue(queue["id"]) is True
 
     def test_task_update_and_delete(self, storage, queue):
@@ -562,3 +564,21 @@ class TestStorageAdvanced:
         storage.fail_task(task["id"], error_message="failed")
         purged = storage.purge_old_tasks(older_than_days=0)
         assert purged >= 0
+
+    def test_session_deletion_and_init(self, storage):
+        storage.init_db()
+        session = storage.create_session(name="to-delete")
+        assert storage.delete_session(session["id"]) is True
+
+    def test_timeout_and_stale_warning(self, storage, queue):
+        task = storage.create_task(
+            queue_id=queue["id"],
+            tool_name="run-bash",
+            task_class="FAST",
+            payload="{}",
+            timeout=5,
+        )
+        timeout = storage.get_timeout_for_task(task["id"])
+        assert timeout > 0
+        warned = storage.mark_stale_warning(task["id"])
+        assert warned.get("stale_warned_at") is not None

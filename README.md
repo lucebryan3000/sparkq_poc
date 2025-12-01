@@ -118,6 +118,14 @@ sparkqueue/
 ./sparkq.sh tasks                        # List tasks with filters
 ./sparkq.sh task                         # Show detailed task info
 ./sparkq.sh requeue                      # Move task back to queued status
+
+## Tests and coverage sync
+
+- Python tests: `npm run test:python` (or `cd sparkq && pytest`).
+- Browser tests: `npm run test:browser`.
+- Test contract: `sparkq/tests/TEST_CONTRACT.md`; patterns at `sparkq/tests/patterns.md`.
+- Indexer: `make test-index` (runs `python3 tools/test_index.py --fail-on-missing`) to ensure every public surface has mapped coverage; use `--json` for machine-readable output.
+- Gap-filling workflow: follow `_build/prompts/sparkq-sync-tests.md` using the patterns when the indexer reports `MISSING`.
 ./sparkq.sh purge                        # Delete old succeeded/failed tasks
 
 # Configuration & Cleanup
@@ -160,7 +168,7 @@ The background server:
 - **Environment flag**: `SPARKQ_ENV` controls caching (`dev`/`test` default). Set `SPARKQ_ENV=prod` to keep production-style caching; leave unset for dev-friendly defaults.
 - **Convenience**: `./sparkq.sh run --env dev|prod|test` sets the mode explicitly (or use `make dev` / `make prod`).
 - **Headers in dev/test**: `/ui` static responses (HTML/JS/CSS) and `/ui-cache-buster.js` return `Cache-Control: no-cache, no-store, must-revalidate, max-age=0`, `Pragma: no-cache`, `Expires: 0`, and drop `ETag`.
-- **Dev cache-busting**: `index.html` loads `/ui-cache-buster.js`, which seeds `window.__SPARKQ_CACHE_BUSTER__` (timestamp or `SPARKQ_CACHE_BUSTER` override). When `SPARKQ_ENV` is dev/test, the UI automatically appends `?v=<seed>` to `/ui/style.css` and `/ui/dist/*.js` so hard refreshes pick up fresh assets.
+- **Dev cache-busting**: `index.html` loads `/ui-cache-buster.js`, which seeds `window.__SPARKQ_CACHE_BUSTER__` (timestamp or `SPARKQ_CACHE_BUSTER` override). When `SPARKQ_ENV` is dev/test, the UI automatically appends `?v=<seed>` to `/ui/style.css` and `/ui/dist/*.js` so hard refreshes pick up fresh assets. To force a fresh seed, restart with `SPARKQ_CACHE_BUSTER=$(date +%s)` in the environment.
 - **Prod behavior**: With `SPARKQ_ENV=prod`, asset URLs stay stable (no `?v=`) and FastAPI/StaticFiles cache headers are left untouched.
 - **Quick checks**: Start the app (`SPARKQ_ENV=dev ./sparkq.sh run`), hard refresh, and in browser devtools verify `/ui/style.css` and `/ui/dist/...` show `?v=...` plus `Cache-Control: no-cache, no-store, must-revalidate, max-age=0`. Hitting `/ui-cache-buster.js` should return the active env and cache-buster token.
 - **Troubleshooting**: Confirm you’re hitting the right static path (`/ui/...` serves from `sparkq/ui`), ensure `SPARKQ_ENV` is not accidentally `prod`, and retry after restarting the server to pick up a new cache-buster seed.

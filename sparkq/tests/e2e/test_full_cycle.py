@@ -19,7 +19,7 @@ def cli_runner(tmp_path):
     with runner.isolated_filesystem(temp_dir=tmp_path) as temp_dir:
         config = {
             "project": {"name": "e2e-project", "repo_path": str(temp_dir), "prd_path": None},
-            "server": {"port": 8420},
+            "server": {"port": 5005},
             "database": {"path": "sparkq.db", "mode": "wal"},
             "purge": {"older_than_days": 3},
             "script_dirs": ["scripts"],

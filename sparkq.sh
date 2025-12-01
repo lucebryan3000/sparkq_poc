@@ -55,6 +55,9 @@ Task Operations:
 Options:
   -h, --help             Show this help message
 
+Test Suite:
+  e2e                    Run full test suite: test-index + pytest (SPARKQ_ENV=test) + browser tests
+
 Examples:
   ./sparkq.sh start                  # Start server in background (reads host/port/db from sparkq.yml)
   ./sparkq.sh run --env dev          # Explicit dev mode (default)
@@ -123,6 +126,23 @@ fi
 if [[ "${1:-}" == "teardown" ]]; then
   shift
   exec "$SCRIPT_DIR/sparkq/scripts/teardown/teardown.sh" "$@"
+fi
+
+# Full test suite helper
+if [[ "${1:-}" == "e2e" ]]; then
+  ensure_venv
+  source "$VENV_DIR/bin/activate"
+
+  echo "Running test index..."
+  python "$PROJECT_ROOT/tools/test_index.py" --fail-on-missing
+
+  echo "Running pytest (SPARKQ_ENV=test)..."
+  (cd "$PROJECT_ROOT/sparkq" && SPARKQ_ENV=test pytest)
+
+  echo "Running browser tests..."
+  (cd "$PROJECT_ROOT" && npm run test:browser)
+
+  exit $?
 fi
 
 main "$@"

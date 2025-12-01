@@ -112,7 +112,7 @@
 
       const llmOptions = this.llmTools.length
         ? this.llmTools
-        : [{ name: 'llm-haiku', description: 'Claude Haiku', task_class: 'LLM_LITE' }];
+        : [{ name: 'llm-haiku', description: 'Haiku', task_class: 'LLM_LITE' }];
 
       if (!this.selectedTool) {
         this.selectedTool = llmOptions[0].name;

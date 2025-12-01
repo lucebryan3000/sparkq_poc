@@ -43,13 +43,13 @@ npx jest sparkq/tests/browser/test_cache_debug.test.js
 
 - `PUPPETEER_DEBUG=1` - Enable verbose debug logging
 - `HEADLESS=false` - Run browser in headed mode (visible)
-- `SPARKQ_URL=http://localhost:8420` - Override base URL
+- `SPARKQ_URL=http://localhost:5005` - Override base URL
 
 ## Requirements
 
 - Node.js >= 18.0.0
 - Puppeteer (auto-installs Chromium)
-- SparkQueue server running on port 8420
+- SparkQueue server running on port 5005
 
 ## See Also
 
