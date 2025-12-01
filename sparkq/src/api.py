@@ -124,7 +124,7 @@ _CLAIM_HAS_WORKER = "worker_id" in inspect.signature(storage.claim_task).paramet
 def _load_yaml_defaults() -> Dict[str, Any]:
     """Load defaults from sparkq.yml; fallback to sane defaults."""
     defaults = {
-        "server": {"port": 8420, "host": "0.0.0.0"},
+        "server": {"port": 5005, "host": "0.0.0.0"},
         "database": {"path": "sparkq/data/sparkq.db", "mode": "wal"},
         "purge": {"older_than_days": 3},
         "queue_runner": {
