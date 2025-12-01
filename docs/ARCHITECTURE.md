@@ -33,16 +33,11 @@ sparkqueue/
 │   ├── requirements.txt            # Python dependencies
 │   └── README.md                   # SparkQ documentation
 │
-├── __omni-dev/
-│   └── python-bootstrap/           # Environment bootstrapper
-│       ├── bootstrap.sh            # Main bootstrap script
-│       ├── stop-env.sh             # Interactive process manager
-│       └── kill-python.sh          # Quick kill script
-│
 ├── .venv/                          # Python virtual environment
-├── sparkq.yml                      # Configuration file
+├── sparkq.yml                      # Configuration file (generated from example)
 ├── sparkq.sh                       # Convenience wrapper script for CLI
-├── scripts/                        # Project-specific scripts
+├── scripts/                        # (legacy) project scripts
+├── sparkq/scripts/                 # SparkQ scripts (setup, teardown, tools)
 ├── docs/                           # Documentation
 ├── .claude/                        # Claude Code configuration
 └── README.md                       # Project documentation
@@ -366,10 +361,8 @@ queue_runner:
 
 ## Deployment
 
-**Environment Setup** (via Python Bootstrap):
-```bash
-./__omni-dev/python-bootstrap/bootstrap.sh
-```
+**Environment Setup**:
+- From repo root: `sparkq/scripts/setup/setup.sh` (creates venv, seeds config, initializes DB)
 
 **Running the Server**:
 1. **Direct CLI**: `python -m sparkq.src.cli run`
@@ -385,8 +378,6 @@ Runtime settings:
 **Server Management**:
 - **Status**: `sparkq status`
 - **Stop**: `sparkq stop`
-- **Quick Kill**: `./__omni-dev/python-bootstrap/kill-python.sh`
-- **Interactive Manager**: `./__omni-dev/python-bootstrap/stop-env.sh`
 
 ## Web Interface
 

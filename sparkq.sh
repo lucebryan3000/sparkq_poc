@@ -114,7 +114,7 @@ if [[ "${1:-}" == "restart" ]]; then
   echo "Waiting 5 seconds before restart..."
   sleep 5
   echo "Starting server..."
-  set -- run --background "$@"
+  set -- run --background
   main "$@"
   exit $?
 fi
@@ -122,7 +122,7 @@ fi
 # Handle teardown separately (doesn't need venv)
 if [[ "${1:-}" == "teardown" ]]; then
   shift
-  exec "$SCRIPT_DIR/sparkq/teardown.sh" "$@"
+  exec "$SCRIPT_DIR/sparkq/scripts/teardown/teardown.sh" "$@"
 fi
 
 main "$@"

@@ -1,12 +1,12 @@
 # SparkQueue Project Guidelines
 
 ## Project Overview
-SparkQueue is a Python-based distributed task/job queue management system with a bootstrap-based deployment model.
+SparkQueue is a Python-based distributed task/job queue management system.
 
 **Technology Stack:**
 - Python 3.11+ (as specified in config)
 - YAML configuration files
-- Virtual environment management via `python-bootstrap`
+- Virtual environment management via standard Python venv
 - Background process model for task execution
 
 ## Key Principles
@@ -43,32 +43,31 @@ SparkQueue is a Python-based distributed task/job queue management system with a
 ```
 sparkqueue/
 ├── .claude/                    # Claude Code configuration
-├── python-bootstrap/           # Bootstrap venv setup scripts
-│   ├── bootstrap.sh           # Main bootstrap script
-│   ├── stop-env.sh            # Interactive process manager
-│   ├── kill-python.sh         # Quick kill script
-│   ├── requirements.txt       # Bootstrap base deps
-│   └── README.md              # Bootstrap documentation
-├── _build/                    # Build output (generated)
-├── logs/                      # Runtime logs
-├── docs/                      # Project documentation
-└── python-bootstrap.config    # Bootstrap configuration
+├── _build/                     # Build output (generated)
+├── sparkq/                     # Main application directory
+│   ├── src/                   # Core application code
+│   ├── ui/                    # Web dashboard
+│   ├── tests/                 # Test suites
+│   ├── docs/                  # Project documentation
+│   └── scripts/               # Example scripts
+├── sparkq.yml                  # Project configuration
+└── sparkq.sh                   # CLI wrapper script
 ```
 
 ## Common Commands
 - `/dev` - Development setup & common tasks
-- `/setup` - Bootstrap Python environment
+- `/setup` - Setup Python environment
 - `/test` - Testing and validation
 - `/debug` - Debugging techniques
 - `/investigate` - Defensive dependency checks before deletion
 - `/-codex_prompt` - Generate execution specs with mandatory self-testing
 
-## Bootstrap Management
-The project uses a self-contained Python bootstrap system:
-- `./python-bootstrap/bootstrap.sh` - Set up venv and run app
-- `./python-bootstrap/stop-env.sh` - Interactive process manager
-- `./python-bootstrap/kill-python.sh` - Quick kill all sparkqueue processes
-- `python-bootstrap.config` - Configuration file (auto-updated)
+## Virtual Environment Management
+The project uses standard Python venv:
+- `./sparkq.sh setup` - Interactive setup wizard (creates venv, database, config)
+- `./sparkq.sh start` - Start server in background
+- `./sparkq.sh stop` - Stop background server
+- `./sparkq.sh run` - Run server in foreground
 
 ## Dependencies Investigation Protocol
 **CRITICAL**: Before deleting or modifying anything, follow the defensive deletion protocol:

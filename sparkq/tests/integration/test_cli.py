@@ -50,7 +50,7 @@ tools:
 
 @pytest.fixture
 def cli_runner():
-    runner = CliRunner()
+    runner = CliRunner(mix_stderr=False)
     with runner.isolated_filesystem():
         write_default_config()
         # Ensure this isolated config is picked up by path helpers

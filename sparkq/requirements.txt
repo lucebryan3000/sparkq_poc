@@ -1,8 +1,10 @@
 # Runtime dependencies for SparkQueue (pinned for reproducibility)
-fastapi==0.110.3        # REST API in sparkq/src/api.py
-uvicorn[standard]==0.29.0  # ASGI server wrapper in sparkq/src/server.py
-typer==0.12.3           # CLI commands in sparkq/src/cli.py
-pydantic==2.7.1         # Data models in sparkq/src/models.py and FastAPI schemas
-pyyaml==6.0.1           # Config parsing for sparkq.yml, ToolRegistry, ScriptIndex
-requests==2.31.0        # HTTP error handling in CLI and integrations
-anthropic>=0.7.0        # Claude API for prompt execution in sparkq/queue_runner.py
+# Runtime dependencies for SparkQueue (pinned for reproducibility)
+click==8.1.7              # CLI foundation (typer compat on Py3.13)
+fastapi==0.110.3          # REST API in sparkq/src/api.py
+uvicorn[standard]==0.29.0 # ASGI server wrapper in sparkq/src/server.py
+typer==0.12.3             # CLI commands in sparkq/src/cli.py
+pydantic==2.12.5          # Data models in sparkq/src/models.py and FastAPI schemas (Py3.13 wheel)
+pyyaml==6.0.1             # Config parsing for sparkq.yml, ToolRegistry, ScriptIndex
+requests==2.31.0          # HTTP error handling in CLI and integrations
+anthropic==0.75.0         # Claude API for prompt execution in sparkq/queue_runner.py

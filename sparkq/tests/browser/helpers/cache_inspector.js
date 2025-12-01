@@ -17,17 +17,51 @@ export async function waitForBundleAndLog(page, bundleName, timeoutMs = 10000) {
 
   // Wait for the bundle to be requested
   let bundleResponse = null;
+  let bundleUrl = null;
+
+  // Try to read URL from script tags immediately
+  bundleUrl = await page.evaluate((name) => {
+    const el = Array.from(document.querySelectorAll('script[src]')).find((s) =>
+      s.src.includes(name)
+    );
+    return el ? el.src : null;
+  }, bundleName);
 
   while (!bundleResponse && Date.now() - startTime < timeoutMs) {
     const responses = page._responseLog || [];
     bundleResponse = responses.find((r) => r.url.includes(`${bundleName}.`) && r.url.endsWith('.js'));
+    if (!bundleUrl) {
+      bundleUrl = await page.evaluate((name) => {
+        const el = Array.from(document.querySelectorAll('script[src]')).find((s) =>
+          s.src.includes(name)
+        );
+        return el ? el.src : null;
+      }, bundleName);
+    }
 
     if (!bundleResponse) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 
-  if (!bundleResponse) {
+  if (!bundleResponse && bundleUrl) {
+    // Fetch bundle manually when response log is empty (fallback)
+    const fetched = await fetchBundleContentWithHeaders(page, bundleUrl);
+    if (fetched) {
+      const { status, headers, content } = fetched;
+      const metadata = {
+        url: bundleUrl,
+        status,
+        headers,
+        contentPreview: content.substring(0, 2000),
+        contentLength: content.length,
+        timestamp: Date.now(),
+      };
+      return metadata;
+    }
+  }
+
+  if (!bundleResponse && !bundleUrl) {
     throw new Error(`Bundle '${bundleName}' not loaded within ${timeoutMs}ms`);
   }
 
@@ -38,7 +72,7 @@ export async function waitForBundleAndLog(page, bundleName, timeoutMs = 10000) {
     url: bundleResponse.url,
     status: bundleResponse.status,
     headers: bundleResponse.headers,
-    contentPreview: content.substring(0, 400),
+    contentPreview: content.substring(0, 2000),
     contentLength: content.length,
     timestamp: bundleResponse.timestamp,
   };
@@ -73,6 +107,20 @@ async function fetchBundleContent(page, url) {
   } catch (error) {
     console.error(`Failed to fetch bundle content: ${error.message}`);
     return '';
+  }
+}
+
+async function fetchBundleContentWithHeaders(page, url) {
+  try {
+    return await page.evaluate(async (url) => {
+      const res = await fetch(url);
+      const headers = Object.fromEntries(res.headers.entries());
+      const text = await res.text();
+      return { status: res.status, headers, content: text };
+    }, url);
+  } catch (error) {
+    console.error(`Failed to fetch bundle content: ${error.message}`);
+    return null;
   }
 }
 

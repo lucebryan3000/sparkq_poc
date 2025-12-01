@@ -4,7 +4,7 @@
   "description": "SparkQueue - Distributed task queue with Puppeteer E2E tests",
   "type": "module",
   "scripts": {
-    "test:browser": "jest --config sparkq/tests/jest.config.js",
+    "test:browser": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config sparkq/tests/jest.config.js",
     "test:browser:esm": "node --experimental-vm-modules node_modules/jest/bin/jest.js --config sparkq/tests/jest.config.js",
     "test:browser:debug": "PUPPETEER_DEBUG=1 jest --config sparkq/tests/jest.config.js --verbose",
     "test:browser:headed": "HEADLESS=false jest --config sparkq/tests/jest.config.js",

@@ -6,14 +6,14 @@ Distributed task queue for managing work sessions and queues. Fast, simple, dev-
 
 ### Prerequisites
 
-SparkQ requires a Python virtual environment. Set it up once from the project root using the bootstrap tool:
+SparkQ requires a Python virtual environment. Set it up once from the project root:
 
 ```bash
 cd /home/luce/apps/sparkqueue
-./__omni-dev/python-bootstrap/bootstrap.sh
+sparkq/scripts/setup/setup.sh
 ```
 
-See [../__omni-dev/python-bootstrap/README.md](../__omni-dev/python-bootstrap/README.md) for full bootstrap details.
+This seeds `sparkq.yml` and initializes a fresh SQLite DB with default tools/task classes. Re-run it after a teardown to rebuild the defaults.
 
 ### Step 1: Initialize Database (One-Time)
 
@@ -169,14 +169,15 @@ SparkQ configuration lives in `sparkq.yml` (auto-created at project root during 
 
 ```yaml
 project:
-  name: test-project
-  repo_path: /tmp/test-repo
+  name: sparkq-local
+  repo_path: .
 
 server:
+  host: 0.0.0.0
   port: 5005
 
 database:
-  path: sparkq/data/sparkq.db  # resolved relative to this config file
+  path: sparkq/data/sparkq.db
   mode: wal
 
 purge:
@@ -212,9 +213,23 @@ tools:
   llm-codex:
     description: Codex
     task_class: LLM_HEAVY
+  quick-check:
+    description: Quick validation check
+    task_class: FAST_SCRIPT
+  script-index:
+    description: Index project scripts
+    task_class: MEDIUM_SCRIPT
 
 queue_runner:
   poll_interval: 30
+  auto_fail_interval_seconds: 30
+  base_url: null
+
+features:
+  flags: {}
+
+defaults:
+  queue: {}
 ```
 
 Database path (`database.path`) resolves relative to the active config file; switch configs with `SPARKQ_CONFIG` or `sparkq run --config /path/to/sparkq.yml`. Edit `sparkq.yml` to customize tool metadata or timeouts, then reload:
@@ -534,4 +549,4 @@ All approaches use the same standardized virtual environment and dependencies.
 - **Architecture**: See [../ARCHITECTURE.md](../ARCHITECTURE.md)
 - **API Reference**: See [API.md](API.md)
 - **Project Guidelines**: See [../.claude/CLAUDE.md](../.claude/CLAUDE.md)
-- **Bootstrap Setup**: See [../__omni-dev/python-bootstrap/README.md](../__omni-dev/python-bootstrap/README.md)
+- **Bootstrap Setup**: Run `sparkq/scripts/setup/setup.sh` from the repo root

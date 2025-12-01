@@ -189,13 +189,13 @@ Queue runner tells you exactly how to execute each task via the `🔧 EXECUTE WI
 ```bash
 [runner] Tool: run-bash
 [runner] Prompt:
-./scripts/deploy-staging.sh main #deploys
+sparkq/scripts/tools/deploy-staging.sh main #deploys
 ```
 
 **Action:**
 ```bash
 # Execute the script exactly as specified
-bash ./scripts/deploy-staging.sh main #deploys
+bash sparkq/scripts/tools/deploy-staging.sh main #deploys
 ```
 
 **Capture stdout/stderr for result_data.**
@@ -207,13 +207,13 @@ bash ./scripts/deploy-staging.sh main #deploys
 ```bash
 [runner] Tool: run-python
 [runner] Prompt:
-./scripts/run-tests.py test_*.py 80
+sparkq/scripts/tools/run-tests.py test_*.py 80
 ```
 
 **Action:**
 ```bash
 # Execute the script exactly as specified
-python3 ./scripts/run-tests.py test_*.py 80
+python3 sparkq/scripts/tools/run-tests.py test_*.py 80
 ```
 
 **Capture stdout/stderr for result_data.**
@@ -587,7 +587,7 @@ For complex tasks requiring multiple steps:
 /codex Refactor authentication module based on analysis: [paste analysis]
 
 # Step 3: Run tests (Bash)
-bash ./scripts/run-tests.py
+bash sparkq/scripts/tools/run-tests.py
 
 # Complete with comprehensive summary
 ./sparkq/task_complete.py tsk_abc123 \
@@ -765,7 +765,7 @@ $ ./sparkq/task_complete.py tsk_003 \
 [runner] Task: #45 (tsk_004)
 [runner] Tool: run-bash
 [runner] Prompt:
-./scripts/deploy-staging.sh main #deploys
+$ bash sparkq/scripts/tools/deploy-staging.sh main #deploys
 
 [runner] Tool: run-bash
 [runner] 🔧 EXECUTE WITH: Unknown tool 'run-bash' - use Sonnet as fallback
@@ -773,7 +773,7 @@ $ ./sparkq/task_complete.py tsk_003 \
 [runner] ✅ COMPLETE WITH: ./sparkq/task_complete.py tsk_004 "<summary>" --data "<result>"
 
 # Claude: Execute bash script
-$ bash ./scripts/deploy-staging.sh main #deploys
+$ bash sparkq/scripts/tools/deploy-staging.sh main #deploys
 
 Deploying branch: main
 Running migrations... OK
