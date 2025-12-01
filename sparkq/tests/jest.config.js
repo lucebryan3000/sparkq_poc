@@ -9,6 +9,10 @@ export default {
   verbose: true,
   collectCoverage: false,
   maxWorkers: 1, // Run browser tests serially to avoid port conflicts
+  transform: {},
+  testEnvironmentOptions: {
+    customExportConditions: ['node', 'node-addons'],
+  },
 
   // Clear mocks between tests
   clearMocks: true,

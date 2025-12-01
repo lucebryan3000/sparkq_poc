@@ -362,7 +362,7 @@ queue_runner:
 ## Deployment
 
 **Environment Setup**:
-- From repo root: `sparkq/scripts/setup/setup.sh` (creates venv, seeds config, initializes DB)
+- From repo root: `sparkq/scripts/setup/setup.sh` (creates venv, seeds config, initializes DB; uses sparkq/scripts/setup/sparkq.yml.example)
 
 **Running the Server**:
 1. **Direct CLI**: `python -m sparkq.src.cli run`

@@ -176,7 +176,7 @@ The background server:
    ```
 2) Create config + DB (default paths)  
    ```bash
-   cp -n sparkq.yml.example sparkq.yml  # if you want a template
+   cp -n sparkq/scripts/setup/sparkq.yml.example sparkq.yml  # if you want a template
    ./sparkq.sh setup
    ```
 3) Run in dev (cache-busting on)  

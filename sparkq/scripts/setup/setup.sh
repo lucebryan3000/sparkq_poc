@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 # Allow overrides
@@ -10,18 +11,21 @@ PROJECT_NAME="${PROJECT_NAME:-sparkq-local}"
 PROJECT_ROOT="${PROJECT_ROOT:-$ROOT}"
 SERVER_PORT="${SERVER_PORT:-5005}"
 DB_PATH="${DB_PATH:-sparkq/data/sparkq.db}"
+UPDATE_EXAMPLES=false
 
-# Runtime dependency pins (Python 3.13-safe)
-RUNTIME_DEPS=(
-  "click==8.1.7"
-  "uvicorn[standard]==0.29.0"
-  "fastapi==0.110.3"
-  "typer==0.12.3"
-  "pydantic==2.12.5"
-  "pyyaml==6.0.1"
-  "requests==2.31.0"
-  "anthropic==0.75.0"
-)
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --update)
+      UPDATE_EXAMPLES=true
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Usage: $0 [--update]"
+      exit 1
+      ;;
+  esac
+done
 
 echo "[1/6] Ensuring virtualenv..."
 if [[ ! -d "$ROOT/.venv" ]]; then
@@ -31,23 +35,61 @@ source .venv/bin/activate
 
 echo "[2/6] Installing runtime dependencies..."
 pip install --upgrade pip
-pip install "${RUNTIME_DEPS[@]}"
+pip install -r sparkq/requirements.txt
 
 echo "[3/6] Installing test dependencies (pytest)..."
 pip install -r sparkq/requirements-test.txt
 
 echo "[4/6] Seeding config..."
-if [[ ! -f "$ROOT/sparkq.yml" ]]; then
-  cp sparkq.yml.example sparkq.yml
-  echo "  Created sparkq.yml from template."
+EXAMPLE_PATH="$SCRIPT_DIR/sparkq.yml.example"
+if [[ "$UPDATE_EXAMPLES" == true ]]; then
+  if [[ -f "$ROOT/sparkq.yml" ]]; then
+    cp "$ROOT/sparkq.yml" "$EXAMPLE_PATH"
+    echo "  Updated sparkq.yml.example from current sparkq.yml"
+  else
+    echo "  No sparkq.yml to update example from; skipping"
+  fi
 else
-  echo "  sparkq.yml already present; leaving as is."
+  if [[ ! -f "$ROOT/sparkq.yml" ]]; then
+    cp "$EXAMPLE_PATH" sparkq.yml
+    echo "  Created sparkq.yml from template."
+  else
+    echo "  sparkq.yml already present; leaving as is."
+  fi
 fi
 
-echo "[5/6] Ensuring data/log directories..."
+echo "[5/6] Seeding .env (optional)..."
+ENV_EXAMPLE="$SCRIPT_DIR/.env.example"
+if [[ "$UPDATE_EXAMPLES" == true ]]; then
+  if [[ -f "$ROOT/.env" ]]; then
+    cp "$ROOT/.env" "$ENV_EXAMPLE"
+    echo "  Updated .env.example from current .env"
+  else
+    echo "  No .env to update example from; skipping"
+  fi
+else
+  if [[ -f "$ENV_EXAMPLE" && ! -f "$ROOT/.env" ]]; then
+    cp "$ENV_EXAMPLE" "$ROOT/.env"
+    echo "  Created .env from template."
+  else
+    echo "  .env already present or no template found; leaving as is."
+  fi
+fi
+
+echo "[6/6] Ensuring data/log directories..."
 mkdir -p sparkq/data sparkq/logs
 
-echo "[6/6] Initializing database and seeding config..."
+echo "[init] Ensuring requirements example..."
+REQ_EXAMPLE="$SCRIPT_DIR/requirements.txt.example"
+if [[ "$UPDATE_EXAMPLES" == true ]]; then
+  cp "$ROOT/sparkq/requirements.txt" "$REQ_EXAMPLE"
+  echo "  Updated requirements.txt.example from sparkq/requirements.txt"
+elif [[ ! -f "$REQ_EXAMPLE" ]]; then
+  cp "$ROOT/sparkq/requirements.txt" "$REQ_EXAMPLE"
+  echo "  Created requirements.txt.example from current requirements.txt"
+fi
+
+echo "[init] Initializing database and seeding config..."
 python - <<'PY'
 from pathlib import Path
 from sparkq.src import api
