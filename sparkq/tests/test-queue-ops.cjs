@@ -47,23 +47,32 @@ async function waitForNetworkIdle(page, timeout = 2000) {
   await page.waitForTimeout(500);
 }
 
+const { openQueueModal, submitQueueModal, cancelQueueModal, getActiveQueueTabLabel } = require('./utils/queue-modal');
+
 async function testQueueCreation(page) {
   log('TEST 1: Queue Creation');
 
   const initialCount = await countDOMElements(page, '[data-queue-id]');
   log(`  Initial queue count: ${initialCount}`);
 
-  // Click New Queue button
-  log('  Clicking "New Queue" button');
-  await page.click('#dashboard-new-queue-btn');
-
-  await waitForNetworkIdle(page);
-  await page.waitForTimeout(1500);
+  // Open modal and create a queue with a friendly name
+  log('  Clicking "New Queue" button and filling modal');
+  await openQueueModal(page);
+  const queueName = `Queue Creation ${Date.now()}`;
+  await submitQueueModal(page, queueName);
 
   await takeScreenshot(page, '01-after-create');
 
   const afterCount = await countDOMElements(page, '[data-queue-id]');
   log(`  Queue count after create: ${afterCount}`);
+
+  // Verify newly created queue shows the friendly name
+  const created = await getActiveQueueTabLabel(page);
+  if (!created || !created.includes(queueName)) {
+    logError('Created queue not showing expected name in tabs');
+    await takeScreenshot(page, '01-created-queue-name-mismatch');
+    return false;
+  }
 
   // Check for duplication
   const sessionSections = await countDOMElements(page, '#sessions-section, [id*="session"], .session-selector');
@@ -79,12 +88,32 @@ async function testQueueCreation(page) {
   log(`  All queue elements in DOM: ${allQueueElements}`);
 
   if (afterCount > initialCount) {
-    logSuccess('Queue creation works');
+    logSuccess('Queue creation works and uses modal input');
     return true;
   } else {
     logError('Queue creation failed - count did not increase');
     return false;
   }
+}
+
+async function testQueueCreationCancelled(page) {
+  log('\nTEST 1b: Queue Creation Cancelled');
+  const beforeCount = await countDOMElements(page, '[data-queue-id]');
+  log(`  Queue count before cancel attempt: ${beforeCount}`);
+
+  await openQueueModal(page);
+  await cancelQueueModal(page);
+
+  const afterCount = await countDOMElements(page, '[data-queue-id]');
+  log(`  Queue count after cancel attempt: ${afterCount}`);
+
+  if (afterCount === beforeCount) {
+    logSuccess('Canceling queue creation does not create a queue');
+    return true;
+  }
+
+  logError('Queue count changed after canceling creation');
+  return false;
 }
 
 async function testQueueDeletion(page) {
@@ -110,7 +139,7 @@ async function testQueueDeletion(page) {
 
   // Handle confirmation
   await page.waitForTimeout(500);
-  const confirmBtn = await page.$('button:contains("OK")').catch(() => null);
+  const [confirmBtn] = await page.$x("//button[contains(., 'OK')]");
   if (confirmBtn) {
     await confirmBtn.click();
   } else {
@@ -147,13 +176,13 @@ async function testMultipleOperations(page) {
 
   // Create first queue
   log('  Creating first queue');
-  await page.click('#dashboard-new-queue-btn');
-  await page.waitForTimeout(1500);
+  await openQueueModal(page);
+  await submitQueueModal(page, `Queue Multi ${Date.now()}-1`);
 
   // Create second queue
   log('  Creating second queue');
-  await page.click('#dashboard-new-queue-btn');
-  await page.waitForTimeout(1500);
+  await openQueueModal(page);
+  await submitQueueModal(page, `Queue Multi ${Date.now()}-2`);
 
   await takeScreenshot(page, '03-after-two-creates');
 
@@ -217,6 +246,12 @@ async function runTests() {
 
     // Run tests
     if (await testQueueCreation(page)) {
+      passed++;
+    } else {
+      failed++;
+    }
+
+    if (await testQueueCreationCancelled(page)) {
       passed++;
     } else {
       failed++;

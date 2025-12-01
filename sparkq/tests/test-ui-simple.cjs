@@ -38,15 +38,24 @@ async function test() {
   });
 
   // Try to find and click New Queue button
-  const newQueueBtn = await page.$('button:contains("New Queue")') ||
-                      await page.$('button[id*="queue"]') ||
-                      await page.evaluate(() => {
-                        const buttons = Array.from(document.querySelectorAll('button'));
-                        return buttons.find(b => b.textContent.includes('New Queue'));
-                      });
+  let newQueueBtn = await page.$('button[id*="queue"]');
+  if (!newQueueBtn) {
+    const handle = await page.evaluateHandle(() => {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      return buttons.find(b => (b.textContent || '').includes('New Queue')) || null;
+    });
+    newQueueBtn = handle.asElement();
+  }
 
   if (newQueueBtn) {
     console.log('Found New Queue button');
+    await newQueueBtn.click();
+    await page.waitForSelector('.modal-content input, .modal-content textarea', { timeout: 5000 });
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1000);
+    const { getActiveQueueTabLabel } = require('./utils/queue-modal');
+    const label = await getActiveQueueTabLabel(page);
+    console.log('Created queue tab label:', label);
   } else {
     console.log('New Queue button not found');
   }

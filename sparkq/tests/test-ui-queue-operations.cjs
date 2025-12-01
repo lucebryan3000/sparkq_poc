@@ -58,6 +58,8 @@ async function waitForUIUpdate(page, timeout = 2000) {
   await page.waitForTimeout(500);
 }
 
+const { openQueueModal, submitQueueModal, cancelQueueModal, getActiveQueueTabLabel } = require('./utils/queue-modal');
+
 async function testQueueCreation(page) {
   log('Starting queue creation test...');
 
@@ -65,17 +67,26 @@ async function testQueueCreation(page) {
   const initialQueuesCount = await countDOMElements(page, '[data-queue-id]');
   log(`Initial queue count: ${initialQueuesCount}`);
 
-  // Click "New Queue" button
-  const newQueueBtn = await page.$('[id*="new-queue"]') || await page.$('button:contains("New Queue")');
-  if (!newQueueBtn) {
-    logError('Could not find "New Queue" button');
+  // Cancel flow should not create a queue
+  const modalOpened = await openQueueModal(page);
+  if (!modalOpened) {
+    logError('Could not open New Queue modal');
     await takeScreenshot(page, '01-queue-creation-button-not-found');
     return false;
   }
 
-  log('Clicking "New Queue" button');
-  await newQueueBtn.click();
-  await waitForUIUpdate(page);
+  await cancelQueueModal(page);
+  const afterCancelCount = await countDOMElements(page, '[data-queue-id]');
+  log(`Queue count after canceling modal: ${afterCancelCount}`);
+  if (afterCancelCount !== initialQueuesCount) {
+    logError('Queue count changed after canceling creation');
+    return false;
+  }
+
+  // Create via modal with friendly name
+  await openQueueModal(page);
+  const queueName = `UI Ops ${Date.now()}`;
+  await submitQueueModal(page, queueName);
 
   // Take screenshot after creation
   await takeScreenshot(page, '02-after-queue-creation');
@@ -84,6 +95,14 @@ async function testQueueCreation(page) {
   await page.waitForTimeout(1000); // Wait for render
   const afterCreationCount = await countDOMElements(page, '[data-queue-id]');
   log(`Queue count after creation: ${afterCreationCount}`);
+
+  // Validate display name
+  const displayedName = await getActiveQueueTabLabel(page);
+  if (!displayedName || !displayedName.includes(queueName)) {
+    logError('Created queue name not shown in tabs');
+    await takeScreenshot(page, '02-queue-name-mismatch');
+    return false;
+  }
 
   // Check for duplicate DOM sections (the original bug)
   const sessionsCount = await countDOMElements(page, '#sessions-section, [id*="sessions"]');
@@ -188,21 +207,13 @@ async function testFullCycle(page) {
 
   // Create first queue
   log('Creating first queue');
-  const createBtn1 = await page.$('[id*="new-queue"]') || await page.$('button:contains("New")');
-  if (createBtn1) {
-    await createBtn1.click();
-    await waitForUIUpdate(page);
-    await page.waitForTimeout(1000);
-  }
+  await openQueueModal(page);
+  await submitQueueModal(page, `UI Cycle ${Date.now()}-1`);
 
   // Create second queue
   log('Creating second queue');
-  const createBtn2 = await page.$('[id*="new-queue"]') || await page.$('button:contains("New")');
-  if (createBtn2) {
-    await createBtn2.click();
-    await waitForUIUpdate(page);
-    await page.waitForTimeout(1000);
-  }
+  await openQueueModal(page);
+  await submitQueueModal(page, `UI Cycle ${Date.now()}-2`);
 
   const countAfterCreates = await countDOMElements(page, '[data-queue-id]');
   log(`Queue count after 2 creations: ${countAfterCreates}`);

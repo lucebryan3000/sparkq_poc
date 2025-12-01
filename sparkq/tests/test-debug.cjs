@@ -17,8 +17,14 @@ async function test() {
 
   console.log('=== Attempting to create queue ===');
   await page.click('#dashboard-new-queue-btn');
+  await page.waitForSelector('.modal-content input, .modal-content textarea', { timeout: 5000 });
+  await page.keyboard.press('Enter');
   
   await page.waitForTimeout(3000);
+
+  const { getActiveQueueTabLabel } = require('./utils/queue-modal');
+  const label = await getActiveQueueTabLabel(page);
+  console.log('Created queue tab label:', label);
   
   // Get error messages
   const errorMessages = await page.evaluate(() => {

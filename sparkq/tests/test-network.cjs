@@ -23,8 +23,16 @@ async function test() {
 
   console.log('\n=== Clicking New Queue button ===');
   await page.click('#dashboard-new-queue-btn');
+  await page.waitForSelector('.modal-content input, .modal-content textarea', { timeout: 5000 });
+  // Accept default name via Enter
+  await page.keyboard.press('Enter');
 
   await page.waitForTimeout(5000);
+
+  // Ensure queue name is present in tabs for coverage
+  const { getActiveQueueTabLabel } = require('./utils/queue-modal');
+  const label = await getActiveQueueTabLabel(page);
+  console.log('Queue tab label:', label);
 
   console.log('\n=== All POST /api/queues requests ===');
   requests.forEach((req, i) => {
