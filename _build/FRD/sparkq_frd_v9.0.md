@@ -1,6 +1,6 @@
 # SparkQ — Functional Requirements Document (FRD) v9.0
 
-> **Status**: Production-aligned specification post Phase 20.4
+> **Status**: Production-aligned specification post Phase 20.4 (feature complete for intended scope; minor gaps/decisions noted)
 > **Audience**: Bryan + orchestration agents (Sonnet/Codex/Haiku)
 > **Purpose**: Authoritative map of current system state, guardrails, and deferred work; foundation for v1.1 roadmap
 
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-SparkQ Phase 20.4 is **100% complete**. This is a single-user, local-first dev cockpit built on SQLite, FastAPI, and Typer. The system is production-ready for its intended scope: queue management, task tracking, and manual execution via Claude-in-chat. Phases 3 and 4 (Codex session wiring, approval workflows) remain deferred and optional unless explicitly re-scoped.
+SparkQ Phase 20.4 is **feature complete for its intended scope**, with a few minor decisions/gaps noted below. This is a single-user, local-first dev cockpit built on SQLite, FastAPI, and Typer. The system is production-ready for its intended scope: queue management, task tracking, and manual execution via Claude-in-chat. Phases 3 and 4 (Codex session wiring, approval workflows) remain deferred and optional unless explicitly re-scoped.
 
 ---
 
@@ -110,7 +110,7 @@ These are design guardrails that preserve the system's intent:
 - Unique name (globally scoped, not per-session)
 - FIFO task discipline
 - Instructions: user-provided context for workers executing tasks
-- Status: `queued`, `archived` (archived queues hidden from normal view)
+- Status: storage/API support `archived`; models enum currently `active|ended`; CLI/UI do not expose archive (decision pending)
 - Support archive/unarchive operations (API works; CLI/UI exposure pending decision)
 
 ### Tasks
@@ -254,7 +254,7 @@ Copy into project → sparkq setup → Use during dev → sparkq teardown
 - Database path (default: `sparkq/data/sparkq.db`)
 - Purge age (default: 3 days)
 - queue_runner poll interval (default: 30s)
-- Auto-fail interval (default: 60s)
+- Auto-fail interval (default: 30s)
 - Environment mode: dev/test (cache-busting on), prod (production caching)
 
 ### Defaults
@@ -306,22 +306,22 @@ Copy into project → sparkq setup → Use during dev → sparkq teardown
 
 ## 14. What's Deferred (Not Phase 20.4)
 
-### Phase 3: Codex Session Wiring (Reference-only; deferred to v1.1+)
+### Phase 3: Codex Session Wiring (Executable once scoped in v9+ prompts)
 - Persistent Codex session storage
 - Codex API integration
 - Session resume capability
 - Command execution tracking
 
-**Status**: Design available; not implemented. Re-scope explicitly if reviving.
+**Status**: Design available; not implemented. Executable if prompted under v9+ with explicit scope.
 
-### Phase 4: Approval Workflow (Reference-only; deferred to v1.1+)
+### Phase 4: Approval Workflow (Executable once scoped in v9+ prompts)
 - Approval gating (pending/approved/rejected)
 - Queue modes: strict vs relaxed
 - Bounded test/fix cycles (`max_test_fix_cycles`)
 - Review artifact storage (`_build/reviews/`)
 - Haiku + Codex test/fix automation
 
-**Status**: Design available; not implemented. Re-scope explicitly if reviving.
+**Status**: Design available; not implemented. Executable if prompted under v9+ with explicit scope.
 
 ---
 
@@ -354,26 +354,58 @@ Copy into project → sparkq setup → Use during dev → sparkq teardown
 
 ---
 
-## 16. Roadmap & Next Steps
+## 16. Roadmap & Implementation Phases
 
-### v1.0 Release (Stable)
-- ✅ Phase 20.4 complete (100%)
+### Planning Phases (Pre-Execution)
+
+#### Phase 1: Preflight & Planning
+**Status**: ⏳ Planned (not yet executed)
+
+**Deliverables:**
+- `_build/planning/Phase-1-Preflight-Snapshot.md` — Current state of repo, SQLite schema, code patterns, existing implementations
+- `_build/planning/Phase-1-Implementation-Plan.md` — Repo-specific plan, assumptions validated, corrections to prompt framework
+
+**Scope**: Understand current reality, validate assumptions, prepare for Phase 2
+
+---
+
+#### Phase 2: Charter Application & Core Wiring (Design)
+**Status**: ⏳ Planned (not yet executed)
+
+**Deliverables:**
+- `_build/planning/Phase-2-Charter-Draft.md` — Finalized Charter location, structure, heading outline, guardrails
+- `_build/planning/Phase-2-Data-Model-Design.md` — Core queue/task model extensions, SQLite schema changes (design-only, no migrations)
+
+**Scope**: Design-level work; prepare data structures for Phase 3 behavior wiring; no implementation
+
+---
+
+### Implementation Phases (Post-Planning)
+
+#### Phase 3: Codex Session Wiring
+**Status**: ⏳ Deferred (reference design available in Prompt-2)
+
+**Scope**: Persistent Codex session storage, resume capability, command execution tracking
+
+---
+
+#### Phase 4: Approval Workflow
+**Status**: ⏳ Deferred (reference design available in Prompt-4)
+
+**Scope**: Approval gating, queue modes (strict/relaxed), bounded test/fix cycles, review artifacts
+
+---
+
+### v1.0 Release (Current - Stable)
+- ✅ Phase 20.4 feature complete for intended scope
 - Ready for production use within single-user dev scope
-- Recommend documenting official release once this FRD v9.0 is finalized
+- FRD v9.0 finalizes specification as authoritative reference
 
 ### v1.1+ Roadmap (Conditional)
-- **Phase 3 (Optional)**: Codex session wiring (only if explicitly scoped)
-- **Phase 4 (Optional)**: Approval workflows (only if explicitly scoped)
+- **Phase 1/2 (Planning)**: Execute planning phases to scope Phase 3/4
+- **Phase 3 (Optional)**: Codex session wiring (only if explicitly scoped via Phase 1/2)
+- **Phase 4 (Optional)**: Approval workflows (only if explicitly scoped via Phase 1/2)
 - **Polish items**: Archive enum/CLI/UI alignment, wording fixes, additional testing
-
-### Next 4 Feature Prompts (Framework Ready)
-Four new prompts are being prepared to extend SparkQ capabilities:
-1. **Prompt 5**: [TBD - research/scoping phase]
-2. **Prompt 6**: [TBD - research/scoping phase]
-3. **Prompt 7**: [TBD - research/scoping phase]
-4. **Prompt 8**: [TBD - research/scoping phase]
-
-Each prompt will be scoped within guardrails, validated against this FRD, and provide ready-to-execute specifications.
 
 ---
 
@@ -443,7 +475,7 @@ Use this FRD as the foundation for v1.1 roadmap planning and as the source of tr
 ### For Feature Implementation
 - **[_build/prompts/Feature-AIModels-Prompt-1.md](../../_build/prompts/Feature-AIModels-Prompt-1.md)** — Specification validation protocol
 - **[_build/prompts/Feature-AIModels-Prompt-2.md](../../_build/prompts/Feature-AIModels-Prompt-2.md)** — Charter application and core wiring (design)
-- **[_build/prompts/Feature-AIModels-Prompt-3.md](../../_build/prompts/Feature-AIModels-Prompt-3.md)** — Phase 20.4 gap completion (teardown script)
+- **[_build/prompts/Feature-AIModels-Prompt-3.md](../../_build/prompts/Feature-AIModels-Prompt-3.md)** — Superseded Codex session/prompt engine plan (reference only)
 - **[_build/prompts/Feature-AIModels-Prompt-4.md](../../_build/prompts/Feature-AIModels-Prompt-4.md)** — Approval workflow design (Phase 4, deferred reference)
 
 ---
