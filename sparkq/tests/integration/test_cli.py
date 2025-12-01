@@ -429,3 +429,113 @@ class TestScriptCommands:
         assert result.exit_code == 0
         assert "hello-world" in result.stdout
         assert "cleanup-db" not in result.stdout
+
+
+class TestCliRegistration:
+    def test_command_help_available(self, cli_runner: CliRunner):
+        assert cli_runner.invoke(app, ["setup", "--help"]).exit_code == 0
+        assert cli_runner.invoke(app, ["run", "--help"]).exit_code == 0
+        assert cli_runner.invoke(app, ["stop", "--help"]).exit_code == 0
+        assert cli_runner.invoke(app, ["status", "--help"]).exit_code == 0
+        assert cli_runner.invoke(app, ["reload", "--help"]).exit_code == 0
+        assert cli_runner.invoke(app, ["queue", "end", "--help"]).exit_code == 0
+        assert cli_runner.invoke(app, ["tasks", "--help"]).exit_code == 0
+        assert cli_runner.invoke(app, ["task", "--help"]).exit_code == 0
+        assert cli_runner.invoke(app, ["purge", "--help"]).exit_code == 0
+        assert cli_runner.invoke(app, ["config-export", "--help"]).exit_code == 0
+
+
+class TestCliBehavior:
+    def test_run_invokes_server_with_flags(self, cli_runner: CliRunner, monkeypatch):
+        called = {}
+
+        import types
+
+        fake_server = types.SimpleNamespace()
+
+        def fake_run_server(port=None, host=None, background=False):
+            called["port"] = port
+            called["host"] = host
+            called["background"] = background
+
+        fake_server.run_server = fake_run_server
+        monkeypatch.setitem(sys.modules, "src.server", fake_server)
+        result = cli_runner.invoke(app, ["run", "--port", "9000", "--host", "127.0.0.1", "--foreground"])
+        assert result.exit_code == 0
+        assert called["port"] == 9000
+        assert called["host"] == "127.0.0.1"
+        assert called["background"] is False
+
+    def test_reload_reloads_registry(self, cli_runner: CliRunner, monkeypatch):
+        called = {"reload": False}
+
+        import types
+
+        fake_tools = types.SimpleNamespace()
+
+        def fake_reload_registry(*_args, **_kwargs):
+            called["reload"] = True
+
+        fake_tools.reload_registry = fake_reload_registry
+        monkeypatch.setitem(sys.modules, "src.tools", fake_tools)
+        result = cli_runner.invoke(app, ["reload"])
+        assert result.exit_code == 0
+        assert called["reload"] is True
+
+    def test_queue_end_command(self, cli_runner: CliRunner):
+        create_session_and_queue(cli_runner, "end-session", "end-queue")
+        queue_id = get_storage().get_queue_by_name("end-queue")["id"]
+        result = cli_runner.invoke(app, ["queue", "end", queue_id])
+        assert result.exit_code == 0
+        ended = get_storage().get_queue(queue_id)
+        assert ended["status"] == "ended"
+
+    def test_tasks_list_filters(self, cli_runner: CliRunner):
+        create_session_and_queue(cli_runner, "tasks-session", "tasks-queue")
+        cli_runner.invoke(
+            app,
+            [
+                "enqueue",
+                "--queue",
+                "tasks-queue",
+                "--tool",
+                "run-bash",
+            ],
+        )
+        result = cli_runner.invoke(app, ["tasks", "--queue", "tasks-queue"])
+        assert result.exit_code == 0
+        assert "tasks-queue" in result.stdout
+
+    def test_task_command_placeholder(self, cli_runner: CliRunner):
+        result = cli_runner.invoke(app, ["task", "tsk_fake"])
+        assert result.exit_code != 0
+        assert "not implemented" in result.stdout or "not implemented" in result.stderr
+
+    def test_purge_removes_tasks(self, cli_runner: CliRunner):
+        create_session_and_queue(cli_runner, "purge-session", "purge-queue")
+        cli_runner.invoke(
+            app,
+            [
+                "enqueue",
+                "--queue",
+                "purge-queue",
+                "--tool",
+                "run-bash",
+            ],
+        )
+        tasks = get_storage().list_tasks()
+        for t in tasks:
+            get_storage().complete_task(t["id"], result_summary="done", result_data="done")
+
+        result = cli_runner.invoke(app, ["purge", "--older-than-days", "1"])
+        assert result.exit_code == 0
+        assert "Deleted" in result.stdout
+
+    def test_config_export_outputs_yaml(self, cli_runner: CliRunner, tmp_path):
+        get_storage().upsert_config_entry("features", "flags", {"beta": True})
+        output = tmp_path / "cfg.yaml"
+        result = cli_runner.invoke(app, ["config-export", "--output", str(output)])
+        assert result.exit_code == 0
+        assert output.exists()
+        contents = output.read_text()
+        assert "project:" in contents

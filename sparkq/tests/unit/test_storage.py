@@ -465,3 +465,100 @@ class TestTaskCounts:
         assert counts["running"] == 1
         assert counts["succeeded"] == 1
         assert counts["failed"] == 1
+
+
+class TestStorageAdvanced:
+    def test_config_entries_and_audit(self, storage, project):
+        storage.upsert_config_entry("features", "flags", {"beta": True}, updated_by="tester")
+        storage.upsert_config_entry("defaults", "queue", {"priority": "low"}, updated_by="tester")
+        entries = storage.list_config_entries()
+        assert any(e["namespace"] == "features" and e["key"] == "flags" for e in entries)
+        assert storage.count_config_entries() >= 2
+        fetched = storage.get_config_entry("features", "flags")
+        assert fetched is not None and fetched["value"]["beta"] is True
+        exported = storage.export_config()
+        assert "features" in exported
+        storage.log_audit(actor="tester", action="update.features.flags", details={"beta": True})
+        storage.delete_config_entry("features", "flags")
+        assert storage.get_config_entry("features", "flags") is None
+
+    def test_task_class_and_tool_crud(self, storage, project):
+        storage.upsert_task_class("FAST_TEST", timeout=5, description="fast")
+        storage.upsert_task_class("FAST_TEST", timeout=7, description="faster")
+        assert storage.get_task_class_record("FAST_TEST")["timeout"] == 7
+        assert any(tc["name"] == "FAST_TEST" for tc in storage.list_task_classes())
+
+        storage.upsert_tool_record("run-test", task_class="FAST_TEST", description="desc")
+        storage.upsert_tool_record("run-test", task_class="FAST_TEST", description="desc2")
+        assert storage.get_tool_record("run-test")["description"] == "desc2"
+        assert any(t["name"] == "run-test" for t in storage.list_tools_table())
+
+        storage.delete_tool_record("run-test")
+        storage.delete_task_class("FAST_TEST")
+        assert storage.get_tool_record("run-test") is None
+        assert storage.get_task_class_record("FAST_TEST") is None
+
+    def test_prompt_crud(self, storage, project):
+        created = storage.create_prompt("demo-cmd", "Demo", "Template", "Desc")
+        prompt_id = created["id"]
+        assert storage.get_prompt(prompt_id)["command"] == "demo-cmd"
+        assert storage.get_prompt_by_command("demo-cmd")["id"] == prompt_id
+
+        storage.update_prompt(prompt_id, description="Updated")
+        updated = storage.get_prompt(prompt_id)
+        assert updated["description"] == "Updated"
+
+        prompts = storage.list_prompts()
+        assert any(p["id"] == prompt_id for p in prompts)
+
+        storage.delete_prompt(prompt_id)
+        assert storage.get_prompt(prompt_id) is None
+
+    def test_queue_archive_unarchive_and_delete(self, storage, session):
+        queue = storage.create_queue(session_id=session["id"], name="archive-me")
+        storage.archive_queue(queue["id"])
+        archived = storage.get_queue(queue["id"])
+        assert archived["status"] == "archived"
+        storage.unarchive_queue(queue["id"])
+        unarchived = storage.get_queue(queue["id"])
+        assert unarchived["status"] != "archived"
+        assert storage.delete_queue(queue["id"]) is True
+
+    def test_task_update_and_delete(self, storage, queue):
+        task = storage.create_task(
+            queue_id=queue["id"],
+            tool_name="run-bash",
+            task_class="FAST",
+            payload="{}",
+            timeout=30,
+        )
+        updated = storage.update_task(task["id"], status="running")
+        assert updated["status"] == "running"
+        assert storage.delete_task(task["id"]) is True
+
+    def test_stale_and_purge_helpers(self, storage, queue):
+        task = storage.create_task(
+            queue_id=queue["id"],
+            tool_name="run-bash",
+            task_class="FAST",
+            payload="{}",
+            timeout=1,
+        )
+        old_ts = "2000-01-01T00:00:00Z"
+        with storage.connection() as conn:
+            conn.execute(
+                "UPDATE tasks SET status='running', claimed_at=?, started_at=? WHERE id=?",
+                (old_ts, old_ts, task["id"]),
+            )
+        stale = storage.get_stale_tasks(timeout_multiplier=0.1)
+        assert any(t["id"] == task["id"] for t in stale)
+
+        warned = storage.warn_stale_tasks(timeout_multiplier=0.1)
+        assert any(t["id"] == task["id"] for t in warned)
+
+        auto_failed = storage.auto_fail_stale_tasks(timeout_multiplier=0.1)
+        assert any(t["id"] == task["id"] for t in auto_failed)
+
+        storage.fail_task(task["id"], error_message="failed")
+        purged = storage.purge_old_tasks(older_than_days=0)
+        assert purged >= 0

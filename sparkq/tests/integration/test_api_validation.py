@@ -455,3 +455,182 @@ class TestResponseConsistency:
 
         required = {"id", "queue_id", "tool_name", "task_class", "status"}
         assert required.issubset(set(task.keys()))
+
+
+class TestMetadataAndConfig:
+    def test_version_and_build_prompts(self, client):
+        version = client.get("/api/version")
+        assert version.status_code == 200
+        assert "build_id" in version.json()
+
+        build_prompts = client.get("/api/build-prompts")
+        assert build_prompts.status_code == 200
+        assert "prompts" in build_prompts.json()
+
+    def test_config_validate_and_crud(self, client, tmp_path, monkeypatch):
+        cfg_path = tmp_path / "sparkq.yml"
+        cfg_path.write_text(
+            "project:\n  name: test\n  repo_path: .\n"
+            "script_dirs:\n  - scripts\n"
+        )
+        monkeypatch.setenv("SPARKQ_CONFIG", str(cfg_path))
+
+        validate = client.post(
+            "/api/config/validate",
+            json={"value": {"features": {"flags": {"alpha": True}}}},
+        )
+        assert validate.status_code == 200
+
+        update = client.put(
+            "/api/config/features/flags",
+            json={"value": {"beta": False}},
+        )
+        assert update.status_code == 200
+
+        config = client.get("/api/config")
+        assert config.status_code == 200
+        cfg = config.json()
+        assert cfg.get("features", {}).get("flags") is not None
+
+        delete = client.delete("/api/config/features/flags")
+        assert delete.status_code == 200
+
+    def test_task_class_crud(self, client):
+        create = client.post(
+            "/api/task-classes",
+            json={"name": "TEST_CLASS", "timeout": 10, "description": "test tc"},
+        )
+        assert create.status_code == 201
+        tc = create.json()["task_class"]
+        assert tc["name"] == "TEST_CLASS"
+
+        listed = client.get("/api/task-classes").json()["task_classes"]
+        assert any(entry["name"] == "TEST_CLASS" for entry in listed)
+
+        update = client.put(
+            f"/api/task-classes/{tc['name']}",
+            json={"name": "TEST_CLASS", "timeout": 20, "description": "updated"},
+        )
+        assert update.status_code == 200
+        assert update.json()["task_class"]["timeout"] == 20
+
+        delete = client.delete(f"/api/task-classes/{tc['name']}")
+        assert delete.status_code == 200
+
+    def test_tools_crud(self, client):
+        client.post(
+            "/api/task-classes",
+            json={"name": "MEDIUM_SCRIPT", "timeout": 300, "description": "default"},
+        )
+        create = client.post(
+            "/api/tools",
+            json={"name": "run-test", "task_class": "MEDIUM_SCRIPT", "description": "test tool"},
+        )
+        assert create.status_code == 201
+        tool = create.json()["tool"]
+        assert tool["name"] == "run-test"
+
+        listed = client.get("/api/tools").json()["tools"]
+        assert any(entry["name"] == "run-test" for entry in listed)
+
+        update = client.put(
+            "/api/tools/run-test",
+            json={"name": "run-test", "task_class": "MEDIUM_SCRIPT", "description": "updated"},
+        )
+        assert update.status_code == 200
+
+        delete = client.delete("/api/tools/run-test")
+        assert delete.status_code == 200
+
+    def test_prompts_crud(self, client):
+        create = client.post(
+            "/api/prompts",
+            json={
+                "command": "test-cmd",
+                "label": "Test Prompt",
+                "template_text": "Do the thing",
+                "description": "desc",
+            },
+        )
+        assert create.status_code == 201
+        prompt = create.json()["prompt"]
+
+        fetched = client.get(f"/api/prompts/{prompt['id']}")
+        assert fetched.status_code == 200
+        assert fetched.json()["prompt"]["command"] == "test-cmd"
+
+        listed = client.get("/api/prompts").json()["prompts"]
+        assert any(p["id"] == prompt["id"] for p in listed)
+
+        update = client.put(
+            f"/api/prompts/{prompt['id']}",
+            json={"label": "Updated Label"},
+        )
+        assert update.status_code == 200
+        assert update.json()["prompt"]["label"] == "Updated Label"
+
+        delete = client.delete(f"/api/prompts/{prompt['id']}")
+        assert delete.status_code in {200, 405}
+
+    def test_scripts_index_builds(self, client, tmp_path, monkeypatch):
+        cfg_path = tmp_path / "sparkq.yml"
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        (scripts_dir / "hello.sh").write_text("#!/bin/bash\n# name: hello\n# description: hi\n echo hi\n")
+        cfg_path.write_text(
+            f"project:\n  name: test\n  repo_path: .\nscript_dirs:\n  - {scripts_dir}\n"
+        )
+        monkeypatch.setenv("SPARKQ_CONFIG", str(cfg_path))
+
+        resp = client.get("/api/scripts/index")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+
+
+class TestAdditionalRoutes:
+    def test_docs_and_openapi_available(self, client):
+        for path in ["/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc"]:
+            resp = client.get(path)
+            assert resp.status_code in {200, 307}
+
+    def test_cache_buster_script(self, client):
+        resp = client.get("/ui-cache-buster.js")
+        assert resp.status_code == 200
+        assert "SPARKQ" in resp.text
+
+    def test_queue_archive_and_unarchive(self, client):
+        session_resp = client.post("/api/sessions", json={"name": "archival-session"})
+        session_id = session_resp.json()["session"]["id"]
+        queue_resp = client.post(
+            "/api/queues",
+            json={"session_id": session_id, "name": "archival-queue"},
+        )
+        queue_id = queue_resp.json()["queue"]["id"]
+
+        archive = client.put(f"/api/queues/{queue_id}/archive")
+        assert archive.status_code == 200
+        unarchive = client.put(f"/api/queues/{queue_id}/unarchive")
+        assert unarchive.status_code == 200
+
+    def test_quick_add_task_script_mode(self, client):
+        session_resp = client.post("/api/sessions", json={"name": "qa-session"})
+        session_id = session_resp.json()["session"]["id"]
+        queue_resp = client.post(
+            "/api/queues",
+            json={"session_id": session_id, "name": "qa-queue"},
+        )
+        queue_id = queue_resp.json()["queue"]["id"]
+
+        resp = client.post(
+            "/api/tasks/quick-add",
+            json={
+                "queue_id": queue_id,
+                "mode": "script",
+                "script_path": "scripts/hello.sh",
+                "script_args": "--dry-run",
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["task_id"]
