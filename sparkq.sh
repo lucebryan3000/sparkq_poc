@@ -26,12 +26,13 @@ Usage: ./sparkq.sh [COMMAND] [OPTIONS]
 Server Commands:
   start                  Start server in background (uses sparkq.yml host/port unless overridden)
   restart                Stop, wait 5 seconds, then start (clean restart)
-  run [--foreground|--e2e]     Start server (--foreground for interactive, --e2e to run full pytest suite)
+  run [--foreground|--e2e|--env dev|prod|test]     Start server (--foreground for interactive, --e2e to run full pytest suite)
   stop                   Stop the server
   status                 Check server status
 
 Database & Config:
   setup                  Interactive setup (create sparkq.yml + database)
+  teardown               Clean removal of all SparkQueue artifacts (database, config, logs)
   reload                 Reload configuration and script index
 
 Session & Queue:
@@ -56,6 +57,8 @@ Options:
 
 Examples:
   ./sparkq.sh start                  # Start server in background (reads host/port/db from sparkq.yml)
+  ./sparkq.sh run --env dev          # Explicit dev mode (default)
+  ./sparkq.sh run --env prod         # Basic prod caching mode
   ./sparkq.sh run --config /path/to/sparkq.yml  # Use a specific config file
   ./sparkq.sh restart                # Stop, wait 5s, then start
   ./sparkq.sh run                    # Start server in foreground
@@ -99,19 +102,27 @@ fi
 
 # Handle convenience aliases
 if [[ "${1:-}" == "start" ]]; then
-  set -- run --background
+  shift
+  set -- run --background "$@"
 fi
 
 if [[ "${1:-}" == "restart" ]]; then
   echo "Stopping server..."
+  shift
   set -- stop
   main "$@"
   echo "Waiting 5 seconds before restart..."
   sleep 5
   echo "Starting server..."
-  set -- run --background
+  set -- run --background "$@"
   main "$@"
   exit $?
+fi
+
+# Handle teardown separately (doesn't need venv)
+if [[ "${1:-}" == "teardown" ]]; then
+  shift
+  exec "$SCRIPT_DIR/sparkq/teardown.sh" "$@"
 fi
 
 main "$@"

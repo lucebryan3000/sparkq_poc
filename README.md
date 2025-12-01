@@ -89,6 +89,7 @@ sparkqueue/
 **Configuration defaults**
 - Host/port pulled from `sparkq.yml` (defaults 0.0.0.0:5005); `sparkq run --host/--port` overrides per run.
 - Database path resolves relative to the active config file and is created if missing; set `database.path` in `sparkq.yml` or export `SPARKQ_CONFIG` to switch configs.
+- Purge/auto-fail background tasks use `purge.older_than_days` and `queue_runner.auto_fail_interval_seconds` from config; `sparkq purge --older-than-days N` is available for manual cleanup.
 
 ## Common Commands
 
@@ -119,10 +120,11 @@ sparkqueue/
 ./sparkq.sh requeue                      # Move task back to queued status
 ./sparkq.sh purge                        # Delete old succeeded/failed tasks
 
-# Configuration
+# Configuration & Cleanup
 ./sparkq.sh reload                       # Reload configuration and script index
 ./sparkq.sh config-export                # Export DB-backed config to YAML
 ./sparkq.sh scripts                      # Manage and discover scripts
+./sparkq.sh teardown                     # Clean removal of all data, config, logs
 ```
 
 ## Background Service Management
@@ -152,6 +154,45 @@ The background server:
 - Returns immediately, allowing you to continue using the terminal
 - Dashboard accessible at `http://localhost:5005`
 - Logs written to `sparkq/logs/sparkq.log`
+
+## Dev Caching Behavior
+
+- **Environment flag**: `SPARKQ_ENV` controls caching (`dev`/`test` default). Set `SPARKQ_ENV=prod` to keep production-style caching; leave unset for dev-friendly defaults.
+- **Convenience**: `./sparkq.sh run --env dev|prod|test` sets the mode explicitly (or use `make dev` / `make prod`).
+- **Headers in dev/test**: `/ui` static responses (HTML/JS/CSS) and `/ui-cache-buster.js` return `Cache-Control: no-cache, no-store, must-revalidate, max-age=0`, `Pragma: no-cache`, `Expires: 0`, and drop `ETag`.
+- **Dev cache-busting**: `index.html` loads `/ui-cache-buster.js`, which seeds `window.__SPARKQ_CACHE_BUSTER__` (timestamp or `SPARKQ_CACHE_BUSTER` override). When `SPARKQ_ENV` is dev/test, the UI automatically appends `?v=<seed>` to `/ui/style.css` and `/ui/dist/*.js` so hard refreshes pick up fresh assets.
+- **Prod behavior**: With `SPARKQ_ENV=prod`, asset URLs stay stable (no `?v=`) and FastAPI/StaticFiles cache headers are left untouched.
+- **Quick checks**: Start the app (`SPARKQ_ENV=dev ./sparkq.sh run`), hard refresh, and in browser devtools verify `/ui/style.css` and `/ui/dist/...` show `?v=...` plus `Cache-Control: no-cache, no-store, must-revalidate, max-age=0`. Hitting `/ui-cache-buster.js` should return the active env and cache-buster token.
+- **Troubleshooting**: Confirm you’re hitting the right static path (`/ui/...` serves from `sparkq/ui`), ensure `SPARKQ_ENV` is not accidentally `prod`, and retry after restarting the server to pick up a new cache-buster seed.
+
+## Fresh Build (single dev box)
+
+1) Create venv + install deps  
+   ```bash
+   ./python-bootstrap/bootstrap.sh
+   # or manual:
+   # python -m venv .venv && source .venv/bin/activate
+   # pip install -r sparkq/requirements.txt
+   ```
+2) Create config + DB (default paths)  
+   ```bash
+   cp -n sparkq.yml.example sparkq.yml  # if you want a template
+   ./sparkq.sh setup
+   ```
+3) Run in dev (cache-busting on)  
+   ```bash
+   ./sparkq.sh run --env dev   # or make dev
+   ```
+4) Prod-style caching (same box)  
+   ```bash
+   ./sparkq.sh run --env prod  # or make prod
+   ```
+Notes: `SPARKQ_CONFIG=/path/to/your/sparkq.yml` points to an out-of-repo config; relative paths resolve from the config file. `SPARKQ_ENV`/`--env` control caching behavior.
+
+## Tests (quick picks)
+
+- Dev caching regression: `make test-dev-cache` (runs `pytest sparkq/tests/unit/test_dev_caching.py`).
+- Full e2e suite: `cd sparkq && pytest -m e2e`.
 
 ## Troubleshooting
 
