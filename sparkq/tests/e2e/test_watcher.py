@@ -1,94 +1,93 @@
-import subprocess
+import json
 import time
-from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
-# Tests rewritten to use the Python queue runner; legacy bash watcher removed.
-RUNNER_SCRIPT = Path(__file__).resolve().parents[4] / "sparkq_cli.py"
+import queue_runner
+from src import api as api_module
+from src.storage import Storage
 
 
-@pytest.mark.skip(reason="Legacy watcher removed; queue runner does not use lockfiles")
+@pytest.fixture
+def queue_runner_env(tmp_path, monkeypatch):
+    """Set up an API-backed environment for exercising queue_runner."""
+    db_path = tmp_path / "queue_runner.db"
+    storage = Storage(str(db_path))
+    storage.init_db()
+    storage.create_project(name="queue-runner", repo_path=str(tmp_path), prd_path=None)
+    session = storage.create_session(name="runner-session")
+    queue = storage.create_queue(
+        session_id=session["id"],
+        name="runner-queue",
+        instructions="Queue for queue_runner e2e tests",
+    )
+
+    # Point the API at the temporary storage and route queue_runner HTTP calls through it.
+    monkeypatch.setattr(api_module, "storage", storage)
+    client = TestClient(api_module.app)
+    monkeypatch.setattr("queue_runner.requests", client)
+
+    yield {
+        "storage": storage,
+        "queue": queue,
+        "base_url": str(client.base_url),
+        "worker_id": queue_runner.resolve_worker_id(queue["name"]),
+    }
+
+    client.close()
+
+
 @pytest.mark.e2e
-@pytest.mark.slow
-class TestWatcherBehavior:
-    def _lock_path(self, queue_name: str) -> Path:
-        # Maintain the legacy lockfile path for compatibility
-        return Path(f"/tmp/sparkq-{queue_name}.lock")
+class TestQueueRunnerBehavior:
+    def test_processes_oldest_task_and_stops_when_empty(self, queue_runner_env):
+        storage = queue_runner_env["storage"]
+        queue = queue_runner_env["queue"]
+        base_url = queue_runner_env["base_url"]
+        worker_id = queue_runner_env["worker_id"]
 
-    def _start_runner(self, queue_name: str):
-        lock_path = self._lock_path(queue_name)
-        lock_path.unlink(missing_ok=True)
-        process = subprocess.Popen(
-            ["python3", str(RUNNER_SCRIPT), "run", "--queue", queue_name, "--background"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        older_task = storage.create_task(
+            queue_id=queue["id"],
+            tool_name="run-bash",
+            task_class="MEDIUM_SCRIPT",
+            payload=json.dumps({"prompt": "older task"}),
+            timeout=30,
         )
-        return process, lock_path
+        time.sleep(0.01)  # Ensure created_at ordering
+        newer_task = storage.create_task(
+            queue_id=queue["id"],
+            tool_name="run-bash",
+            task_class="MEDIUM_SCRIPT",
+            payload=json.dumps({"prompt": "newer task"}),
+            timeout=30,
+        )
 
-    def _terminate_process(self, process: subprocess.Popen, timeout: float = 5.0):
-        if process.poll() is None:
-            process.terminate()
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate(timeout=timeout)
-        return (stdout or ""), (stderr or "")
+        queue_from_api = queue_runner.resolve_queue(base_url, queue["name"])
+        assert queue_from_api and queue_from_api["id"] == queue["id"]
 
-    def _wait_for_lock_removal(self, lock_path: Path, timeout: float = 5.0):
-        deadline = time.time() + timeout
-        while lock_path.exists() and time.time() < deadline:
-            time.sleep(0.1)
+        first_run = queue_runner.process_one(base_url, queue_from_api, worker_id, execute=False)
+        assert first_run is True
 
-    def test_runner_starts_and_creates_lockfile(self):
-        queue_name = f"watcher-start-{int(time.time() * 1000)}"
-        process, lock_path = self._start_runner(queue_name)
-        try:
-            time.sleep(1)
-            assert lock_path.exists(), "Runner did not create lock file"
-            assert lock_path.read_text().strip() == str(process.pid)
-        finally:
-            self._terminate_process(process)
-            lock_path.unlink(missing_ok=True)
+        updated_older = storage.get_task(older_task["id"])
+        updated_newer = storage.get_task(newer_task["id"])
+        assert updated_older["status"] == "succeeded"
+        assert updated_newer["status"] == "queued"
+        result_payload = json.loads(updated_older["result"])
+        assert result_payload["note"] == "Completed by queue_runner (dry-run)"
 
-    def test_runner_prevents_duplicate(self):
-        queue_name = f"watcher-duplicate-{int(time.time() * 1000)}"
-        primary_process, lock_path = self._start_runner(queue_name)
-        try:
-            time.sleep(1)
-            duplicate_process = subprocess.Popen(
-                ["python3", str(RUNNER_SCRIPT), "run", "--queue", queue_name, "--background"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            try:
-                stdout, stderr = duplicate_process.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                duplicate_process.kill()
-                stdout, stderr = duplicate_process.communicate(timeout=5)
+        second_run = queue_runner.process_one(base_url, queue_from_api, worker_id, execute=False)
+        assert second_run is True
+        assert storage.get_task(newer_task["id"])["status"] == "succeeded"
 
-            # Background run of same queue should fail due to lockfile
-            assert duplicate_process.returncode not in (0, None), "Duplicate runner should fail"
-            combined_output = f"{stdout}\n{stderr}".lower()
-            assert "already" in combined_output or "running" in combined_output
-        finally:
-            self._terminate_process(primary_process)
-            lock_path.unlink(missing_ok=True)
+        third_run = queue_runner.process_one(base_url, queue_from_api, worker_id, execute=False)
+        assert third_run is False
 
-    def test_runner_cleanup_on_signal(self):
-        queue_name = f"watcher-cleanup-{int(time.time() * 1000)}"
-        process, lock_path = self._start_runner(queue_name)
-        try:
-            time.sleep(1)
-            assert lock_path.exists(), "Lock file missing before sending SIGTERM"
-            process.terminate()
-            self._terminate_process(process)
-            self._wait_for_lock_removal(lock_path)
-            assert not lock_path.exists(), "Lock file not removed after SIGTERM"
-        finally:
-            if process.poll() is None:
-                self._terminate_process(process)
-            lock_path.unlink(missing_ok=True)
+    def test_no_tasks_returns_false(self, queue_runner_env):
+        queue = queue_runner_env["queue"]
+        base_url = queue_runner_env["base_url"]
+        worker_id = queue_runner_env["worker_id"]
+
+        queue_from_api = queue_runner.resolve_queue(base_url, queue["name"])
+        assert queue_from_api is not None
+
+        assert queue_runner.process_one(base_url, queue_from_api, worker_id, execute=False) is False

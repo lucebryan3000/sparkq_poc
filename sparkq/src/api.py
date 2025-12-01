@@ -672,6 +672,7 @@ async def list_queues(
     # Enhance with stats
     for queue in queues:
         queue_id = queue["id"]
+        existing_status = str(queue.get("status") or "").lower()
 
         # Get task counts
         all_tasks = storage.list_tasks(queue_id=queue_id)
@@ -688,8 +689,12 @@ async def list_queues(
             "progress": f"{done}/{total}" if total > 0 else "0/0"
         }
 
-        # Determine status
-        if running > 0:
+        # Determine status (preserve archived/ended)
+        if existing_status == "archived":
+            queue["status"] = "archived"
+        elif existing_status == "ended":
+            queue["status"] = "ended"
+        elif running > 0:
             queue["status"] = "active"
         elif queued > 0:
             queue["status"] = "planned"
@@ -789,6 +794,14 @@ async def archive_queue(queue_id: str):
     queue = storage.get_queue(queue_id)
     return {"message": "Queue archived", "queue": queue}
 
+
+@app.put("/api/queues/{queue_id}/unarchive")
+async def unarchive_queue(queue_id: str):
+    success = storage.unarchive_queue(queue_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Queue not found")
+    queue = storage.get_queue(queue_id)
+    return {"message": "Queue unarchived", "queue": queue}
 
 @app.delete("/api/queues/{queue_id}")
 async def delete_queue(queue_id: str):

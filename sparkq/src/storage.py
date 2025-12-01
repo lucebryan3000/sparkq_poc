@@ -451,6 +451,15 @@ class Storage:
             )
             return cursor.rowcount > 0
 
+    def unarchive_queue(self, queue_id: str) -> bool:
+        now = now_iso()
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "UPDATE queues SET status = 'idle', updated_at = ? WHERE id = ?",
+                (now, queue_id)
+            )
+            return cursor.rowcount > 0
+
     def delete_queue(self, queue_id: str) -> bool:
         with self.connection() as conn:
             # Delete tasks associated with this queue first (cascade)

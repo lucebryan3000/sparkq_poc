@@ -11,6 +11,7 @@
 
   let currentQueueId = null;
   let currentQueueName = null;
+  let currentQueueStatus = null;
   let quickAdd = null;
 
   async function renderQueuesPage(container) {
@@ -51,7 +52,7 @@
     const rows = queues
       .map((queue) => `
         <tr>
-          <td><a href="#" class="queue-link" data-queue-id="${queue.id}" data-queue-name="${queue.name || queue.id}">${queue.id}</a></td>
+          <td><a href="#" class="queue-link" data-queue-id="${queue.id}" data-queue-name="${queue.name || queue.id}" data-queue-status="${queue.status || ''}">${queue.id}</a></td>
           <td>${queue.name || '—'}</td>
           <td>${sessionsById[queue.session_id] || queue.session_id || '—'}</td>
           <td>${queue.status || '—'}</td>
@@ -102,7 +103,8 @@
         e.preventDefault();
         const queueId = link.getAttribute('data-queue-id');
         const queueName = link.getAttribute('data-queue-name');
-        loadQueueDetails(container, queueId, queueName);
+        const queueStatus = link.getAttribute('data-queue-status');
+        loadQueueDetails(container, queueId, queueName, queueStatus);
       });
     });
 
@@ -213,9 +215,11 @@
     }
   }
 
-  async function loadQueueDetails(container, queueId, queueName) {
+  async function loadQueueDetails(container, queueId, queueName, queueStatus) {
     currentQueueId = queueId;
     currentQueueName = queueName;
+    currentQueueStatus = queueStatus || currentQueueStatus;
+    const isArchived = String(currentQueueStatus || '').toLowerCase() === 'archived';
 
     const detailsContainer = container.querySelector('#queue-details-container');
     if (!detailsContainer) return;
@@ -284,36 +288,57 @@
     detailsContainer.innerHTML = `
       <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h3 style="margin: 0;">Queue: ${queueName}</h3>
-          <div style="display: flex; gap: 8px;">
-            <button class="button secondary" id="edit-btn" title="Edit queue properties">✏️ Edit</button>
-            <button class="button secondary" id="archive-btn" title="Archive this queue">📦 Archive</button>
-            <button class="button error" id="delete-btn" title="Permanently delete this queue">🗑️ Delete</button>
-          </div>
+          <h3 style="margin: 0;">Queue: ${queueName}${isArchived ? ' (Archived)' : ''}</h3>
+          ${isArchived ? '<div class="muted" style="font-size:12px;">Read-only (archived)</div>' : `
+            <div style="display: flex; gap: 8px;">
+              <button class="button secondary" id="edit-btn" title="Edit queue properties">✏️ Edit</button>
+              <button class="button secondary" id="archive-btn" title="Archive this queue">📦 Archive</button>
+              <button class="button error" id="delete-btn" title="Permanently delete this queue">🗑️ Delete</button>
+            </div>
+          `}
+          ${isArchived ? `
+            <div style="display:flex; gap:8px;">
+              <button class="button secondary" id="unarchive-btn" title="Unarchive this queue">⬆️ Unarchive</button>
+            </div>
+          ` : ''}
         </div>
-        <div id="quick-add-container" style="margin-bottom: 24px;"></div>
+        ${isArchived ? '<div class="muted" style="margin-bottom:16px;">Archived queues are read-only. Task actions and Quick Add are disabled.</div>' : '<div id="quick-add-container" style="margin-bottom: 24px;"></div>'}
         ${taskTable}
       </div>
     `;
 
     // Attach action buttons
     const editBtn = detailsContainer.querySelector('#edit-btn');
-    if (editBtn) {
+    if (editBtn && !isArchived) {
       editBtn.addEventListener('click', () => handleEditQueue(container, queueId, queueName));
     }
 
     const archiveBtn = detailsContainer.querySelector('#archive-btn');
-    if (archiveBtn) {
+    if (archiveBtn && !isArchived) {
       archiveBtn.addEventListener('click', () => handleArchiveQueue(container, queueId, queueName));
     }
 
+    const unarchiveBtn = detailsContainer.querySelector('#unarchive-btn');
+    if (unarchiveBtn && isArchived) {
+      unarchiveBtn.addEventListener('click', async () => {
+        try {
+          await api('PUT', `/api/queues/${queueId}/unarchive`, null, { action: 'unarchive queue' });
+          showToast(`Queue "${queueName}" unarchived`, 'success');
+          renderQueuesPage(container);
+        } catch (err) {
+          console.error('Failed to unarchive queue:', err);
+          showToast('Failed to unarchive queue', 'error');
+        }
+      });
+    }
+
     const deleteBtn = detailsContainer.querySelector('#delete-btn');
-    if (deleteBtn) {
+    if (deleteBtn && !isArchived) {
       deleteBtn.addEventListener('click', () => handleDeleteQueue(container, queueId, queueName));
     }
 
     // Initialize QuickAdd component
-    if (window.QuickAdd) {
+    if (window.QuickAdd && !isArchived) {
       quickAdd = new window.QuickAdd('quick-add-container', queueId, queueName);
       quickAdd.setRefreshCallback(() => loadQueueDetails(container, queueId, queueName));
       quickAdd.render();

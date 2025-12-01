@@ -158,13 +158,19 @@
     return prettifyToolName(toolName);
   }
 
-  function renderTaskRow(task, displayId) {
+  function renderTaskRow(task, displayId, readOnly = false) {
     const status = String(task?.status || 'queued').toLowerCase();
     const badgeClass = taskBadgeClass(status);
     const timestamp = formatTimestamp(task?.created_at);
     const label = task?.friendly_id || displayId || `Task #${task?.id || '—'}`;
     const preview = taskPreview(task);
     const toolLabel = task?.friendlyTool || getFriendlyToolName(task?.tool_name);
+    const actionsCell = readOnly
+      ? '<div class="task-cell actions muted">View only</div>'
+      : `<div class="task-cell actions">
+          <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task">✏️</button>
+          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task">✖️</button>
+        </div>`;
 
     return `
       <div class="task-row" data-task-id="${task?.id || ''}">
@@ -173,10 +179,7 @@
         <div class="task-cell tool">${toolLabel || '—'}</div>
         <div class="task-cell preview" title="${preview}">${preview}</div>
         <div class="task-cell created">${timestamp}</div>
-        <div class="task-cell actions">
-          <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task">✏️</button>
-          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task">✖️</button>
-        </div>
+        ${actionsCell}
       </div>
     `;
   }
@@ -188,6 +191,8 @@
     taskViewState: {},
     _rendering: false,
     quickAddInstance: null,
+    queueFilter: null,
+    archivedQueueId: null,
 
     async render(container) {
       // Prevent concurrent renders
@@ -219,6 +224,16 @@
         let queues = [];
         let activeSession = null;
 
+        // Restore persisted filters
+        if (!this.queueFilter) {
+          const savedFilter = localStorage.getItem('dashboard.queueFilter');
+          this.queueFilter = savedFilter === 'archived' ? 'archived' : 'active';
+        }
+        if (!this.archivedQueueId) {
+          const savedArchived = localStorage.getItem('dashboard.archivedQueueId');
+          this.archivedQueueId = savedArchived || null;
+        }
+
         try {
           const sessionsResponse = await api('GET', '/api/sessions', null, { action: 'load sessions' });
           sessions = sessionsResponse?.sessions || [];
@@ -234,6 +249,14 @@
         }
 
         this.queuesCache = queues;
+        const activeQueues = (queues || []).filter((q) => String(q.status || '').toLowerCase() !== 'archived');
+        const archivedQueues = (queues || []).filter((q) => String(q.status || '').toLowerCase() === 'archived');
+
+        // Fallback to active if archived view has no data
+        if (this.queueFilter === 'archived' && !archivedQueues.length && activeQueues.length) {
+          this.queueFilter = 'active';
+          localStorage.setItem('dashboard.queueFilter', this.queueFilter);
+        }
 
         if (!queues.length) {
           this.currentQueueId = null;
@@ -267,13 +290,22 @@
           return;
         }
 
-        if (!this.currentQueueId || !queues.some((queue) => queue.id === this.currentQueueId)) {
-          this.currentQueueId = queues[0].id;
+        // Resolve selection by filter
+        if (this.queueFilter === 'archived') {
+          if (!this.archivedQueueId || !archivedQueues.some((q) => q.id === this.archivedQueueId)) {
+            this.archivedQueueId = archivedQueues[0]?.id || null;
+            localStorage.setItem('dashboard.archivedQueueId', this.archivedQueueId || '');
+          }
+        } else {
+          if (!this.currentQueueId || !activeQueues.some((queue) => queue.id === this.currentQueueId)) {
+            this.currentQueueId = activeQueues[0]?.id || null;
+          }
         }
 
-        // Get the session for the first queue
-        if (queues.length > 0) {
-          activeSession = sessions.find((s) => s.id === queues[0].session_id) || sessions[0];
+        // Get the session for the first queue in the current view
+        const firstQueue = this.queueFilter === 'archived' ? archivedQueues[0] : activeQueues[0];
+        if (firstQueue) {
+          activeSession = sessions.find((s) => s.id === firstQueue.session_id) || sessions[0];
           if (activeSession) {
             this.currentSessionId = activeSession.id;
           }
@@ -288,7 +320,13 @@
           </div>
 
           <div class="queue-tabs-section">
-            <div class="section-title">Queues</div>
+            <div class="section-title" style="display:flex;align-items:center;gap:8px;">
+              <span>Queues</span>
+              <div style="display:inline-flex;gap:6px;">
+                <button id="queue-filter-active" class="button secondary" style="padding:4px 10px;font-size:12px;${this.queueFilter === 'active' ? 'background:#3b82f6;color:#fff;' : ''}">Active</button>
+                <button id="queue-filter-archived" class="button secondary" style="padding:4px 10px;font-size:12px;${this.queueFilter === 'archived' ? 'background:#3b82f6;color:#fff;' : ''}">Archived</button>
+              </div>
+            </div>
             <div id="queue-tabs" class="queue-tabs"></div>
           </div>
 
@@ -296,11 +334,18 @@
         `;
 
         this.attachSessionSelectorHandlers(actualContainer, sessions);
-        const tabsContainer = actualContainer.querySelector('#queue-tabs');
-        this.renderQueueTabs(tabsContainer, queues);
+        this.attachQueueFilterHandlers(actualContainer);
 
+        const tabsContainer = actualContainer.querySelector('#queue-tabs');
         const contentContainer = actualContainer.querySelector('#queue-content');
-        await this.renderQueueContent(contentContainer, this.currentQueueId);
+
+        if (this.queueFilter === 'archived') {
+          this.renderArchivedQueuePicker(tabsContainer, archivedQueues);
+          await this.renderArchivedQueueContent(contentContainer, archivedQueues);
+        } else {
+          this.renderQueueTabs(tabsContainer, activeQueues);
+          await this.renderQueueContent(contentContainer, this.currentQueueId);
+        }
       } finally {
         this._rendering = false;
       }
@@ -308,6 +353,30 @@
 
     async reloadAfterQueueOperation(selectQueueId) {
       await this.refreshQueues(selectQueueId);
+    },
+
+    renderArchivedQueuePicker(container, archivedQueues) {
+      if (!container) return;
+      const options = archivedQueues
+        .map((q) => `<option value="${q.id}" ${q.id === this.archivedQueueId ? 'selected' : ''}>${q.name || prettifyToolName(q.id)}</option>`)
+        .join('');
+      container.innerHTML = `
+        <div class="card" style="padding:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <span class="muted" style="font-size:13px;">Archived queues</span>
+          <select id="archived-queue-select" style="min-width:200px; padding:8px 10px; background:#111; border:1px solid #333; color:#fff; border-radius:6px;">
+            ${options || '<option value=\"\">No archived queues</option>'}
+          </select>
+        </div>
+      `;
+      const selectEl = container.querySelector('#archived-queue-select');
+      if (selectEl) {
+        selectEl.addEventListener('change', () => {
+          this.archivedQueueId = selectEl.value || null;
+          localStorage.setItem('dashboard.archivedQueueId', this.archivedQueueId || '');
+          const contentContainer = document.getElementById('queue-content');
+          this.renderArchivedQueueContent(contentContainer, archivedQueues);
+        });
+      }
     },
 
     renderQueueTabs(container, queues) {
@@ -376,6 +445,42 @@
       cleanButton.addEventListener('click', () => this.handleCreateQueue());
     },
 
+    attachQueueFilterHandlers(container) {
+      const activeBtn = container.querySelector('#queue-filter-active');
+      const archivedBtn = container.querySelector('#queue-filter-archived');
+      const setStyles = () => {
+        if (activeBtn) {
+          activeBtn.style.background = this.queueFilter === 'active' ? '#3b82f6' : '';
+          activeBtn.style.color = this.queueFilter === 'active' ? '#fff' : '';
+        }
+        if (archivedBtn) {
+          archivedBtn.style.background = this.queueFilter === 'archived' ? '#3b82f6' : '';
+          archivedBtn.style.color = this.queueFilter === 'archived' ? '#fff' : '';
+        }
+      };
+      setStyles();
+      if (activeBtn) {
+        activeBtn.addEventListener('click', () => {
+          if (this.queueFilter !== 'active') {
+            this.queueFilter = 'active';
+            localStorage.setItem('dashboard.queueFilter', this.queueFilter);
+            this.refreshQueues(this.currentQueueId);
+            setStyles();
+          }
+        });
+      }
+      if (archivedBtn) {
+        archivedBtn.addEventListener('click', () => {
+          if (this.queueFilter !== 'archived') {
+            this.queueFilter = 'archived';
+            localStorage.setItem('dashboard.queueFilter', this.queueFilter);
+            this.refreshQueues(this.archivedQueueId);
+            setStyles();
+          }
+        });
+      }
+    },
+
     async handleCreateQueue() {
       // Load sessions for queue creation
       let sessions = [];
@@ -438,7 +543,7 @@
       }
     },
 
-    async renderQueueContent(container, queueId) {
+    async renderQueueContent(container, queueId, { readOnly = false } = {}) {
       if (!container) {
         return;
       }
@@ -446,32 +551,78 @@
       const queue = this.queuesCache.find((s) => s.id === queueId) || {};
       const queueName = queue.name || queue.id || 'Queue';
       const progress = formatProgress(queue.stats);
+      const isArchived = String(queue.status || '').toLowerCase() === 'archived';
+      const hideQuickAdd = readOnly || isArchived;
+      const showUnarchive = isArchived;
 
       container.innerHTML = `
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
             <div>
-              <h2 style="margin: 0;">${queueName}</h2>
+              <h2 style="margin: 0;">${queueName}${isArchived ? ' (Archived)' : ''}</h2>
+              <div class="muted" style="font-size: 12px;">Progress: ${progress}</div>
             </div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <button id="dashboard-edit-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Edit queue">✏️ Edit</button>
-              <button id="dashboard-archive-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Archive queue">📦 Archive</button>
-              <button id="dashboard-delete-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Delete queue">🗑️ Delete</button>
-            </div>
+            ${hideQuickAdd ? '' : `
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="dashboard-edit-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Edit queue">✏️ Edit</button>
+                <button id="dashboard-archive-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Archive queue">📦 Archive</button>
+                <button id="dashboard-delete-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Delete queue">🗑️ Delete</button>
+              </div>
+            `}
+            ${showUnarchive ? `
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="dashboard-unarchive-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Unarchive queue">⬆️ Unarchive</button>
+              </div>
+            ` : ''}
           </div>
-          <div id="dashboard-quick-add"></div>
+          ${hideQuickAdd ? '<div class="muted" style="font-size:12px;">Archived queues are read-only. Actions are disabled.</div>' : '<div id="dashboard-quick-add"></div>'}
         </div>
 
         <div id="dashboard-tasks" style="margin-top: 16px;"></div>
       `;
 
-      this.attachQueueActionHandlers(container, queueId, queue);
-      this.renderQuickAdd(queueId, queueName);
+      if (!hideQuickAdd) {
+        this.attachQueueActionHandlers(container, queueId, queue);
+        this.renderQuickAdd(queueId, queueName);
+      }
+      const unarchiveBtn = container.querySelector('#dashboard-unarchive-btn');
+      if (unarchiveBtn && showUnarchive) {
+        unarchiveBtn.addEventListener('click', async () => {
+          try {
+            await api('PUT', `/api/queues/${queueId}/unarchive`, null, { action: 'unarchive queue' });
+            Utils.showToast('Queue unarchived', 'success');
+            this.queueFilter = 'active';
+            localStorage.setItem('dashboard.queueFilter', this.queueFilter);
+            await this.refreshQueues(queueId);
+          } catch (err) {
+            console.error('Failed to unarchive queue:', err);
+            Utils.showToast('Failed to unarchive queue', 'error');
+          }
+        });
+      }
 
       const tasksContainer = container.querySelector('#dashboard-tasks');
       if (tasksContainer) {
-        await this.renderTasks(tasksContainer, queueId);
+        await this.renderTasks(tasksContainer, queueId, { readOnly: hideQuickAdd, forceStatus: hideQuickAdd ? ['succeeded', 'failed'] : null });
       }
+    },
+
+    async renderArchivedQueueContent(container, archivedQueues) {
+      if (!container) return;
+      if (!archivedQueues.length) {
+        container.innerHTML = `
+          <div class="card">
+            <p class="muted">No archived queues.</p>
+          </div>
+        `;
+        return;
+      }
+      const targetQueueId = this.archivedQueueId || archivedQueues[0].id;
+      const queue = archivedQueues.find((q) => q.id === targetQueueId) || archivedQueues[0];
+      this.archivedQueueId = queue.id;
+      localStorage.setItem('dashboard.archivedQueueId', this.archivedQueueId);
+
+      await this.renderQueueContent(container, queue.id, { readOnly: true });
     },
 
     renderQuickAdd(queueId, queueName) {
@@ -523,6 +674,8 @@
       }
 
       this.queuesCache = queues;
+      const activeQueues = (queues || []).filter((q) => String(q.status || '').toLowerCase() !== 'archived');
+      const archivedQueues = (queues || []).filter((q) => String(q.status || '').toLowerCase() === 'archived');
 
       if (!queues.length) {
         this.currentQueueId = null;
@@ -536,19 +689,28 @@
         return;
       }
 
-      const queueExists = (id) => queues.some((q) => q.id === id);
-      const activeQueueId = queueExists(selectQueueId)
-        ? selectQueueId
-        : queueExists(this.currentQueueId)
-          ? this.currentQueueId
-          : queues[0].id;
+      if (this.queueFilter === 'archived') {
+        if (!this.archivedQueueId || !archivedQueues.some((q) => q.id === this.archivedQueueId)) {
+          this.archivedQueueId = archivedQueues[0]?.id || null;
+          localStorage.setItem('dashboard.archivedQueueId', this.archivedQueueId || '');
+        }
+        this.renderArchivedQueuePicker(tabsContainer, archivedQueues);
+        await this.renderArchivedQueueContent(contentContainer, archivedQueues);
+      } else {
+        const queueExists = (id) => activeQueues.some((q) => q.id === id);
+        const activeQueueId = queueExists(selectQueueId)
+          ? selectQueueId
+          : queueExists(this.currentQueueId)
+            ? this.currentQueueId
+            : activeQueues[0]?.id;
 
-      this.currentQueueId = activeQueueId;
-      this.renderQueueTabs(tabsContainer, queues);
-      await this.renderQueueContent(contentContainer, activeQueueId);
+        this.currentQueueId = activeQueueId;
+        this.renderQueueTabs(tabsContainer, activeQueues);
+        await this.renderQueueContent(contentContainer, activeQueueId);
+      }
     },
 
-    async renderTasks(container, queueId) {
+    async renderTasks(container, queueId, { readOnly = false, forceStatus = null } = {}) {
       if (!container) {
         return;
       }
@@ -584,11 +746,13 @@
       const pageSize = 10;
       const statusOptionsRaw = tasks.map((t) => String(t.status || 'queued').toLowerCase()).filter(Boolean);
       const statusOptions = Array.from(new Set(statusOptionsRaw));
-      const defaultStatuses = statusOptions.length ? statusOptions : ['queued', 'running', 'succeeded', 'failed'];
+      const defaultStatuses = forceStatus && forceStatus.length
+        ? forceStatus.map((s) => s.toLowerCase())
+        : (statusOptions.length ? statusOptions : ['queued', 'running', 'succeeded', 'failed']);
 
       const state = this.taskViewState[queueId] || { statuses: new Set(defaultStatuses), page: 0 };
       const normalizedStatuses = new Set(
-        [...(state.statuses || [])].filter((s) => defaultStatuses.includes(s))
+        [...(state.statuses || forceStatus || [])].filter((s) => defaultStatuses.includes(s))
       );
       if (!normalizedStatuses.size) {
         defaultStatuses.forEach((s) => normalizedStatuses.add(s));
@@ -611,10 +775,10 @@
         const rangeLabel = total
           ? `${startIdx + 1}-${Math.min(startIdx + pageSize, total)} of ${total}`
           : '0 of 0';
-        const filterLabel = `Filter (${state.statuses.size}/${defaultStatuses.length})`;
+        const filterLabel = readOnly ? 'Filter (read-only)' : `Filter (${state.statuses.size}/${defaultStatuses.length})`;
 
         const taskRows = pageTasks.length
-          ? pageTasks.map((task) => renderTaskRow(task, task.friendlyLabel)).join('')
+          ? pageTasks.map((task) => renderTaskRow(task, task.friendlyLabel, readOnly)).join('')
           : '<p class="muted">No tasks match filters.</p>';
 
         container.innerHTML = `
@@ -622,24 +786,26 @@
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
               <h3 style="margin: 0;">Tasks</h3>
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                <div class="filter-dropdown" style="position:relative;">
-                  <button id="task-filter-toggle-${queueId}" class="button secondary" style="padding:6px 10px;font-size:13px;">${filterLabel}</button>
-                  <div id="task-filter-menu-${queueId}" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface, #111);border:1px solid var(--border, #333);border-radius:8px;padding:10px;box-shadow:var(--shadow, 0 10px 30px rgba(0,0,0,0.3));min-width:220px;z-index:20;">
-                    ${defaultStatuses.map((status) => {
-                      const checked = state.statuses.has(status) ? 'checked' : '';
-                      const label = status.charAt(0).toUpperCase() + status.slice(1);
-                      const inputId = `task-filter-${queueId}-${status}`;
-                      return `<label for="${inputId}" style="display:flex;align-items:center;gap:8px;padding:4px 6px;cursor:pointer;">
-                        <input id="${inputId}" type="checkbox" data-status="${status}" ${checked} />
-                        <span>${label}</span>
-                      </label>`;
-                    }).join('')}
-                    <div style="display:flex;justify-content:space-between;gap:8px;margin-top:8px;">
-                      <button id="task-filter-reset-${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Reset</button>
-                      <button id="task-filter-close-${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Close</button>
+                ${readOnly ? '' : `
+                  <div class="filter-dropdown" style="position:relative;">
+                    <button id="task-filter-toggle-${queueId}" class="button secondary" style="padding:6px 10px;font-size:13px;">${filterLabel}</button>
+                    <div id="task-filter-menu-${queueId}" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface, #111);border:1px solid var(--border, #333);border-radius:8px;padding:10px;box-shadow:var(--shadow, 0 10px 30px rgba(0,0,0,0.3));min-width:220px;z-index:20;">
+                      ${defaultStatuses.map((status) => {
+                        const checked = state.statuses.has(status) ? 'checked' : '';
+                        const label = status.charAt(0).toUpperCase() + status.slice(1);
+                        const inputId = `task-filter-${queueId}-${status}`;
+                        return `<label for="${inputId}" style="display:flex;align-items:center;gap:8px;padding:4px 6px;cursor:pointer;">
+                          <input id="${inputId}" type="checkbox" data-status="${status}" ${checked} />
+                          <span>${label}</span>
+                        </label>`;
+                      }).join('')}
+                      <div style="display:flex;justify-content:space-between;gap:8px;margin-top:8px;">
+                        <button id="task-filter-reset-${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Reset</button>
+                        <button id="task-filter-close-${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Close</button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                `}
                 <div class="pager" style="display:flex;align-items:center;gap:6px;">
                   <button id="task-page-prev-${queueId}" class="button secondary" style="padding:6px 8px;font-size:12px;" ${state.page === 0 ? 'disabled' : ''}>Prev</button>
                   <span class="muted" style="font-size:12px;">${rangeLabel}</span>
@@ -662,47 +828,51 @@
           </div>
         `;
 
-        this.attachTaskActionHandlers(container, pageTasks, queueId);
+        if (!readOnly) {
+          this.attachTaskActionHandlers(container, pageTasks, queueId);
+        }
 
-        const toggleBtn = container.querySelector(`#task-filter-toggle-${queueId}`);
-        const menu = container.querySelector(`#task-filter-menu-${queueId}`);
-        const resetBtn = container.querySelector(`#task-filter-reset-${queueId}`);
-        const closeBtn = container.querySelector(`#task-filter-close-${queueId}`);
+        if (!readOnly) {
+          const toggleBtn = container.querySelector(`#task-filter-toggle-${queueId}`);
+          const menu = container.querySelector(`#task-filter-menu-${queueId}`);
+          const resetBtn = container.querySelector(`#task-filter-reset-${queueId}`);
+          const closeBtn = container.querySelector(`#task-filter-close-${queueId}`);
 
-        const setMenuVisible = (visible) => {
-          if (menu) {
-            menu.style.display = visible ? 'block' : 'none';
-          }
-        };
-
-        toggleBtn?.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const isOpen = menu && menu.style.display === 'block';
-          setMenuVisible(!isOpen);
-        });
-        closeBtn?.addEventListener('click', () => setMenuVisible(false));
-        resetBtn?.addEventListener('click', () => {
-          state.statuses = new Set(defaultStatuses);
-          state.page = 0;
-          renderTaskTable();
-        });
-        menu?.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-          cb.addEventListener('change', () => {
-            const val = cb.dataset.status;
-            const selected = new Set(state.statuses);
-            if (cb.checked) {
-              selected.add(val);
-            } else {
-              selected.delete(val);
+          const setMenuVisible = (visible) => {
+            if (menu) {
+              menu.style.display = visible ? 'block' : 'none';
             }
-            if (!selected.size) {
-              defaultStatuses.forEach((s) => selected.add(s));
-            }
-            state.statuses = selected;
+          };
+
+          toggleBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = menu && menu.style.display === 'block';
+            setMenuVisible(!isOpen);
+          });
+          closeBtn?.addEventListener('click', () => setMenuVisible(false));
+          resetBtn?.addEventListener('click', () => {
+            state.statuses = new Set(defaultStatuses);
             state.page = 0;
             renderTaskTable();
           });
-        });
+          menu?.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+            cb.addEventListener('change', () => {
+              const val = cb.dataset.status;
+              const selected = new Set(state.statuses);
+              if (cb.checked) {
+                selected.add(val);
+              } else {
+                selected.delete(val);
+              }
+              if (!selected.size) {
+                defaultStatuses.forEach((s) => selected.add(s));
+              }
+              state.statuses = selected;
+              state.page = 0;
+              renderTaskTable();
+            });
+          });
+        }
 
         const prevBtn = container.querySelector(`#task-page-prev-${queueId}`);
         const nextBtn = container.querySelector(`#task-page-next-${queueId}`);

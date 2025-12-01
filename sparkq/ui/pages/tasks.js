@@ -79,8 +79,12 @@
     }
 
     const queuesById = {};
+    const archivedQueues = new Set();
     queues.forEach((queue) => {
       queuesById[queue.id] = queue.name || queue.id;
+      if (String(queue.status || '').toLowerCase() === 'archived') {
+        archivedQueues.add(queue.id);
+      }
     });
 
     const queueOptions = queues
@@ -107,6 +111,8 @@
       .map((task) => {
         const timeStatus = getTaskTimeStatus(task);
         const queueName = queuesById[task.queue_id] || task.queue_id;
+        const isArchivedQueue = archivedQueues.has(task.queue_id);
+        const queueLabel = isArchivedQueue ? `${queueName} (Archived)` : queueName;
         const rowClass = timeStatus.isStale ? 'task-stale-error' : timeStatus.isWarned ? 'task-stale-warning' : '';
         const staleBadge = timeStatus.isStale
           ? `<span class="timeout-badge timeout-badge-error">⚠️ TIMEOUT</span>`
@@ -115,10 +121,10 @@
             : '';
 
         return `
-          <tr class="task-row ${rowClass}" data-task-id="${task.id}">
-            <td style="width: 30px;"><input type="checkbox" class="task-checkbox" data-task-id="${task.id}" /></td>
+          <tr class="task-row ${rowClass}" data-task-id="${task.id}" data-archived="${isArchivedQueue ? '1' : '0'}">
+            <td style="width: 30px;"><input type="checkbox" class="task-checkbox" data-task-id="${task.id}" ${isArchivedQueue ? 'disabled' : ''} /></td>
             <td>${task.id}</td>
-            <td>${queueName}</td>
+            <td>${queueLabel}</td>
             <td>${getFriendlyToolName(task.tool_name)}</td>
             <td>${task.status} ${staleBadge}</td>
             <td>${formatTimestamp(task.created_at)}</td>
@@ -237,18 +243,23 @@
 
     const taskRows = container.querySelectorAll('.task-row');
     taskRows.forEach((row) => {
+      const isArchived = row.dataset.archived === '1';
       row.addEventListener('click', () => {
         const checkbox = row.querySelector('.task-checkbox');
-        if (checkbox && !checkbox.disabled) {
-          checkbox.checked = !checkbox.checked;
-          if (checkbox.checked) {
-            selectedTasks.add(checkbox.dataset.taskId);
-          } else {
-            selectedTasks.delete(checkbox.dataset.taskId);
-          }
-          updateBulkActionsUI();
+        if (!checkbox || checkbox.disabled || isArchived) {
+          return;
         }
+        checkbox.checked = !checkbox.checked;
+        if (checkbox.checked) {
+          selectedTasks.add(checkbox.dataset.taskId);
+        } else {
+          selectedTasks.delete(checkbox.dataset.taskId);
+        }
+        updateBulkActionsUI();
       });
+      if (isArchived) {
+        row.classList.add('muted');
+      }
     });
 
     function updateBulkActionsUI() {
