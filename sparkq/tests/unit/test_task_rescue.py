@@ -56,9 +56,16 @@ def test_reset_auto_failed_task_allows_completion(storage):
     failed = storage.get_task(task["id"])
     assert storage.is_auto_failed(failed) is True
 
+    # log entry should be created when auto-fail happens
+    logs = storage.list_audit_logs(action_prefix="task.auto_fail", limit=5)
+    assert any(log.get("details", {}).get("task_id") == task["id"] for log in logs)
+
     reset = storage.reset_auto_failed_task(task["id"], target_status="running")
     assert reset["status"] == "running"
     assert reset.get("error") is None
+
+    reset_logs = storage.list_audit_logs(action_prefix="task.reset_auto_fail", limit=5)
+    assert any(log.get("details", {}).get("task_id") == task["id"] for log in reset_logs)
 
     completed = storage.complete_task(task["id"], "all good", "all good")
     assert completed["status"] == "succeeded"

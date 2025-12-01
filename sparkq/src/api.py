@@ -635,6 +635,16 @@ def _serialize_task(task: Dict[str, Any], queue_names: Optional[Dict[str, str]] 
         serialized["result_summary"] = serialized.get("result")
     if "error_message" not in serialized and "error" in serialized:
         serialized["error_message"] = serialized.get("error")
+    if "prompt_preview" not in serialized:
+        payload = serialized.get("payload")
+        preview = None
+        if isinstance(payload, str):
+            try:
+                payload_obj = json.loads(payload)
+                preview = payload_obj.get("prompt") or payload_obj.get("prompt_text") or payload_obj.get("prompt_path")
+            except Exception:
+                preview = payload
+        serialized["prompt_preview"] = preview
 
     return serialized
 
@@ -1118,6 +1128,15 @@ async def reset_task(task_id: str, request: TaskResetRequest = Body(default_fact
     return {"task": _serialize_task(updated_task)}
 
 
+@app.get("/api/audit")
+async def list_audit(action_prefix: Optional[str] = Query(None), limit: int = Query(50, ge=1, le=200)):
+    try:
+        logs = storage.list_audit_logs(action_prefix=action_prefix, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"logs": logs}
+
+
 @app.post("/api/tasks/{task_id}/requeue")
 async def requeue_task(task_id: str):
     task = storage.get_task(task_id)
@@ -1128,6 +1147,27 @@ async def requeue_task(task_id: str):
         raise HTTPException(status_code=409, detail=f"Cannot requeue task while status is {status}")
 
     new_task = storage.requeue_task(task_id)
+    new_task["claimed_at"] = None
+    new_task["completed_at"] = None
+    new_task["failed_at"] = None
+
+    return {"task": _serialize_task(new_task)}
+
+
+@app.post("/api/tasks/{task_id}/retry")
+async def retry_task(task_id: str):
+    task = storage.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    status = task.get("status") or "unknown"
+    if status not in {"failed", "succeeded"}:
+        raise HTTPException(status_code=409, detail=f"Cannot retry task while status is {status}")
+
+    try:
+        new_task = storage.requeue_task(task_id)
+    except ConflictError as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
+
     new_task["claimed_at"] = None
     new_task["completed_at"] = None
     new_task["failed_at"] = None

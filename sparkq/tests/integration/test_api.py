@@ -267,6 +267,27 @@ class TestTaskEndpoints:
         assert complete_resp.status_code == 200
         assert complete_resp.json()["task"]["status"] == "succeeded"
 
+    def test_retry_task(self, api_client, storage_with_stream):
+        storage = storage_with_stream["storage"]
+        queue = storage_with_stream["queue"]
+        task = storage.create_task(
+            queue_id=queue["id"],
+            tool_name="echo",
+            task_class="FAST_SCRIPT",
+            payload=_payload(),
+            timeout=30,
+            prompt_path="retry.txt",
+            metadata=json.dumps({"source": "retry"}),
+        )
+        storage.fail_task(task["id"], "Failed on purpose", "TEST")
+
+        resp = api_client.post(f"/api/tasks/{task['id']}/retry")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["task"]["status"] == "queued"
+        assert data["task"]["queue_id"] == task["queue_id"]
+        assert data["task"]["id"] != task["id"]
+
     def test_handle_task_errors(self, api_client):
         response = api_client.get("/api/tasks?status=invalid")
         assert response.status_code == 400

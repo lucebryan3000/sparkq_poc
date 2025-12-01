@@ -195,14 +195,14 @@
         <div class="grid grid-2">
           <div class="input-group">
             <label for="task-queue-filter">Queue</label>
-            <select id="task-queue-filter">
+            <select id="task-queue-filter" class="form-control form-select">
               <option value="">All queues</option>
               ${queueOptions}
             </select>
           </div>
           <div class="input-group">
             <label for="task-status-filter">Status</label>
-            <select id="task-status-filter">
+            <select id="task-status-filter" class="form-control form-select">
               ${statusOptions}
             </select>
           </div>
@@ -445,6 +445,7 @@
         <div class="modal-actions" style="display: flex; gap: 10px; justify-content: flex-end;">
           ${task.status === 'queued' ? '<button class="button primary" data-action="claim">Claim</button>' : ''}
           ${task.status === 'running' ? '<button class="button primary" data-action="complete">Complete</button><button class="button" data-action="fail">Fail</button>' : ''}
+          ${task.status === 'failed' ? '<button class="button" data-action="retry">Retry</button>' : ''}
           ${task.status === 'failed' || task.status === 'succeeded' ? '<button class="button" data-action="requeue">Requeue</button>' : ''}
         </div>
       </div>
@@ -454,6 +455,36 @@
     modal.querySelector('[data-action="close"]')?.addEventListener('click', () => closeModal(modal));
 
     attachTaskActionHandlers(modal, task);
+
+    // Add prompt preview / outcome info into modal footer
+    const payloadPreview = (() => {
+      const payload = task.payload;
+      if (!payload) return '';
+      if (typeof payload === 'string') {
+        try {
+          const parsed = JSON.parse(payload);
+          return parsed.prompt || parsed.prompt_text || parsed.prompt_path || payload;
+        } catch (_) {
+          return payload;
+        }
+      }
+      if (payload && typeof payload === 'object') {
+        return payload.prompt || payload.prompt_text || payload.prompt_path || JSON.stringify(payload);
+      }
+      return '';
+    })();
+
+    if (payloadPreview) {
+      const footer = document.createElement('div');
+      footer.style.cssText = 'margin-top:12px;padding:10px;border:1px solid #333;border-radius:8px;background:rgba(255,255,255,0.03);';
+      footer.innerHTML = `
+        <div style="font-size:12px;color:#888;margin-bottom:6px;">Prompt / Payload</div>
+        <textarea style="width:100%;min-height:80px;border:1px solid #333;border-radius:6px;background:rgba(255,255,255,0.04);color:#ddd;resize:vertical;" disabled>${payloadPreview}</textarea>
+        ${task.result_summary ? `<div style="margin-top:10px;font-size:12px;color:#888;">Outcome</div><textarea style="width:100%;min-height:60px;border:1px solid #333;border-radius:6px;background:rgba(255,255,255,0.04);color:#ddd;resize:vertical;" disabled>${task.result_summary}</textarea>` : ''}
+        ${task.error_message ? `<div style="margin-top:10px;font-size:12px;color:#c26;">Failure Reason</div><textarea style="width:100%;min-height:60px;border:1px solid #433;border-radius:6px;background:rgba(255,0,0,0.05);color:#fbb;resize:vertical;" disabled>${task.error_message}</textarea>` : ''}
+      `;
+      modal.querySelector('.modal-content')?.appendChild(footer);
+    }
   }
 
   function closeModal(modal) {
@@ -466,6 +497,11 @@
     const claimBtn = modal.querySelector('[data-action="claim"]');
     if (claimBtn) {
       claimBtn.addEventListener('click', () => handleClaimTask(task.id, modal, claimBtn));
+    }
+
+    const retryBtn = modal.querySelector('[data-action="retry"]');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => handleRetryTask(task.id, modal, retryBtn));
     }
 
     const completeBtn = modal.querySelector('[data-action="complete"]');
@@ -570,6 +606,21 @@
       }
     } catch (err) {
       handleApiError('requeue task', err);
+    }
+  }
+
+  async function handleRetryTask(taskId, modal, button) {
+    try {
+      const response = await withButtonLoading(button, async () =>
+        api('POST', `/api/tasks/${taskId}/retry`, {}, { action: 'retry task' }),
+      );
+      const newTaskId = response?.task?.id;
+      const suffix = newTaskId ? ` as ${newTaskId}` : '';
+      showSuccess(`Task ${taskId} retried${suffix}`);
+      closeModal(modal);
+      renderTasksPage(document.getElementById('tasks-page'));
+    } catch (err) {
+      handleApiError('retry task', err);
     }
   }
 

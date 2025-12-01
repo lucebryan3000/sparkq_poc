@@ -876,6 +876,28 @@ class Storage:
                 (audit_id, actor, action, details_str, now),
             )
 
+    def list_audit_logs(self, action_prefix: Optional[str] = None, limit: int = 50) -> List[dict]:
+        limit = max(1, min(int(limit or 50), 200))
+        query = "SELECT id, actor, action, details, created_at FROM audit_log"
+        params: list = []
+        if action_prefix:
+            query += " WHERE action LIKE ?"
+            params.append(f"{action_prefix}%")
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self.connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            results = []
+            for row in rows:
+                item = dict(row)
+                try:
+                    item["details"] = json.loads(item["details"]) if item.get("details") else None
+                except Exception:
+                    item["details"] = item.get("details")
+                results.append(item)
+            return results
+
     # === Task classes & tools (Phase 20.1) ===
     def list_task_classes(self) -> List[dict]:
         with self.connection() as conn:
@@ -1032,7 +1054,17 @@ class Storage:
                 raise NotFoundError(f"Task {task_id} not found")
 
             row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-            return dict(row) if row else task
+            recovered = dict(row) if row else task
+
+        self.log_audit(
+            actor=None,
+            action="task.reset_auto_fail",
+            details={
+                "task_id": task_id,
+                "target_status": target_status,
+            },
+        )
+        return recovered
 
     def requeue_task(self, task_id: str) -> TaskRow:
         """Reset a failed task to queued status (clone as new task with new ID)"""
@@ -1069,7 +1101,19 @@ class Storage:
             # Fetch and return the new task
             cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (new_task_id,))
             row = cursor.fetchone()
-            return dict(row) if row else None
+            new_task = dict(row) if row else None
+
+        self.log_audit(
+            actor=None,
+            action="task.retry",
+            details={
+                "original_task_id": task_id,
+                "new_task_id": new_task_id,
+                "queue_id": original_task.get("queue_id"),
+                "tool_name": original_task.get("tool_name"),
+            },
+        )
+        return new_task
 
     def update_task(self, task_id: str, **updates) -> Optional[TaskRow]:
         """Update task fields. Allowed fields: tool_name, payload, timeout, status. Returns updated task or None if not found."""
@@ -1294,16 +1338,30 @@ class Storage:
 
         for task in stale_tasks:
             try:
+                timeout_seconds = self.get_timeout_for_task(task["id"])
+                claimed_at = task.get("claimed_at") or task.get("started_at")
                 failed_task = self.fail_task(
                     task["id"],
                     "Task timeout (auto-failed)",
                     error_type="TIMEOUT",
                 )
+                self.log_audit(
+                    actor=None,
+                    action="task.auto_fail",
+                    details={
+                        "task_id": task.get("id"),
+                        "task_class": task.get("task_class"),
+                        "timeout_seconds": timeout_seconds,
+                        "multiplier": timeout_multiplier,
+                        "claimed_at": claimed_at,
+                        "started_at": task.get("started_at"),
+                    },
+                )
                 self.logger.warning(
                     "Auto-failed task %s (class=%s timeout=%s multiplier=%.2f claimed_at=%s started_at=%s)",
                     task.get("id"),
                     task.get("task_class"),
-                    self.get_timeout_for_task(task["id"]),
+                    timeout_seconds,
                     timeout_multiplier,
                     task.get("claimed_at"),
                     task.get("started_at"),
