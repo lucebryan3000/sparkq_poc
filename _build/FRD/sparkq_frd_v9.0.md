@@ -415,23 +415,119 @@ Use this FRD as the foundation for v1.1 roadmap planning and as the source of tr
 
 ---
 
-## Appendix: Files & Locations
+## Appendix A: Key Documentation by Purpose
+
+### For New Users
+- **[README.md](../../README.md)** — Quick-start guide with installation, common commands, and troubleshooting
+- **[sparkq/docs/SPARKQ_README.md](../../sparkq/docs/SPARKQ_README.md)** — Complete SparkQ user guide with workflows and examples
+- **[python-bootstrap/README.md](../../python-bootstrap/README.md)** — Virtual environment setup and bootstrap configuration
+
+### For Developers / Contributors
+- **[CLAUDE.md](../../CLAUDE.md)** — Project guidelines, error handling patterns, naming conventions, defaults
+- **[.claude/CLAUDE.md](../../.claude/CLAUDE.md)** — Claude Code configuration, development workflow, intelligent model selection
+- **[ARCHITECTURE.md](../../ARCHITECTURE.md)** — System design, component overview, data flow (if exists; check project)
+
+### For API Integration
+- **[sparkq/docs/API.md](../../sparkq/docs/API.md)** — REST API reference with endpoints, status codes, pagination, filtering
+- **[sparkq/docs/UI_README.md](../../sparkq/docs/UI_README.md)** — Web UI features, dashboard overview, real-time updates
+- **[sparkq/docs/UI_CORE_README.md](../../sparkq/docs/UI_CORE_README.md)** — UI component architecture and styling
+
+### For Operational Use
+- **[sparkq/WORKER_PLAYBOOK.md](../../sparkq/WORKER_PLAYBOOK.md)** — Comprehensive guide for Claude workers executing queue tasks (826 lines, essential)
+- **[README.md - Background Service Management](../../README.md#background-service-management)** — Running SparkQ as a daemon
+
+### For Requirements & Planning
+- **[_build/FRD/sparkq_frd_v8.0.md](../../_build/FRD/sparkq_frd_v8.0.md)** — Previous specification (v8.0, Phase 20.4 aligned)
+- **[_build/FRD/sparkq_frd_v9.0.md](../../_build/FRD/sparkq_frd_v9.0.md)** — Current authoritative specification (this document)
+
+### For Feature Implementation
+- **[_build/prompts/Feature-AIModels-Prompt-1.md](../../_build/prompts/Feature-AIModels-Prompt-1.md)** — Specification validation protocol
+- **[_build/prompts/Feature-AIModels-Prompt-2.md](../../_build/prompts/Feature-AIModels-Prompt-2.md)** — Charter application and core wiring (design)
+- **[_build/prompts/Feature-AIModels-Prompt-3.md](../../_build/prompts/Feature-AIModels-Prompt-3.md)** — Phase 20.4 gap completion (teardown script)
+- **[_build/prompts/Feature-AIModels-Prompt-4.md](../../_build/prompts/Feature-AIModels-Prompt-4.md)** — Approval workflow design (Phase 4, deferred reference)
+
+---
+
+## Appendix B: Project Structure
 
 **Key directories:**
-- `sparkq/src/` — Core application (API, CLI, storage, server)
-- `sparkq/ui/` — Web dashboard (HTML, JS, CSS)
-- `sparkq/tests/` — Unit and E2E tests
-- `sparkq/docs/` — User documentation
-- `sparkq/scripts/` — Example/utility scripts
-- `_build/FRD/` — Requirements documents
-- `_build/prompts/` — Codex/orchestration prompts
+- `sparkq/src/` — Core application (API, CLI, storage, server, tools)
+- `sparkq/ui/` — Web dashboard (HTML, JS, CSS, static assets)
+- `sparkq/tests/` — Unit and E2E test suites
+- `sparkq/docs/` — User and API documentation
+- `sparkq/scripts/` — Example and utility scripts
+- `sparkq/data/` — Runtime data (SQLite database)
+- `sparkq/logs/` — Runtime logs (sparkq.log)
+- `_build/FRD/` — Requirements documents (v8.0, v9.0)
+- `_build/prompts/` — Codex/orchestration prompts (4+ feature prompts)
+- `python-bootstrap/` — Virtual environment setup automation
+- `.claude/` — Claude Code configuration and commands
 
 **Key files:**
-- `sparkq.yml` — Project configuration
-- `sparkq.sh` — CLI wrapper
-- `sparkq/teardown.sh` — Cleanup script
-- `sparkq/queue_runner.py` — Worker executable
-- `sparkq/task_complete.py` — Task completion helper
-- `WORKER_PLAYBOOK.md` — Operational guide
-- `README.md` — Quick-start guide
-- `API.md` — API reference
+- `sparkq.yml` — Project configuration (host, port, database path, timeouts)
+- `sparkq.sh` — CLI wrapper script (primary entry point)
+- `sparkq/teardown.sh` — Clean removal script for artifacts (Phase 20.4)
+- `sparkq/queue_runner.py` — Worker polling and prompt streaming
+- `sparkq/task_complete.py` — Task completion helper for Claude
+- `WORKER_PLAYBOOK.md` — Operational guide (826 lines, comprehensive)
+- `README.md` — Root quick-start and troubleshooting
+- `CLAUDE.md` — Developer guidelines and error handling
+- `ARCHITECTURE.md` — System design and component overview (if available)
+
+---
+
+## Appendix C: Command Reference (Quick Lookup)
+
+### Server Management
+```bash
+./sparkq.sh start                 # Start in background
+./sparkq.sh stop                  # Stop background server
+./sparkq.sh restart               # Stop, wait 5s, start
+./sparkq.sh run                   # Start in foreground
+./sparkq.sh status                # Check if running
+./sparkq.sh setup                 # Interactive setup (first run)
+./sparkq.sh teardown              # Clean removal of all artifacts
+```
+
+### Queue Operations
+```bash
+./sparkq.sh queue create <name>   # Create a named queue
+./sparkq.sh queue list            # List all queues
+./sparkq.sh queue archive <id>    # Archive a queue (API-only for now)
+./sparkq.sh session create <name> # Create a session
+./sparkq.sh session list          # List sessions
+./sparkq.sh session end <id>      # End a session
+```
+
+### Task Operations
+```bash
+./sparkq.sh enqueue               # Enqueue a new task
+./sparkq.sh peek                  # See next task in queue
+./sparkq.sh claim                 # Claim a task
+./sparkq.sh complete              # Mark task as complete
+./sparkq.sh fail                  # Mark task as failed
+./sparkq.sh requeue               # Move failed task back to queue
+./sparkq.sh tasks                 # List tasks with filters
+./sparkq.sh task <id>             # Show task detail
+./sparkq.sh purge                 # Delete old succeeded/failed tasks
+```
+
+### Configuration & Utilities
+```bash
+./sparkq.sh reload                # Reload config and script index
+./sparkq.sh config-export         # Export DB config to YAML
+./sparkq.sh scripts               # List and discover scripts
+./sparkq.sh run --env dev         # Start with cache-busting (dev mode)
+./sparkq.sh run --env prod        # Start with production caching
+```
+
+### Worker & Execution
+```bash
+./sparkq/queue_runner.py --queue <name> --run
+                                  # Stream tasks from queue to stdout
+./sparkq/queue_runner.py --queue <name> --once
+                                  # Single poll cycle
+./sparkq/queue_runner.py --queue <name> --watch
+                                  # Stream with status updates
+python sparkq/task_complete.py    # Mark task done (helper for Claude)
+```
