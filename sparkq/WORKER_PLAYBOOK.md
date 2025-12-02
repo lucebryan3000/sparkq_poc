@@ -200,6 +200,11 @@ bash sparkq/scripts/tools/deploy-staging.sh main #deploys
 
 **Capture stdout/stderr for result_data.**
 
+**Available Scripts (sparkq/scripts/tools/):**
+- `deploy-staging.sh` - Deploy to staging environment
+- `sample-task.sh` - Example bash task script
+- `verify-phase15.sh` - Verification script
+
 #### Tool: `run-python`
 
 **Execute Python script locally:**
@@ -217,6 +222,10 @@ python3 sparkq/scripts/tools/run-tests.py test_*.py 80
 ```
 
 **Capture stdout/stderr for result_data.**
+
+**Available Scripts (sparkq/scripts/tools/):**
+- `run-tests.py` - Test execution with coverage thresholds
+- `queue_selector.py` - Queue selection helper
 
 ### Unknown Tool (Fallback)
 
@@ -320,6 +329,186 @@ Tests: tests/test_users.py:120-185 (8 test cases)
 Coverage: 95% for new code
 Next: Add caching layer (logged as TODO)
 ```
+
+## Edit-First Principle
+
+**CRITICAL: When modifying code, ALWAYS follow this pattern:**
+
+### 1. READ FIRST
+**Use Read tool before ANY file modification**
+
+```bash
+# Always start with Read
+Read tool → src/api.py
+```
+
+Never edit a file you haven't read in the current session.
+
+### 2. UNDERSTAND EXISTING PATTERNS
+**Study the code before changing it**
+
+- Identify naming conventions
+- Understand existing architecture
+- Find similar patterns to follow
+- Note code style (spacing, imports, structure)
+- Look for established error handling patterns
+- Check how similar features are implemented
+
+### 3. USE EDIT TOOL (NEVER WRITE)
+**Edit preserves context, Write destroys it**
+
+```bash
+# ✅ Correct: Use Edit for modifications
+Edit tool → old_string → new_string
+
+# ❌ WRONG: Don't use Write on existing files
+Write tool → overwrites entire file (data loss risk)
+```
+
+**Why Edit not Write:**
+- Edit shows exactly what changed (reviewable)
+- Edit fails if code changed (prevents conflicts)
+- Edit preserves file structure
+- Write overwrites everything (dangerous)
+
+### 4. PRESERVE EXISTING STYLE
+**Match the codebase exactly**
+
+- Keep same indentation (tabs vs spaces)
+- Follow existing import order
+- Match naming conventions (camelCase vs snake_case)
+- Preserve comment style
+- Use same string quote style (' vs ")
+- Match line spacing patterns
+
+### 5. MINIMAL CHANGES ONLY
+**Change exactly what's needed, nothing more**
+
+❌ **Don't:**
+- Refactor surrounding code
+- Add extra features "while you're there"
+- "Improve" unrelated areas
+- Add comments to code you didn't change
+- Rename variables not in scope
+- Reorganize imports unless task requires it
+
+✅ **Do:**
+- Change only what the task asks for
+- Keep surrounding code untouched
+- Preserve existing comments
+- Leave "good enough" code alone
+
+### Edit-First Workflow Example
+
+**Task: "Add error handling to create_user endpoint"**
+
+```bash
+# ❌ BAD WORKFLOW (no Read)
+Edit tool → (blind change, likely wrong)
+
+# ✅ GOOD WORKFLOW
+# Step 1: READ the file first
+Read tool → src/api.py
+
+# Step 2: UNDERSTAND the pattern
+# Observation: Uses try/except blocks
+# Observation: Raises HTTPException
+# Observation: Error messages follow format "Failed to {action}: {detail}"
+# Observation: Imports: from fastapi import HTTPException
+
+# Step 3: EDIT with matching pattern
+Edit tool →
+  old_string: "def create_user(data: UserCreate):\n    user = db.create_user(data)"
+  new_string: "def create_user(data: UserCreate):\n    try:\n        user = db.create_user(data)\n    except ValueError as e:\n        raise HTTPException(status_code=400, detail=f\"Failed to create user: {e}\")"
+
+# Result: Error handling added, matches existing patterns exactly
+```
+
+### Anti-Patterns (DO NOT DO)
+
+#### ❌ Writing Without Reading
+
+```bash
+# BAD: Modifying file blind
+Write tool → src/api.py → (entire new content)
+# Result: Lost all existing code, broke the app
+```
+
+#### ❌ Over-Engineering
+
+```bash
+# Task: "Fix typo in error message"
+
+# BAD APPROACH:
+# Your change: Created new error handling framework with:
+#   - Custom exception hierarchy (5 new classes)
+#   - Error logging middleware
+#   - Error translation system
+#   - Telemetry integration
+
+# GOOD APPROACH:
+Edit tool → old_string: "Eror" → new_string: "Error"
+# Result: Fixed typo, nothing else changed
+```
+
+#### ❌ Scope Creep
+
+```bash
+# Task: "Add pagination to /users endpoint"
+
+# BAD: Adding unrequested features
+# Your changes:
+#   - Added pagination ✓ (requested)
+#   - Added caching ✗ (not requested)
+#   - Added rate limiting ✗ (not requested)
+#   - Added telemetry ✗ (not requested)
+#   - Refactored entire auth system ✗ (definitely not requested)
+
+# GOOD: Only add pagination
+Edit tool → Add limit/offset params to /users endpoint
+# Result: Pagination added, nothing else touched
+```
+
+#### ❌ Refactoring Unrelated Code
+
+```bash
+# Task: "Fix bug in line 50"
+
+# BAD: Changing code not mentioned in task
+# Your changes:
+#   - Fixed bug in line 50 ✓ (requested)
+#   - Refactored lines 1-100 ✗ (not requested)
+#   - Renamed 15 variables ✗ (not requested)
+#   - Reorganized imports ✗ (not requested)
+#   - Added type hints ✗ (not requested)
+#   - "Improved" error messages ✗ (not requested)
+
+# GOOD: Fix only line 50
+Edit tool → Fix bug in line 50
+# Result: Bug fixed, everything else unchanged
+```
+
+### Golden Rules
+
+1. **If you didn't Read it, don't Edit it**
+2. **If the task doesn't ask for it, don't add it**
+3. **Edit shows what changed, Write hides it**
+4. **Match existing patterns exactly**
+5. **When in doubt, change less**
+
+### Quick Checklist
+
+Before making ANY code change, verify:
+
+- [ ] Have you Read the file first?
+- [ ] Do you understand the existing patterns?
+- [ ] Are you using Edit (not Write)?
+- [ ] Are you matching the existing style?
+- [ ] Are you changing ONLY what's requested?
+- [ ] Have you avoided refactoring unrelated code?
+- [ ] Have you avoided adding unrequested features?
+
+If you can't check all boxes, STOP and reconsider your approach.
 
 ## Error Handling
 
@@ -823,3 +1012,53 @@ $ ./sparkq/task_complete.py tsk_004 \
 - Context preserved across tasks (same session)
 - Queue runner handles polling and claiming
 - Worker focuses only on execution and completion
+
+---
+
+## AI Models Execution Guidelines
+
+### When Processing Tasks: Model Selection Logic
+
+1. **Check Queue Instructions First**
+   - Look for keywords: "haiku", "codex", "sonnet", "quick check", "generate code"
+   - Example: If instructions say "Use Haiku for validation", prefer Haiku for syntax/import tasks
+
+2. **Use Task Payload Size as Hint**
+   - < 50 words + simple check → Haiku (fast, cheap)
+   - Spec-based code generation → Codex (free, pattern-based)
+   - Multi-step orchestration → Sonnet (reasoning-heavy)
+
+3. **Fallback to Task Class**
+   - `LLM_LITE` → Consider Haiku if task is simple
+   - `LLM_HEAVY` → Consider Codex if task is code-heavy, Sonnet otherwise
+   - `FAST_SCRIPT`, `MEDIUM_SCRIPT` → Execute as Bash/Python (no LLM needed)
+
+4. **Respect Codex Session Continuity**
+   - If queue has `codex_session_id`, use `codex exec resume <session_id>` for follow-up Codex tasks
+   - Maintains context across multi-task workflows
+   - Check queue config: `curl http://localhost:5005/api/queues/{queue_id} | jq .codex_session_id`
+
+### Model Delegation Examples
+
+**Example 1: Syntax Validation Task**
+- Task: "Validate syntax of sparkq/src/api.py"
+- Queue instructions: "Use Haiku for quick checks"
+- **Action**: Use Haiku → `python -m py_compile sparkq/src/api.py`
+
+**Example 2: Code Generation Task**
+- Task: "Generate CRUD operations for Widget model"
+- Queue has `codex_session_id`: `"abc123"`
+- **Action**: Use Codex with resume → `codex exec resume abc123 "Generate CRUD..."`
+
+**Example 3: Complex Integration Task**
+- Task: "Wire Codex session management into queue_runner"
+- Requires reading multiple files, designing logic, coordinating components
+- **Action**: Use Sonnet (you!) → Multi-step workflow with Edit/Write tools
+
+### Cost Optimization Reminder
+
+- **Haiku**: ~15 task types (see `.claude/CLAUDE.md` for full list) → 1× token cost
+- **Codex**: ~15 task types (see `.claude/CLAUDE.md` for full list) → $0 tokens
+- **Sonnet**: Orchestration, reasoning, integration → 3× token cost
+
+**Golden Rule**: Delegate to cheapest model that can complete the task successfully.

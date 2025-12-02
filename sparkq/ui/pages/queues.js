@@ -19,6 +19,8 @@
       return;
     }
 
+    container.classList.add('queues-page');
+
     container.innerHTML = `
       <div class="card">
         <div class="muted"><span class="loading"></span> Loading queues…</div>
@@ -453,7 +455,7 @@
         <div class="instructions-section">
           <div class="instructions-header">
             <h4 class="instructions-title">📋 Queue Instructions</h4>
-            ${!isArchived ? `<button class="button-link" onclick="window.quickAdd?.showInstructions()">Edit</button>` : ''}
+            ${!isArchived ? `<button class="button-link" type="button" id="edit-instructions-btn">Edit</button>` : ''}
           </div>
           <div class="instructions-content">
 ${instructions}</div>
@@ -462,7 +464,7 @@ ${instructions}</div>
     } else if (!isArchived) {
       return `
         <div class="instructions-section instructions-empty">
-          <button class="button secondary" onclick="window.quickAdd?.showInstructions()">
+          <button class="button secondary" type="button" id="add-instructions-btn">
             + Add Queue Instructions
           </button>
           <span class="muted instructions-helper">Provide context and guardrails for this queue</span>
@@ -470,6 +472,98 @@ ${instructions}</div>
       `;
     }
     return '';
+  }
+
+  function buildModelProfileSection(queueDetails, isArchived) {
+    const modelProfile = queueDetails?.model_profile || 'auto';
+    const profileLabels = {
+      'auto': '🤖 Auto (Automatic model selection)',
+      'haiku-only': '⚡ Haiku-Only (Fast, cheap operations)',
+      'codex-heavy': '💻 Codex-Heavy (Code generation focus)',
+      'sonnet-orchestrated': '🎯 Sonnet-Orchestrated (Reasoning & orchestration)'
+    };
+    const profileLabel = profileLabels[modelProfile] || modelProfile;
+
+    return `
+      <div class="instructions-section" style="margin-top: 16px;">
+        <div class="instructions-header">
+          <h4 class="instructions-title">AI Model Profile</h4>
+          ${!isArchived ? `<button class="button-link" id="edit-model-profile-btn">Edit</button>` : ''}
+        </div>
+        <div class="instructions-content" style="padding: 12px; background: #f8f9fa; border-radius: 4px;">
+          ${profileLabel}
+        </div>
+      </div>
+    `;
+  }
+
+  async function handleEditModelProfile(container, queueId, queueName, currentProfile) {
+    const profiles = [
+      { value: 'auto', label: '🤖 Auto - Automatic model selection (default)' },
+      { value: 'haiku-only', label: '⚡ Haiku-Only - Fast, cheap operations' },
+      { value: 'codex-heavy', label: '💻 Codex-Heavy - Code generation focus' },
+      { value: 'sonnet-orchestrated', label: '🎯 Sonnet-Orchestrated - Reasoning & orchestration' }
+    ];
+
+    const promptMessage = profiles.map(p => `${p.value === currentProfile ? '→ ' : '  '}${p.label}`).join('\n');
+    const newProfile = await Utils.showPrompt('Change Model Profile', `Current: ${currentProfile}\n\nEnter new profile:\n${promptMessage}\n\nProfile:`, currentProfile);
+
+    if (!newProfile || !newProfile.trim()) {
+      return;
+    }
+
+    const validProfiles = ['auto', 'haiku-only', 'codex-heavy', 'sonnet-orchestrated'];
+    if (!validProfiles.includes(newProfile.trim())) {
+      showToast('Invalid model profile. Must be one of: ' + validProfiles.join(', '), 'error');
+      return;
+    }
+
+    try {
+      await api('PUT', `/api/queues/${queueId}`, { model_profile: newProfile.trim() }, { action: 'update queue model profile' });
+      showToast('Model profile updated', 'success');
+      loadQueueDetails(container, queueId, queueName);
+    } catch (err) {
+      console.error('Failed to update model profile:', err);
+      showToast('Failed to update model profile', 'error');
+    }
+  }
+
+  async function handleInstructions(container, queueId, queueName) {
+    // Prefer QuickAdd if present; fallback to a direct prompt otherwise.
+    if (window.quickAdd && typeof window.quickAdd.showInstructions === 'function') {
+      try {
+        await window.quickAdd.showInstructions();
+        return;
+      } catch (err) {
+        console.error('[Queues] quickAdd.showInstructions failed, falling back:', err);
+      }
+    }
+
+    try {
+      const queueResponse = await api('GET', `/api/queues/${queueId}`, null, { action: 'load queue' });
+      const currentInstructions = queueResponse?.queue?.instructions || '';
+      const newInstructions = await Utils.showPrompt(
+        `Queue Instructions for ${queueName}`,
+        'Enter instructions for this queue (context, guardrails, scope):',
+        currentInstructions,
+        { textarea: true, rows: 10, placeholder: 'e.g., Project context, coding standards, scope boundaries, guardrails...' }
+      );
+
+      if (newInstructions !== null && newInstructions !== currentInstructions) {
+        const trimmed = newInstructions.trim();
+        await api(
+          'PUT',
+          `/api/queues/${queueId}`,
+          { instructions: trimmed ? trimmed : '' },
+          { action: 'update queue instructions' }
+        );
+        showToast(trimmed ? 'Queue instructions updated' : 'Queue instructions cleared', 'success');
+        loadQueueDetails(container, queueId, queueName);
+      }
+    } catch (err) {
+      console.error('[Queues] Failed to edit instructions:', err);
+      showToast('Failed to update instructions', 'error');
+    }
   }
 
   async function loadQueueDetails(container, queueId, queueName, queueStatus) {
@@ -518,6 +612,7 @@ ${instructions}</div>
         const statusLabel = task.status || 'pending';
         const statusPill = renderStatusPill(statusLabel);
         const friendlyTool = getFriendlyToolName(task.tool_name);
+        const disabledAttr = isArchived ? 'disabled title="Unavailable on archived queue"' : '';
 
         return `
           <tr class="task-row-clickable" data-task-id="${task.id}" style="cursor: pointer;">
@@ -526,6 +621,13 @@ ${instructions}</div>
             <td>${statusPill}</td>
             <td>${formatTimestamp(task.created_at)}</td>
             <td>${duration}</td>
+            <td>
+              <div class="task-actions">
+                <button class="task-action-btn task-action-btn--rerun" data-task-id="${task.id}" title="Rerun task" aria-label="Rerun task" ${disabledAttr}>⟳</button>
+                <button class="task-action-btn task-action-btn--edit" data-task-id="${task.id}" title="Edit task" aria-label="Edit task" ${disabledAttr}>✏️</button>
+                <button class="task-action-btn task-action-btn--delete" data-task-id="${task.id}" title="Delete task" aria-label="Delete task" ${disabledAttr}>✖️</button>
+              </div>
+            </td>
           </tr>
         `;
       })
@@ -541,6 +643,7 @@ ${instructions}</div>
                 <th>Status</th>
                 <th>Created</th>
                 <th>Duration</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -569,6 +672,7 @@ ${instructions}</div>
         </div>
         ${isArchived ? '<div class="muted" style="margin-bottom:16px;">Archived queues are read-only. Task actions and Quick Add are disabled.</div>' : ''}
         ${buildInstructionsSection(queueDetails, isArchived)}
+        ${buildModelProfileSection(queueDetails, isArchived)}
         ${isArchived ? '' : '<div id="quick-add-container" style="margin-bottom: 24px;"></div>'}
         ${taskTable}
       </div>
@@ -578,6 +682,11 @@ ${instructions}</div>
     const editBtn = detailsContainer.querySelector('#edit-btn');
     if (editBtn && !isArchived) {
       editBtn.addEventListener('click', () => handleEditQueue(container, queueId, queueName));
+    }
+
+    const editModelProfileBtn = detailsContainer.querySelector('#edit-model-profile-btn');
+    if (editModelProfileBtn && !isArchived) {
+      editModelProfileBtn.addEventListener('click', () => handleEditModelProfile(container, queueId, queueName, queueDetails?.model_profile || 'auto'));
     }
 
     const archiveBtn = detailsContainer.querySelector('#archive-btn');
@@ -612,6 +721,18 @@ ${instructions}</div>
       quickAdd.render();
     }
 
+    // Instructions edit/add buttons (delegated to survive re-renders)
+    if (!isArchived) {
+      detailsContainer.addEventListener('click', (e) => {
+        const editBtn = e.target.closest('#edit-instructions-btn');
+        const addBtn = e.target.closest('#add-instructions-btn');
+        if (editBtn || addBtn) {
+          e.preventDefault();
+          handleInstructions(container, queueId, queueName);
+        }
+      });
+    }
+
     // Attach click handlers to task rows
     const taskRowElements = detailsContainer.querySelectorAll('.task-row-clickable');
     taskRowElements.forEach((row) => {
@@ -620,6 +741,60 @@ ${instructions}</div>
         const task = tasks.find((t) => String(t.id) === String(taskId));
         if (task) {
           await showEditTaskDialog(task, queueId, queueName, container);
+        }
+      });
+    });
+
+    // Action buttons (stop propagation to keep row click behavior intact)
+    detailsContainer.querySelectorAll('.task-action-btn--edit').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (btn.disabled) return;
+        const taskId = btn.dataset.taskId;
+        const task = tasks.find((t) => String(t.id) === String(taskId));
+        if (!task) return;
+        await showEditTaskDialog(task, queueId, queueName, container);
+      });
+    });
+
+    detailsContainer.querySelectorAll('.task-action-btn--delete').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (btn.disabled) return;
+        const taskId = btn.dataset.taskId;
+        const task = tasks.find((t) => String(t.id) === String(taskId));
+        const label = task?.friendly_id || task?.id || taskId;
+        let confirmed = false;
+        try {
+          confirmed = await Utils.showConfirm('Delete Task', `Delete task ${label}? This cannot be undone.`);
+        } catch (_) {
+          confirmed = window.confirm(`Delete task ${label}? This cannot be undone.`);
+        }
+        if (!confirmed) return;
+        try {
+          await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });
+          showToast(`Task ${label} deleted`, 'success');
+          loadQueueDetails(container, queueId, queueName);
+        } catch (err) {
+          console.error('Failed to delete task:', err);
+          showToast('Failed to delete task', 'error');
+          loadQueueDetails(container, queueId, queueName);
+        }
+      });
+    });
+
+    detailsContainer.querySelectorAll('.task-action-btn--rerun').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (btn.disabled) return;
+        const taskId = btn.dataset.taskId;
+        try {
+          await api('POST', `/api/tasks/${encodeURIComponent(taskId)}/rerun`, null, { action: 'rerun task' });
+          showToast(`Task ${taskId} requeued`, 'success');
+          loadQueueDetails(container, queueId, queueName);
+        } catch (err) {
+          console.error('Failed to rerun task:', err);
+          showToast('Failed to rerun task', 'error');
         }
       });
     });

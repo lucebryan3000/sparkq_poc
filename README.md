@@ -70,6 +70,7 @@ sparkqueue/
 
 - **SparkQ Guide**: See [sparkq/README.md](sparkq/README.md) for complete usage guide
 - **API Reference**: See [sparkq/API.md](sparkq/API.md) for endpoint details
+- **Worker Playbook**: See [sparkq/WORKER_PLAYBOOK.md](sparkq/WORKER_PLAYBOOK.md) for queue runner execution guide
 - **Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) for system design
 - **Bootstrap Setup**: See [python-bootstrap/README.md](python-bootstrap/README.md) for environment setup
 - **Project Guidelines**: See [.claude/CLAUDE.md](.claude/CLAUDE.md) for development guidelines

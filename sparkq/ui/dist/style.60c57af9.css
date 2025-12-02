@@ -1904,6 +1904,45 @@ a {
   color: var(--accent);
 }
 
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-action-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--mode-btn-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.task-action-btn:hover {
+  border-color: var(--accent);
+  background: var(--mode-btn-hover);
+}
+
+.task-action-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.task-action-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.task-action-btn--delete {
+  color: var(--accent-danger);
+}
+
+.task-action-btn--rerun {
+  color: var(--accent);
+}
+
 .task-row:hover {
   transform: translateY(-1px);
   border-color: var(--accent);

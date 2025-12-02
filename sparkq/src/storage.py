@@ -588,6 +588,36 @@ class Storage:
             if cursor.rowcount == 0:
                 raise NotFoundError(f"Queue {queue_id} not found")
 
+    def get_llm_sessions(self, queue_id: str) -> Optional[dict]:
+        """Retrieve LLM sessions metadata for a queue"""
+        import json
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "SELECT llm_sessions FROM queues WHERE id = ?",
+                (queue_id,)
+            )
+            row = cursor.fetchone()
+            if not row or not row['llm_sessions']:
+                return None
+            return json.loads(row['llm_sessions'])
+
+    def update_llm_session(self, queue_id: str, llm_name: str, session_data: dict) -> None:
+        """Update session metadata for a specific LLM in a queue"""
+        import json
+        sessions = self.get_llm_sessions(queue_id) or {}
+        sessions[llm_name] = {
+            **session_data,
+            "last_updated": now_iso()
+        }
+
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "UPDATE queues SET llm_sessions = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(sessions), now_iso(), queue_id)
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError(f"Queue {queue_id} not found")
+
     def list_queues(self, session_id: str = None, status: str = None) -> List[QueueRow]:
         with self.connection() as conn:
             query = "SELECT * FROM queues WHERE 1=1"

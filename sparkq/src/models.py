@@ -1,7 +1,7 @@
 """SparkQ Pydantic Models"""
 
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -18,6 +18,15 @@ class TaskClass(str, Enum):
     MEDIUM_SCRIPT = "MEDIUM_SCRIPT"
     LLM_LITE = "LLM_LITE"
     LLM_HEAVY = "LLM_HEAVY"
+
+
+class QueueModelProfile(str, Enum):
+    """Model routing profiles for queues"""
+
+    HAIKU_ONLY = "haiku-only"
+    CODEX_HEAVY = "codex-heavy"
+    SONNET_ORCHESTRATED = "sonnet-orchestrated"
+    AUTO = "auto"
 
 
 class SessionStatus(str, Enum):
@@ -57,6 +66,8 @@ class Queue(BaseModel):
     name: str
     instructions: Optional[str] = None
     codex_session_id: Optional[str] = None  # Codex CLI session for context continuity
+    model_profile: QueueModelProfile = QueueModelProfile.AUTO
+    llm_sessions: Optional[Dict[str, Dict[str, Any]]] = None  # Multi-LLM session metadata
     default_agent_role_key: Optional[str] = None
     status: QueueStatus = QueueStatus.ACTIVE
     created_at: datetime

@@ -568,10 +568,16 @@ class QueueUpdateRequest(BaseModel):
     name: Optional[str] = None
     instructions: Optional[str] = None
     default_agent_role_key: Optional[str] = None
+    model_profile: Optional[str] = None
 
 
 class CodexSessionRequest(BaseModel):
     session_id: str
+
+
+class LLMSessionRequest(BaseModel):
+    session_id: str
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class TaskCreateRequest(BaseModel):
@@ -989,8 +995,9 @@ async def get_queue(queue_id: str):
 async def update_queue(queue_id: str, request: QueueUpdateRequest):
     fields_set = request.model_fields_set or set()
     role_provided = "default_agent_role_key" in fields_set
+    model_profile_provided = "model_profile" in fields_set
 
-    if request.name is None and request.instructions is None and not role_provided:
+    if request.name is None and request.instructions is None and not role_provided and not model_profile_provided:
         raise HTTPException(status_code=400, detail="No fields provided to update queue")
 
     existing = storage.get_queue(queue_id)
@@ -1019,6 +1026,17 @@ async def update_queue(queue_id: str, request: QueueUpdateRequest):
             params_key = None
         updates.append("default_agent_role_key = ?")
         params.append(params_key)
+
+    if model_profile_provided:
+        # Validate model_profile value
+        valid_profiles = ["auto", "haiku-only", "codex-heavy", "sonnet-orchestrated"]
+        if request.model_profile and request.model_profile not in valid_profiles:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid model_profile. Must be one of: {', '.join(valid_profiles)}"
+            )
+        updates.append("model_profile = ?")
+        params.append(request.model_profile or "auto")
 
     updates.append("updated_at = ?")
     params.append(now_iso())
@@ -1080,6 +1098,46 @@ async def set_queue_codex_session_endpoint(queue_id: str, request: CodexSessionR
         }
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/queues/{queue_id}/llm-sessions")
+async def get_queue_llm_sessions(queue_id: str) -> dict:
+    """Get all LLM session metadata for a queue"""
+    try:
+        sessions = storage.get_llm_sessions(queue_id)
+        return {
+            "queue_id": queue_id,
+            "llm_sessions": sessions or {}
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/queues/{queue_id}/llm-sessions/{llm_name}")
+async def update_queue_llm_session(
+    queue_id: str,
+    llm_name: str,
+    request: LLMSessionRequest
+) -> dict:
+    """Update session metadata for a specific LLM in a queue"""
+    try:
+        session_data = {"session_id": request.session_id}
+        if request.metadata:
+            session_data.update(request.metadata)
+
+        storage.update_llm_session(queue_id, llm_name, session_data)
+
+        return {
+            "status": "ok",
+            "queue_id": queue_id,
+            "llm_name": llm_name,
+            "session_data": session_data
+        }
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.delete("/api/queues/{queue_id}")
 async def delete_queue(queue_id: str):

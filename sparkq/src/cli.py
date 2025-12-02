@@ -666,6 +666,54 @@ def queue_end(
     typer.echo(f"Queue {queue_id} ended successfully")
 
 
+@queue_app.command("set-model-profile", help="Set AI model routing profile for queue")
+@cli_handler
+def queue_set_model_profile(
+    queue_id: str = typer.Argument(..., help="Queue ID or name"),
+    profile: str = typer.Argument(
+        ...,
+        help="Model profile: auto, haiku-only, codex-heavy, sonnet-orchestrated"
+    ),
+):
+    """Set the AI model routing profile for a queue.
+
+    Model profiles guide which AI models (Sonnet/Haiku/Codex) should be used for tasks:
+    - auto: Automatic model selection based on task type (default)
+    - haiku-only: Prefer Haiku for fast, cheap operations
+    - codex-heavy: Prefer Codex for code generation tasks
+    - sonnet-orchestrated: Use Sonnet for orchestration and reasoning
+    """
+    if not queue_id or not queue_id.strip():
+        _required_field("Queue ID")
+
+    valid_profiles = ["auto", "haiku-only", "codex-heavy", "sonnet-orchestrated"]
+    if profile not in valid_profiles:
+        _invalid_field("model profile", profile, valid_options=valid_profiles)
+
+    queue_id = queue_id.strip()
+
+    # Try to find queue by ID first, then by name
+    queue = get_storage().get_queue(queue_id)
+    if not queue:
+        queue = get_storage().get_queue_by_name(queue_id)
+
+    if not queue:
+        _resource_missing("Queue", queue_id, "sparkq queue list")
+
+    # Update queue via storage (direct SQL since no dedicated storage method yet)
+    storage = get_storage()
+    with storage.connection() as conn:
+        cursor = conn.execute(
+            "UPDATE queues SET model_profile = ?, updated_at = ? WHERE id = ?",
+            (profile, datetime.datetime.now(datetime.timezone.utc).isoformat(), queue["id"]),
+        )
+        if cursor.rowcount == 0:
+            typer.echo("Failed to update queue model profile", err=True)
+            raise typer.Exit(1)
+
+    typer.echo(f"✓ Set model profile for queue '{queue['name']}' to: {profile}")
+
+
 # === Task Commands (Stubs for Phase 2) ===
 
 @app.command(help="Enqueue task to queue")

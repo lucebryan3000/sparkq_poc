@@ -545,6 +545,12 @@ a {
   border-color: var(--border-strong);
 }
 
+/* Disable card-level hover lift specifically on queues page tasks cards */
+.queues-page .card:hover {
+  box-shadow: var(--shadow);
+  border-color: var(--border);
+}
+
 .card h2,
 .card h3 {
   margin: 0 0 10px 0;
@@ -1044,6 +1050,59 @@ a {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
+}
+
+/* Output panels for stdout/stderr */
+.output-section {
+  margin-top: 12px;
+}
+
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.output-header label {
+  margin: 0;
+  font-weight: 600;
+}
+
+.copy-btn {
+  padding: 4px 10px;
+  font-size: 13px;
+  background: var(--button-bg);
+  color: var(--button-text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.copy-btn:hover:not(:disabled) {
+  background: var(--button-hover);
+  border-color: var(--accent);
+}
+
+.copy-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.output-panel {
+  max-height: 200px;
+  overflow: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin: 0;
 }
 
 .loading {

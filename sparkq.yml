@@ -14,8 +14,8 @@ purge:
   older_than_days: 3
 
 sparkq_scripts_dir: sparkq/scripts
-project_script_dirs:
-  - scripts
+script_dirs:
+  - sparkq/scripts/tools
 
 task_classes:
   FAST_SCRIPT:

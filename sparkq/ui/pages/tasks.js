@@ -49,6 +49,13 @@
     return `<span class="status-pill${pillClass ? ` ${pillClass}` : ''}">${label}</span>`;
   }
 
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
   async function showEditTaskDialog(task, onUpdate) {
     if (!task) return;
 
@@ -151,6 +158,9 @@
     const updatedAt = formatTimestamp(task.updated_at);
     const resultText = task.result ? JSON.stringify(task.result, null, 2) : '';
     const errorText = task.error || '';
+    const stdoutText = task.stdout || '';
+    const stderrText = task.stderr || '';
+
     const detailGroup = document.createElement('div');
     detailGroup.className = 'card';
     detailGroup.style.marginTop = '8px';
@@ -159,6 +169,28 @@
       <p class="muted" style="margin:0 0 8px 0;">Updated: ${updatedAt || '—'}${finishedAt ? ` · Finished: ${finishedAt}` : ''}</p>
       ${resultText ? `<div class="form-group"><label>Result (read-only)</label><pre style="max-height:160px; overflow:auto;">${resultText}</pre></div>` : ''}
       ${errorText ? `<div class="form-group"><label>Error</label><pre style="max-height:160px; overflow:auto;">${errorText}</pre></div>` : ''}
+      ${stdoutText ? `
+        <div class="output-section">
+          <div class="output-header">
+            <label>Standard Output</label>
+            <button type="button" class="copy-btn" data-copy-target="stdout" aria-label="Copy stdout to clipboard">
+              📋 Copy
+            </button>
+          </div>
+          <pre class="output-panel" data-output="stdout">${escapeHtml(stdoutText)}</pre>
+        </div>
+      ` : ''}
+      ${stderrText ? `
+        <div class="output-section">
+          <div class="output-header">
+            <label>Standard Error</label>
+            <button type="button" class="copy-btn" data-copy-target="stderr" aria-label="Copy stderr to clipboard">
+              📋 Copy
+            </button>
+          </div>
+          <pre class="output-panel" data-output="stderr">${escapeHtml(stderrText)}</pre>
+        </div>
+      ` : ''}
     `;
     body.appendChild(detailGroup);
 
@@ -273,6 +305,27 @@
     saveBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       handleSave();
+    });
+
+    // Copy button handlers for stdout/stderr
+    modal.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const target = btn.dataset.copyTarget;
+        const text = target === 'stdout' ? stdoutText : stderrText;
+        try {
+          await navigator.clipboard.writeText(text);
+          const originalText = btn.textContent;
+          btn.textContent = '✓ Copied!';
+          btn.disabled = true;
+          setTimeout(() => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+          }, 2000);
+        } catch (err) {
+          showError('Failed to copy to clipboard');
+        }
+      });
     });
 
     const onKeyDown = (e) => {
@@ -393,7 +446,8 @@
           if (isAutoFailed) {
             const timeout = getTaskTimeout(task);
             return `<span class="timeout-badge timeout-badge-auto-failed"
-                          title="Task was automatically failed after exceeding 2× timeout (${timeout * 2}s). Original timeout: ${timeout}s.">
+                          title="Task was automatically failed after exceeding 2× timeout (${timeout * 2}s). Original timeout: ${timeout}s."
+                          aria-label="Task automatically failed after exceeding timeout">
                       💀 AUTO-FAILED
                     </span>`;
           }
@@ -403,7 +457,8 @@
             const timeout = getTaskTimeout(task);
             const overBy = elapsed - timeout;
             return `<span class="timeout-badge timeout-badge-error"
-                          title="Task exceeded timeout by ${overBy}s (${elapsed}s elapsed, ${timeout}s timeout). Will be auto-failed at 2× timeout.">
+                          title="Task exceeded timeout by ${overBy}s (${elapsed}s elapsed, ${timeout}s timeout). Will be auto-failed at 2× timeout."
+                          aria-label="Task exceeded timeout, will be auto-failed">
                       🔴 TIMEOUT
                     </span>`;
           }
@@ -412,7 +467,8 @@
             const remaining = Math.round(timeStatus.remaining);
             const elapsed = Math.round(timeStatus.elapsed);
             return `<span class="timeout-badge timeout-badge-warning"
-                          title="Task approaching timeout. ${remaining}s remaining (${elapsed}s elapsed).">
+                          title="Task approaching timeout. ${remaining}s remaining (${elapsed}s elapsed)."
+                          aria-label="Task approaching timeout">
                       ⚠️ WARNING
                     </span>`;
           }

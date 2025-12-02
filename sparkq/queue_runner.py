@@ -425,15 +425,22 @@ def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = True
         try:
             queue_info = fetch_queue_info(queue_id, base_url)
             codex_session = queue_info.get("codex_session_id")
+            model_profile = queue_info.get("model_profile", "auto")
+
+            # Log queue model profile if not auto
+            if model_profile != "auto":
+                log(f"📊 Queue model profile: {model_profile}")
 
             if codex_session:
                 # Resume existing Codex session for context continuity
                 log(f"🔧 EXECUTE WITH: codex exec --full-auto -C {os.getcwd()} \"{prompt}\" --resume {codex_session}")
+                log(f"💡 TIP: Codex session {codex_session} will preserve context from previous tasks in this queue")
             else:
                 # First codex task in queue - create new session
                 log(f"🔧 EXECUTE WITH: codex exec --full-auto -C {os.getcwd()} \"{prompt}\"")
                 log("📝 CAPTURE SESSION ID from output (look for 'session id: 019...')")
                 log(f"💾 STORE WITH: curl -X POST {base_url}/api/queues/{queue_id}/codex-session -H 'Content-Type: application/json' -d '{{\"session_id\": \"<captured_id>\"}}'")
+                log("💡 TIP: Storing session ID enables context continuity for subsequent Codex tasks in this queue")
         except Exception as e:
             # Fallback if queue fetch fails
             log(f"⚠️  Could not fetch queue info: {e}")

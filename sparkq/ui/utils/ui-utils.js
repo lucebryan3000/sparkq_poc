@@ -28,7 +28,8 @@
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
-        hour12: true
+        hour12: true,
+        timeZone: 'America/Chicago'
       };
       return date.toLocaleString('en-US', options);
     } catch (e) {
