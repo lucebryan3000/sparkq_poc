@@ -139,10 +139,6 @@ def _serve_ui_index():
 
 @app.get("/dashboard", include_in_schema=False)
 @app.get("/settings", include_in_schema=False)
-@app.get("/sparkqueue", include_in_schema=False)
-@app.get("/enqueue", include_in_schema=False)
-@app.get("/scripts", include_in_schema=False)
-@app.get("/config", include_in_schema=False)
 async def serve_spa_routes():
     """Serve the UI index for SPA routes so front-end routing can handle them."""
     return _serve_ui_index()
