@@ -1930,6 +1930,11 @@ a {
   outline-offset: 2px;
 }
 
+.task-action-btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .task-action-btn--delete {
   color: var(--accent-danger);
 }

@@ -147,6 +147,21 @@
     payloadGroup.append(payloadLabelEl, payloadInput);
     body.appendChild(payloadGroup);
 
+    const finishedAt = formatTimestamp(task.finished_at || task.completed_at);
+    const updatedAt = formatTimestamp(task.updated_at);
+    const resultText = task.result ? JSON.stringify(task.result, null, 2) : '';
+    const errorText = task.error || '';
+    const detailGroup = document.createElement('div');
+    detailGroup.className = 'card';
+    detailGroup.style.marginTop = '8px';
+    detailGroup.innerHTML = `
+      <h4 style="margin-top:0;">Details</h4>
+      <p class="muted" style="margin:0 0 8px 0;">Updated: ${updatedAt || '—'}${finishedAt ? ` · Finished: ${finishedAt}` : ''}</p>
+      ${resultText ? `<div class="form-group"><label>Result (read-only)</label><pre style="max-height:160px; overflow:auto;">${resultText}</pre></div>` : ''}
+      ${errorText ? `<div class="form-group"><label>Error</label><pre style="max-height:160px; overflow:auto;">${errorText}</pre></div>` : ''}
+    `;
+    body.appendChild(detailGroup);
+
     const footer = document.createElement('div');
     footer.className = 'modal-footer';
     const deleteBtn = document.createElement('button');
@@ -405,12 +420,16 @@
           return '';
         })();
 
+        const statusNormalized = (task.status || '').toLowerCase();
+        const disableModify = statusNormalized === 'queued' || statusNormalized === 'running';
+        const disabledAttr = disableModify ? 'disabled title="Unavailable while running/queued"' : '';
+        const deleteDisabledAttr = isArchivedQueue ? 'disabled title="Actions disabled for archived queue"' : '';
         const actionsCell = isArchivedQueue
           ? '<span class="muted" style="font-size:12px;">Read only</span>'
           : `<div class="task-actions">
-              <button class="task-action-btn task-action-btn--rerun" data-task-id="${task.id}" title="Rerun task" aria-label="Rerun task">⟳</button>
-              <button class="task-action-btn task-action-btn--edit" data-task-id="${task.id}" title="Edit task" aria-label="Edit task">✏️</button>
-              <button class="task-action-btn task-action-btn--delete" data-task-id="${task.id}" title="Delete task" aria-label="Delete task">✖️</button>
+              <button class="task-action-btn task-action-btn--rerun" data-task-id="${task.id}" title="Rerun task" aria-label="Rerun task" ${disabledAttr}>⟳</button>
+              <button class="task-action-btn task-action-btn--edit" data-task-id="${task.id}" title="Edit task" aria-label="Edit task" ${disabledAttr}>✏️</button>
+              <button class="task-action-btn task-action-btn--delete" data-task-id="${task.id}" title="Delete task" aria-label="Delete task" ${deleteDisabledAttr}>✖️</button>
             </div>`;
 
         return `
@@ -556,6 +575,7 @@
     container.querySelectorAll('.task-action-btn--edit').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        if (btn.disabled) return;
         const taskId = btn.dataset.taskId;
         const task = tasks.find((t) => String(t.id) === String(taskId));
         if (!task) return;
@@ -566,6 +586,7 @@
     container.querySelectorAll('.task-action-btn--delete').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        if (btn.disabled) return;
         const taskId = btn.dataset.taskId;
         const task = tasks.find((t) => String(t.id) === String(taskId));
         const label = task?.friendly_id || task?.id || taskId;
@@ -576,12 +597,17 @@
           confirmed = window.confirm(`Delete task ${label}? This cannot be undone.`);
         }
         if (!confirmed) return;
+        const row = btn.closest('.task-row');
+        if (row) {
+          row.remove();
+        }
         try {
           await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });
           showSuccess(`Task ${label} deleted`);
           renderTasksPage(container);
         } catch (err) {
           handleApiError('delete task', err);
+          renderTasksPage(container);
         }
       });
     });
@@ -589,7 +615,16 @@
     container.querySelectorAll('.task-action-btn--rerun').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        if (btn.disabled) return;
         const taskId = btn.dataset.taskId;
+        const row = btn.closest('.task-row');
+        if (row) {
+          const statusCell = row.querySelector('.status-pill');
+          if (statusCell) {
+            statusCell.textContent = 'queued';
+            statusCell.className = 'status-pill status-pill--queued';
+          }
+        }
         try {
           await api('POST', `/api/tasks/${encodeURIComponent(taskId)}/rerun`, null, { action: 'rerun task' });
           showSuccess(`Task ${taskId} requeued`);
@@ -613,11 +648,15 @@
           <span class="muted">${selectedTasks.size} selected</span>
           <button class="button" id="bulk-fail-btn" type="button">Fail Selected</button>
           <button class="button" id="bulk-requeue-btn" type="button">Requeue Selected</button>
+          <button class="button" id="bulk-rerun-btn" type="button">Rerun Selected</button>
+          <button class="button danger" id="bulk-delete-btn" type="button">Delete Selected</button>
         `;
         bulkActionsDiv.style.display = 'flex';
 
         document.getElementById('bulk-fail-btn')?.addEventListener('click', () => bulkFail());
         document.getElementById('bulk-requeue-btn')?.addEventListener('click', () => bulkRequeue());
+        document.getElementById('bulk-rerun-btn')?.addEventListener('click', () => bulkRerun());
+        document.getElementById('bulk-delete-btn')?.addEventListener('click', () => bulkDelete());
       } else if (bulkActionsDiv) {
         bulkActionsDiv.style.display = 'none';
       }
@@ -664,6 +703,50 @@
         renderTasksPage(container);
       } catch (err) {
         handleApiError('bulk requeue tasks', err);
+      }
+    }
+
+    async function bulkRerun() {
+      const confirmed = confirm(`Rerun ${selectedTasks.size} selected task(s)?`);
+      if (!confirmed) return;
+
+      try {
+        let rerunCount = 0;
+        for (const taskId of selectedTasks) {
+          try {
+            await api('POST', `/api/tasks/${taskId}/rerun`, {}, { action: 'rerun task' });
+            rerunCount++;
+          } catch (err) {
+            console.error(`Failed to rerun task ${taskId}:`, err);
+          }
+        }
+        showSuccess(`Reran ${rerunCount}/${selectedTasks.size} task(s)`);
+        selectedTasks.clear();
+        renderTasksPage(container);
+      } catch (err) {
+        handleApiError('bulk rerun tasks', err);
+      }
+    }
+
+    async function bulkDelete() {
+      const confirmed = confirm(`Delete ${selectedTasks.size} selected task(s)? This cannot be undone.`);
+      if (!confirmed) return;
+
+      try {
+        let deleted = 0;
+        for (const taskId of selectedTasks) {
+          try {
+            await api('DELETE', `/api/tasks/${taskId}`, null, { action: 'delete task' });
+            deleted++;
+          } catch (err) {
+            console.error(`Failed to delete task ${taskId}:`, err);
+          }
+        }
+        showSuccess(`Deleted ${deleted}/${selectedTasks.size} task(s)`);
+        selectedTasks.clear();
+        renderTasksPage(container);
+      } catch (err) {
+        handleApiError('bulk delete tasks', err);
       }
     }
 

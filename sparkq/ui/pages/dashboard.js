@@ -167,20 +167,25 @@
   function renderTaskRow(task, displayId, readOnly = false) {
     const statusLabel = (task?.status || 'queued').toString();
     const statusPill = renderStatusPill(statusLabel);
+    const statusNormalized = statusLabel.toLowerCase();
     const timestamp = formatTimestamp(task?.created_at);
     const label = task?.friendly_id || displayId || `Task #${task?.id || '—'}`;
     const preview = taskPreview(task);
     const toolLabel = task?.friendlyTool || getFriendlyToolName(task?.tool_name);
+    const allowActions = !readOnly;
+    const disableModify = statusNormalized === 'queued' || statusNormalized === 'running';
+    const disabledAttr = disableModify ? 'disabled title="Unavailable while running/queued"' : '';
+    const deleteDisabledAttr = readOnly ? 'disabled title="Actions disabled in read-only mode"' : '';
     const actionsCell = readOnly
       ? '<div class="task-cell actions muted">View only</div>'
       : `<div class="task-cell actions">
-          <button class="task-rerun-btn" data-task-id="${task?.id}" title="Rerun task" aria-label="Rerun task">⟳</button>
-          <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task" aria-label="Edit task">✏️</button>
-          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task" aria-label="Delete task">✖️</button>
+          <button class="task-rerun-btn" data-task-id="${task?.id}" title="Rerun task" aria-label="Rerun task" ${disableModify ? 'disabled' : ''}>⟳</button>
+          <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task" aria-label="Edit task" ${disableModify ? 'disabled' : ''}>✏️</button>
+          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task" aria-label="Delete task" ${deleteDisabledAttr}>✖️</button>
         </div>`;
 
     return `
-      <div class="task-row" data-task-id="${task?.id || ''}">
+      <div class="task-row" data-task-id="${task?.id || ''}" data-status="${statusNormalized}">
         <div class="task-cell status">${statusPill}</div>
         <div class="task-cell id">${label}</div>
         <div class="task-cell tool">${toolLabel || '—'}</div>
@@ -1056,13 +1061,24 @@
 
       if (readOnly) return;
 
+      const updateRowStatus = (taskId, nextStatus) => {
+        const row = container.querySelector(`.task-row[data-task-id="${taskId}"]`);
+        if (!row) return;
+        const statusCell = row.querySelector('.task-cell.status');
+        if (statusCell) {
+          statusCell.innerHTML = renderStatusPill(nextStatus);
+        }
+      };
+
       // Attach rerun handlers
       container.querySelectorAll('.task-rerun-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
+          if (btn.disabled) return;
           const taskId = btn.dataset.taskId;
           const task = tasks.find(t => String(t.id) === String(taskId));
           if (!taskId || !task) return;
+          updateRowStatus(taskId, 'queued');
           try {
             await api('POST', `/api/tasks/${encodeURIComponent(taskId)}/rerun`, null, { action: 'rerun task' });
             Utils.showToast(`Task ${taskId} requeued`, 'success', 3000);
@@ -1073,6 +1089,7 @@
           } catch (err) {
             console.error('Failed to rerun task:', err);
             Utils.showToast(err?.message || 'Failed to rerun task', 'error');
+            this.renderTasks(container, queueId);
           }
         });
       });
@@ -1093,6 +1110,7 @@
       container.querySelectorAll('.task-delete-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
+          if (btn.disabled) return;
           const taskId = btn.dataset.taskId;
           const task = tasks.find(t => String(t.id) === String(taskId));
           const friendly = task?.friendlyLabel || taskId;
@@ -1105,6 +1123,11 @@
           }
           if (!confirmed) return;
 
+          const row = btn.closest('.task-row');
+          if (row) {
+            row.remove();
+          }
+
           try {
             await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });
             Utils.showToast(`Task ${taskId} deleted`, 'success', 3500);
@@ -1115,6 +1138,7 @@
           } catch (err) {
             console.error('Failed to delete task:', err);
             Utils.showToast('Failed to delete task', 'error');
+            this.renderTasks(container, queueId);
           }
         });
       });
@@ -1229,6 +1253,21 @@
       payloadInput.value = payloadText;
       payloadGroup.append(payloadLabelEl, payloadInput);
       body.appendChild(payloadGroup);
+
+      const detailGroup = document.createElement('div');
+      detailGroup.className = 'card';
+      detailGroup.style.marginTop = '8px';
+      const finishedAt = formatTimestamp(task.finished_at || task.completed_at);
+      const updatedAt = formatTimestamp(task.updated_at);
+      const resultText = task.result ? JSON.stringify(task.result, null, 2) : '';
+      const errorText = task.error || '';
+      detailGroup.innerHTML = `
+        <h4 style="margin-top:0;">Details</h4>
+        <p class="muted" style="margin:0 0 8px 0;">Updated: ${updatedAt || '—'}${finishedAt ? ` · Finished: ${finishedAt}` : ''}</p>
+        ${resultText ? `<div class="form-group"><label>Result (read-only)</label><pre style="max-height:160px; overflow:auto;">${resultText}</pre></div>` : ''}
+        ${errorText ? `<div class="form-group"><label>Error</label><pre style="max-height:160px; overflow:auto;">${errorText}</pre></div>` : ''}
+      `;
+      body.appendChild(detailGroup);
 
       const footer = document.createElement('div');
       footer.className = 'modal-footer';
