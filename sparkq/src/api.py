@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -128,6 +128,24 @@ async def root():
 
 static_dir = get_ui_dir()
 app.mount("/ui", StaticFiles(directory=static_dir, html=True, check_dir=False), name="ui")
+
+
+def _serve_ui_index():
+    index_path = Path(static_dir) / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="UI not built")
+    return FileResponse(index_path)
+
+
+@app.get("/dashboard", include_in_schema=False)
+@app.get("/settings", include_in_schema=False)
+@app.get("/sparkqueue", include_in_schema=False)
+@app.get("/enqueue", include_in_schema=False)
+@app.get("/scripts", include_in_schema=False)
+@app.get("/config", include_in_schema=False)
+async def serve_spa_routes():
+    """Serve the UI index for SPA routes so front-end routing can handle them."""
+    return _serve_ui_index()
 
 
 def _cache_buster_value() -> str:
