@@ -57,6 +57,7 @@ class Queue(BaseModel):
     name: str
     instructions: Optional[str] = None
     codex_session_id: Optional[str] = None  # Codex CLI session for context continuity
+    default_agent_role_key: Optional[str] = None
     status: QueueStatus = QueueStatus.ACTIVE
     created_at: datetime
     updated_at: datetime
@@ -68,6 +69,7 @@ class Task(BaseModel):
     tool_name: str
     task_class: TaskClass
     payload: str  # JSON string
+    agent_role_key: Optional[str] = None
     status: TaskStatus = TaskStatus.QUEUED
     timeout: int
     attempts: int = 0

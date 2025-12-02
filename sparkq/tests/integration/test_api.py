@@ -79,6 +79,56 @@ def running_task(storage_with_stream):
     return storage.claim_task(task["id"])
 
 
+class TestAgentRolesAPI:
+    def test_update_agent_role(self, api_client, storage):
+        response = api_client.put(
+            "/api/agent-roles/backend_architect",
+            json={"label": "Backend Arch", "active": False},
+        )
+        assert response.status_code == 200
+        data = response.json()["role"]
+        assert data["label"] == "Backend Arch"
+        assert data["active"] is False
+
+        active_only = api_client.get("/api/agent-roles")
+        active_roles = active_only.json().get("roles", [])
+        assert not any(r["key"] == "backend_architect" and r.get("active") is False for r in active_roles)
+
+    def test_quick_add_uses_queue_default_agent_role(self, api_client, storage):
+        # Create session and queue with default agent role
+        session_resp = api_client.post("/api/sessions", json={"name": "agent-role-session"})
+        session_id = session_resp.json()["session"]["id"]
+
+        queue_resp = api_client.post(
+            "/api/queues",
+            json={"session_id": session_id, "name": "agent-role-queue", "default_agent_role_key": "backend_architect"},
+        )
+        queue_id = queue_resp.json()["queue"]["id"]
+
+        prompt_text = "Build a new handler"
+        task_resp = api_client.post(
+            "/api/tasks/quick-add",
+            json={
+                "queue_id": queue_id,
+                "mode": "llm",
+                "prompt": prompt_text,
+                "tool_name": "llm-haiku",
+            },
+        )
+        assert task_resp.status_code == 200
+        task_id = task_resp.json()["task_id"]
+
+        task = storage.get_task(task_id)
+        assert task is not None
+        payload = task["payload"]
+        assert isinstance(payload, str)
+        parsed = json.loads(payload)
+
+        assert parsed.get("agent_role_key") == "backend_architect"
+        assert parsed.get("raw_prompt") == prompt_text
+        assert parsed.get("prompt", "").startswith("You are acting as a senior backend architect")
+
+
 @pytest.fixture
 def script_index_env(tmp_path, monkeypatch):
     scripts_dir = tmp_path / "scripts"

@@ -66,21 +66,27 @@
     return 'badge';
   }
 
-  function taskBadgeClass(status) {
+  function statusPillClass(status) {
     const lower = String(status || '').toLowerCase();
-    if (lower === 'running') {
-      return 'badge-running';
+    if (['running', 'in_progress', 'in-progress'].includes(lower)) {
+      return 'status-pill--running';
     }
     if (lower === 'queued' || lower === 'pending') {
-      return 'badge-queued';
+      return 'status-pill--queued';
     }
-    if (['succeeded', 'completed', 'done'].includes(lower)) {
-      return 'badge-active';
+    if (['succeeded', 'completed', 'done', 'success'].includes(lower)) {
+      return 'status-pill--succeeded';
     }
-    if (['failed', 'error', 'ended'].includes(lower)) {
-      return 'badge-ended';
+    if (['failed', 'error', 'ended', 'timeout', 'cancelled', 'canceled'].includes(lower)) {
+      return 'status-pill--failed';
     }
-    return 'badge';
+    return '';
+  }
+
+  function renderStatusPill(status) {
+    const label = (status || 'unknown').toString();
+    const pillClass = statusPillClass(status);
+    return `<span class="status-pill${pillClass ? ` ${pillClass}` : ''}">${label}</span>`;
   }
 
   function slugifyName(name) {
@@ -159,8 +165,8 @@
   }
 
   function renderTaskRow(task, displayId, readOnly = false) {
-    const status = String(task?.status || 'queued').toLowerCase();
-    const badgeClass = taskBadgeClass(status);
+    const statusLabel = (task?.status || 'queued').toString();
+    const statusPill = renderStatusPill(statusLabel);
     const timestamp = formatTimestamp(task?.created_at);
     const label = task?.friendly_id || displayId || `Task #${task?.id || '—'}`;
     const preview = taskPreview(task);
@@ -174,7 +180,7 @@
 
     return `
       <div class="task-row" data-task-id="${task?.id || ''}">
-        <div class="task-cell status"><span class="badge ${badgeClass}">${status}</span></div>
+        <div class="task-cell status">${statusPill}</div>
         <div class="task-cell id">${label}</div>
         <div class="task-cell tool">${toolLabel || '—'}</div>
         <div class="task-cell preview" title="${preview}">${preview}</div>
@@ -266,8 +272,19 @@
             this.currentSessionId = activeSession.id;
           }
           const sessionSelector = this.renderSessionSelector(activeSession, sessions);
+          const headingBlock = `
+            <div class="card dashboard-heading-card">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+                <div>
+                  <h1 style="margin:0 0 4px 0; font-size:22px;">Dashboard</h1>
+                  <p class="muted" style="margin:0;">Monitor queues, sessions, and quick actions in one place.</p>
+                </div>
+              </div>
+            </div>
+          `;
 
           actualContainer.innerHTML = `
+            ${headingBlock}
             <div class="session-tabs-section">
               <div class="section-title">Sessions</div>
               ${sessionSelector}
@@ -312,19 +329,30 @@
         }
 
         const sessionSelector = this.renderSessionSelector(activeSession, sessions);
+        const headingBlock = `
+          <div class="card dashboard-heading-card">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+              <div>
+                <h1 style="margin:0 0 4px 0; font-size:22px;">Dashboard</h1>
+                <p class="muted" style="margin:0;">Monitor queues, sessions, and quick actions in one place.</p>
+              </div>
+            </div>
+          </div>
+        `;
 
         actualContainer.innerHTML = `
+          ${headingBlock}
           <div class="session-tabs-section">
             <div class="section-title">Sessions</div>
             ${sessionSelector}
           </div>
 
           <div class="queue-tabs-section">
-            <div class="section-title" style="display:flex;align-items:center;gap:8px;">
+            <div class="section-title queue-filter-header">
               <span>Queues</span>
-              <div id="queue-filter-buttons" style="display:inline-flex;gap:6px;">
-                <button id="queue-filter-active" class="button secondary" style="padding:4px 10px;font-size:12px;${this.queueFilter === 'active' ? 'background:#3b82f6;color:#fff;' : ''}">Active</button>
-                <button id="queue-filter-archived" class="button secondary" style="padding:4px 10px;font-size:12px;${this.queueFilter === 'archived' ? 'background:#3b82f6;color:#fff;' : ''}">Archived</button>
+              <div id="queue-filter-buttons" class="queue-filter-buttons">
+                <button id="queue-filter-active" class="button secondary queue-filter-toggle ${this.queueFilter === 'active' ? 'active' : ''}">Active</button>
+                <button id="queue-filter-archived" class="button secondary queue-filter-toggle ${this.queueFilter === 'archived' ? 'active' : ''}">Archived</button>
               </div>
             </div>
             <div id="queue-tabs" class="queue-tabs"></div>
@@ -363,7 +391,7 @@
       container.innerHTML = `
         <div class="card" style="padding:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
           <span class="muted" style="font-size:13px;">Archived queues</span>
-          <select id="archived-queue-select" style="min-width:200px; padding:8px 10px; background:#111; border:1px solid #333; color:#fff; border-radius:6px;">
+          <select id="archived-queue-select" class="form-control" style="min-width:200px;">
             ${options || '<option value=\"\">No archived queues</option>'}
           </select>
         </div>
@@ -455,13 +483,9 @@
       const activeBtn = container.querySelector('#queue-filter-active');
       const archivedBtn = container.querySelector('#queue-filter-archived');
       const setStyles = () => {
-        if (activeBtn) {
-          activeBtn.style.background = this.queueFilter === 'active' ? '#3b82f6' : '';
-          activeBtn.style.color = this.queueFilter === 'active' ? '#fff' : '';
-        }
-        if (archivedBtn) {
-          archivedBtn.style.background = this.queueFilter === 'archived' ? '#3b82f6' : '';
-          archivedBtn.style.color = this.queueFilter === 'archived' ? '#fff' : '';
+        if (activeBtn && archivedBtn) {
+          activeBtn.classList.toggle('active', this.queueFilter === 'active');
+          archivedBtn.classList.toggle('active', this.queueFilter === 'archived');
         }
       };
       setStyles();
@@ -537,22 +561,26 @@
         return;
       }
 
-      this.currentSessionId = sessionId;
+      // Prompt user for a friendly queue name instead of auto-creating
+      const defaultName = `Queue ${new Date().toISOString().substring(0, 10).replace(/-/g, '')}`;
+      const queueName = await Utils.showPrompt('Create Queue', 'Enter a queue name:', defaultName);
+      if (!queueName || !queueName.trim()) {
+        Utils.showToast('Queue creation cancelled', 'info');
+        return;
+      }
 
-      // Generate a simple queue name with timestamp and a short suffix to avoid collisions
-      const timestamp = new Date().toISOString().substring(0, 10).replace(/-/g, '');
-      const suffix = Math.floor(Math.random() * 900 + 100);
-      const queueName = `Queue ${timestamp}-${suffix}`;
+      this.currentSessionId = sessionId;
 
       try {
         const payload = {
           session_id: sessionId,
-          name: queueName,
+          name: queueName.trim(),
         };
         console.log('[Dashboard] Creating queue with:', { sessionId, queueName, payload, sessionsCount: sessions.length });
         const response = await api('POST', '/api/queues', payload, { action: 'create queue' });
         const newQueueId = response?.id || response?.queue_id || response?.queue?.id;
-        Utils.showToast(`Queue created`, 'success');
+        Utils.showToast(`Queue "${queueName.trim()}" created`, 'success');
+        this.queueFilter = 'active';
         await this.refreshQueues(newQueueId);
       } catch (err) {
         console.error('Failed to create queue:', err);
@@ -662,10 +690,16 @@
         this.quickAddInstance.setStream(queueId, queueName);
       }
 
-      this.quickAddInstance.setRefreshCallback(() => {
+      this.quickAddInstance.setRefreshCallback((newTask) => {
         const tasksContainer = document.getElementById('dashboard-tasks');
         if (tasksContainer) {
-          this.renderTasks(tasksContainer, queueId);
+          // If a new task was provided, insert it immediately without full reload
+          if (newTask) {
+            this.prependTaskToList(tasksContainer, newTask);
+          } else {
+            // Otherwise do full refresh
+            this.renderTasks(tasksContainer, queueId);
+          }
         }
       });
 
@@ -762,15 +796,18 @@
       }));
 
       const pageSize = 10;
+      const baseStatuses = ['queued', 'running', 'succeeded', 'failed'];
       const statusOptionsRaw = tasks.map((t) => String(t.status || 'queued').toLowerCase()).filter(Boolean);
-      const statusOptions = Array.from(new Set(statusOptionsRaw));
+      const statusOptions = Array.from(new Set([...baseStatuses, ...statusOptionsRaw]));
       const defaultStatuses = forceStatus && forceStatus.length
         ? forceStatus.map((s) => s.toLowerCase())
-        : (statusOptions.length ? statusOptions : ['queued', 'running', 'succeeded', 'failed']);
+        : statusOptions;
 
-      const state = this.taskViewState[queueId] || { statuses: new Set(defaultStatuses), page: 0 };
+      const state = this.taskViewState[queueId]
+        ? { ...this.taskViewState[queueId] }
+        : { statuses: new Set(defaultStatuses), page: 0 };
       const normalizedStatuses = new Set(
-        [...(state.statuses || forceStatus || [])].filter((s) => defaultStatuses.includes(s))
+        [...(state.statuses || [])].filter((s) => statusOptions.includes(s))
       );
       if (!normalizedStatuses.size) {
         defaultStatuses.forEach((s) => normalizedStatuses.add(s));
@@ -807,7 +844,7 @@
                 ${readOnly ? '' : `
                   <div class="filter-dropdown" style="position:relative;">
                     <button id="task-filter-toggle-${queueId}" class="button secondary" style="padding:6px 10px;font-size:13px;">${filterLabel}</button>
-                    <div id="task-filter-menu-${queueId}" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface, #111);border:1px solid var(--border, #333);border-radius:8px;padding:10px;box-shadow:var(--shadow, 0 10px 30px rgba(0,0,0,0.3));min-width:220px;z-index:20;">
+                    <div id="task-filter-menu-${queueId}" class="task-filter-menu">
                       ${defaultStatuses.map((status) => {
                         const checked = state.statuses.has(status) ? 'checked' : '';
                         const label = status.charAt(0).toUpperCase() + status.slice(1);
@@ -911,6 +948,99 @@
       renderTaskTable();
     },
 
+    /**
+     * Prepend a new task to the task list without full reload
+     * @param {HTMLElement} container - The tasks container element
+     * @param {Object} newTask - The task object to prepend
+     */
+    prependTaskToList(container, newTask) {
+      const taskTable = container.querySelector('.task-table');
+      if (!taskTable) {
+        console.warn('Task table not found, falling back to full refresh');
+        this.renderTasks(container, newTask.queue_id);
+        return;
+      }
+
+      // Generate HTML for the new task row
+      const displayId = newTask.friendly_id || `#${newTask.id}`;
+      const taskRowHtml = renderTaskRow(newTask, displayId, false);
+
+      // Find the header row
+      const headerRow = taskTable.querySelector('.task-row-header');
+      if (!headerRow) {
+        console.warn('Task table header not found, falling back to full refresh');
+        this.renderTasks(container, newTask.queue_id);
+        return;
+      }
+
+      // Insert the new row after the header
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = taskRowHtml.trim();
+      const newRow = tempDiv.firstChild;
+
+      headerRow.insertAdjacentElement('afterend', newRow);
+
+      // Attach event handlers to the new row
+      this.attachTaskRowHandlers(newRow, newTask);
+
+      // Update the total count if it exists
+      const totalElement = container.querySelector('.queue-info-total');
+      if (totalElement) {
+        const currentCount = parseInt(totalElement.textContent) || 0;
+        totalElement.textContent = currentCount + 1;
+      }
+    },
+
+    /**
+     * Attach event handlers to a single task row
+     * @param {HTMLElement} row - The task row element
+     * @param {Object} task - The task object
+     */
+    attachTaskRowHandlers(row, task) {
+      // Edit button
+      const editBtn = row.querySelector('.task-edit-btn');
+      if (editBtn) {
+        editBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await this.showEditTaskDialog(task, task.queue_id);
+        });
+      }
+
+      // Delete button
+      const deleteBtn = row.querySelector('.task-delete-btn');
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const friendly = task?.friendlyLabel || task.friendly_id || task.id;
+          let confirmed = false;
+          try {
+            confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${friendly}? This cannot be undone.`);
+          } catch (err) {
+            confirmed = window.confirm(`Are you sure you want to delete task ${friendly}? This cannot be undone.`);
+          }
+          if (!confirmed) return;
+
+          try {
+            await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
+            Utils.showToast(`Task ${task.id} deleted`, 'success', 3500);
+            const tasksContainer = document.getElementById('dashboard-tasks');
+            if (tasksContainer) {
+              this.renderTasks(tasksContainer, task.queue_id);
+            }
+          } catch (err) {
+            console.error('Failed to delete task:', err);
+            Utils.showToast('Failed to delete task', 'error');
+          }
+        });
+      }
+
+      // Row click for details
+      row.addEventListener('click', async (e) => {
+        if (e.target.closest('button')) return;
+        await this.showEditTaskDialog(task, task.queue_id);
+      });
+    },
+
     async attachTaskActionHandlers(container, tasks, queueId) {
       // Row click -> edit
       container.querySelectorAll('.task-row').forEach(row => {
@@ -972,22 +1102,15 @@
 
     async showEditTaskDialog(task, queueId) {
       const overlay = document.createElement('div');
-      overlay.style.cssText = `
-        position: fixed; inset: 0; background: rgba(0,0,0,0.55);
-        display: flex; align-items: center; justify-content: center; z-index: 9999;
-        backdrop-filter: blur(2px);
-      `;
+      overlay.className = 'modal modal-overlay';
+      overlay.style.opacity = '0';
 
       const modal = document.createElement('div');
-      modal.style.cssText = `
-        background: var(--surface, #111);
-        color: var(--text, #fff);
-        border: 1px solid var(--border, #333);
-        border-radius: 12px;
-        padding: 20px;
-        width: min(560px, 95vw);
-        box-shadow: var(--shadow, 0 10px 40px rgba(0,0,0,0.35));
-      `;
+      modal.className = 'modal-content';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.style.transform = 'scale(0.95)';
+      modal.tabIndex = -1;
 
       let payloadText = '';
       let originalPayload = task.payload;
@@ -1016,63 +1139,80 @@
       const statusLabel = (task.status || 'queued').toString();
       const friendlyLabel = task.friendly_id || task.friendlyLabel || `Task #${task.id}`;
       const toolLabel = task.friendlyTool || getFriendlyToolName(task.tool_name) || task.tool_name || '';
-      modal.innerHTML = `
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
-          <h3 style="margin:0;font-size:18px;">Edit ${friendlyLabel}</h3>
-          <button id="edit-task-close" style="border:none;background:none;color:var(--text);font-size:18px;cursor:pointer;">✕</button>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          <div>
-            <span class="badge ${taskBadgeClass(statusLabel)}">${statusLabel}</span>
-          </div>
-          <div>
-            <label style="display:block;font-weight:600;margin-bottom:4px;">Tool</label>
-            <input id="edit-task-tool" type="text" value="${toolLabel}" disabled style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, #151515);color:var(--text);opacity:0.75;">
-          </div>
-          <div>
-            <label style="display:block;font-weight:600;margin-bottom:4px;">Prompt / Payload</label>
-            <textarea id="edit-task-payload" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2, #151515);color:var(--text);min-height:140px;font-family:inherit;">${payloadText}</textarea>
-          </div>
-        </div>
-        <div style="display:flex;justify-content:space-between;gap:10px;margin-top:16px;">
-          <button id="edit-task-delete" class="button secondary" style="padding:8px 14px;">🗑️ Delete</button>
-          <div style="display:flex;gap:8px;">
-            <button id="edit-task-cancel" class="button secondary" style="padding:8px 14px;">Cancel</button>
-            <button id="edit-task-save" class="button primary" style="padding:8px 14px;">Save</button>
-          </div>
-        </div>
-      `;
+      const header = document.createElement('div');
+      header.className = 'modal-header';
+      const title = document.createElement('h3');
+      title.className = 'modal-title';
+      title.textContent = `Edit ${friendlyLabel}`;
+      const closeBtn = document.createElement('button');
+      closeBtn.id = 'edit-task-close';
+      closeBtn.type = 'button';
+      closeBtn.className = 'modal-close-button';
+      closeBtn.setAttribute('aria-label', 'Close edit task dialog');
+      closeBtn.innerHTML = '&times;';
+      header.append(title, closeBtn);
 
+      const body = document.createElement('div');
+      body.className = 'modal-body';
+
+      const badgeRow = document.createElement('div');
+      badgeRow.innerHTML = renderStatusPill(statusLabel);
+      body.appendChild(badgeRow);
+
+      const toolGroup = document.createElement('div');
+      toolGroup.className = 'form-group';
+      const toolLabelEl = document.createElement('label');
+      toolLabelEl.textContent = 'Tool';
+      const toolInput = document.createElement('input');
+      toolInput.id = 'edit-task-tool';
+      toolInput.type = 'text';
+      toolInput.className = 'form-control';
+      toolInput.value = toolLabel;
+      toolInput.disabled = true;
+      toolGroup.append(toolLabelEl, toolInput);
+      body.appendChild(toolGroup);
+
+      const payloadGroup = document.createElement('div');
+      payloadGroup.className = 'form-group';
+      const payloadLabelEl = document.createElement('label');
+      payloadLabelEl.textContent = 'Prompt / Payload';
+      const payloadInput = document.createElement('textarea');
+      payloadInput.id = 'edit-task-payload';
+      payloadInput.className = 'form-control';
+      payloadInput.style.minHeight = '140px';
+      payloadInput.value = payloadText;
+      payloadGroup.append(payloadLabelEl, payloadInput);
+      body.appendChild(payloadGroup);
+
+      const footer = document.createElement('div');
+      footer.className = 'modal-footer';
+      const deleteBtn = document.createElement('button');
+      deleteBtn.id = 'edit-task-delete';
+      deleteBtn.className = 'button danger';
+      deleteBtn.textContent = '🗑️ Delete';
+      const actions = document.createElement('div');
+      actions.className = 'modal-actions';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.id = 'edit-task-cancel';
+      cancelBtn.className = 'button secondary';
+      cancelBtn.textContent = 'Cancel';
+      const saveBtn = document.createElement('button');
+      saveBtn.id = 'edit-task-save';
+      saveBtn.className = 'button primary';
+      saveBtn.textContent = 'Save';
+      actions.append(cancelBtn, saveBtn);
+      footer.append(deleteBtn, actions);
+
+      modal.append(header, body, footer);
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
 
-      const cleanup = (result) => {
-        document.body.removeChild(overlay);
-        document.removeEventListener('keydown', onKeyDown);
-        return result;
-      };
-
-      const onKeyDown = (e) => {
-        if (e.key === 'Escape') {
-          cleanup(null);
-        }
-        if (e.key === 'Enter' && document.activeElement?.tagName !== 'TEXTAREA') {
-          e.preventDefault();
-          saveBtn.click();
-        }
-      };
-      document.addEventListener('keydown', onKeyDown);
-
-      const toolInput = modal.querySelector('#edit-task-tool');
-      const payloadInput = modal.querySelector('#edit-task-payload');
-      const cancelBtn = modal.querySelector('#edit-task-cancel');
-      const saveBtn = modal.querySelector('#edit-task-save');
-      const closeBtn = modal.querySelector('#edit-task-close');
-      const deleteBtn = modal.querySelector('#edit-task-delete');
-      if (toolInput) {
+      requestAnimationFrame(() => {
+        overlay.classList.add('visible');
+        modal.style.transform = 'scale(1)';
         toolInput.focus();
         toolInput.select();
-      }
+      });
 
       const getPayload = () => {
         const promptText = payloadInput?.value ?? '';
@@ -1092,17 +1232,46 @@
       };
 
       const result = await new Promise((resolve) => {
-        const handleSave = () => resolve(getPayload());
-        const handleCancel = () => resolve(null);
-        const handleDelete = () => resolve({ delete: true });
-        cancelBtn?.addEventListener('click', handleCancel);
-        closeBtn?.addEventListener('click', handleCancel);
-        saveBtn?.addEventListener('click', handleSave);
-        deleteBtn?.addEventListener('click', handleDelete);
+        let onKeyDown;
+        const finish = (value) => {
+          overlay.classList.remove('visible');
+          modal.style.transform = 'scale(0.95)';
+          setTimeout(() => overlay.remove(), 200);
+          if (onKeyDown) {
+            document.removeEventListener('keydown', onKeyDown);
+          }
+          resolve(value);
+        };
+
+        onKeyDown = (e) => {
+          if (e.key === 'Escape') {
+            finish(null);
+          }
+          if (e.key === 'Enter' && document.activeElement?.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            saveBtn.click();
+          }
+        };
+        document.addEventListener('keydown', onKeyDown);
+
+        overlay.addEventListener('click', (event) => {
+          if (event.target === overlay) {
+            finish(null);
+          }
+        });
+
+        const handleSave = () => finish(getPayload());
+        const handleCancel = () => finish(null);
+        const handleDelete = () => finish({ delete: true });
+        cancelBtn.addEventListener('click', handleCancel);
+        closeBtn.addEventListener('click', handleCancel);
+        saveBtn.addEventListener('click', handleSave);
+        deleteBtn.addEventListener('click', handleDelete);
       });
 
-      const payload = cleanup(result);
-      if (!payload) return;
+      if (!result) return;
+
+      const payload = result;
 
       if (payload.delete) {
         const friendly = task?.friendlyLabel;
@@ -1147,21 +1316,15 @@
         return '';
       }
 
-      const activeName = activeSession.name || activeSession.id;
       const sessionOptions = sessions
-        .map((s) => `<button class="session-option" data-session-id="${s.id}" style="padding: 10px 12px; display: block; width: 100%; text-align: left; background: var(--surface); color: var(--text); border: none; cursor: pointer; font-size: 13px; transition: all 0.15s ease; border-radius: 4px;">${s.name || s.id}</button>`)
+        .map((s) => `<option value="${s.id}" ${s.id === activeSession.id ? 'selected' : ''}>${s.name || s.id}</option>`)
         .join('');
 
       return `
-        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; position: relative;">
-          <div class="session-dropdown-wrapper" style="position: relative;">
-            <button id="session-dropdown-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; border-radius: 4px; background: var(--surface); color: var(--text); border: 1px solid var(--border); cursor: pointer;" title="Select session">
-              ${activeName}
-            </button>
-            <div id="session-dropdown-menu" class="session-dropdown-menu" style="display: none; position: absolute; top: 100%; left: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; box-shadow: var(--shadow); z-index: 100; min-width: 180px; margin-top: 4px;">
-              ${sessionOptions}
-            </div>
-          </div>
+        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+          <select id="session-selector" class="form-control form-select" style="min-width: 200px; font-size: 13px;" title="Select session">
+            ${sessionOptions}
+          </select>
           <button id="session-rename-btn" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Rename session">✏️</button>
           <button id="session-delete-btn" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Delete session">🗑️</button>
         </div>
@@ -1241,44 +1404,20 @@
     },
 
     attachSessionSelectorHandlers(container, sessions) {
-      const dropdownBtn = container?.querySelector('#session-dropdown-btn');
-      const dropdownMenu = container?.querySelector('#session-dropdown-menu');
-      const sessionOptions = container?.querySelectorAll('.session-option');
+      const sessionSelector = container?.querySelector('#session-selector');
       const renameBtn = container?.querySelector('#session-rename-btn');
       const deleteBtn = container?.querySelector('#session-delete-btn');
 
-      // Toggle dropdown menu
-      if (dropdownBtn && dropdownMenu) {
-        dropdownBtn.addEventListener('click', () => {
-          dropdownMenu.style.display = dropdownMenu.style.display === 'none' ? 'block' : 'none';
-        });
-
-        // Close dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-          if (!e.target.closest('.session-dropdown-wrapper')) {
-            dropdownMenu.style.display = 'none';
+      // Handle session selection change
+      if (sessionSelector) {
+        sessionSelector.addEventListener('change', async (e) => {
+          const sessionId = e.target.value;
+          const selectedSession = sessions.find((s) => s.id === sessionId);
+          if (selectedSession) {
+            // Store current session and re-render
+            this.currentSessionId = sessionId;
+            this.render(container);
           }
-        });
-      }
-
-      // Handle session option selection
-      if (sessionOptions) {
-        sessionOptions.forEach((option) => {
-          option.addEventListener('click', async (e) => {
-            const sessionId = e.target.getAttribute('data-session-id');
-            const selectedSession = sessions.find((s) => s.id === sessionId);
-            if (selectedSession) {
-              if (dropdownBtn) {
-                dropdownBtn.textContent = selectedSession.name || selectedSession.id;
-              }
-              if (dropdownMenu) {
-                dropdownMenu.style.display = 'none';
-              }
-              // Store current session and re-render
-              this.currentSessionId = sessionId;
-              this.render(container);
-            }
-          });
         });
       }
 

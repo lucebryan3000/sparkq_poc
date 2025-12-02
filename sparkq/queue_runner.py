@@ -74,6 +74,20 @@ except ImportError:
     APIError = Exception
 
 
+def _timeout_kwargs(timeout: float) -> dict:
+    """
+    Return timeout kwargs for the current HTTP client.
+
+    When tests monkeypatch requests to FastAPI's TestClient, passing timeout triggers
+    a deprecation warning. Strip it in that case while keeping it for real HTTP calls.
+    """
+    client = requests
+    module_name = getattr(client.__class__, "__module__", "")
+    if module_name.startswith("starlette.testclient"):
+        return {}
+    return {"timeout": timeout}
+
+
 def load_queue_runner_config():
     """
     Load queue_runner configuration from sparkq.yml.
@@ -249,7 +263,7 @@ def log(msg: str) -> None:
 
 def fetch_queues(base_url: str) -> list[dict]:
     """Fetch all queues from the API."""
-    resp = requests.get(f"{base_url}/api/queues", timeout=10)
+    resp = requests.get(f"{base_url}/api/queues", **_timeout_kwargs(10))
     resp.raise_for_status()
     return resp.json().get("queues", [])
 
@@ -278,7 +292,7 @@ def resolve_queue(base_url: str, name_or_id: str) -> Optional[dict]:
 
 def fetch_tasks(base_url: str, queue_id: str) -> list[dict]:
     """Fetch all tasks for a queue from the API."""
-    resp = requests.get(f"{base_url}/api/tasks", params={"queue_id": queue_id}, timeout=10)
+    resp = requests.get(f"{base_url}/api/tasks", params={"queue_id": queue_id}, **_timeout_kwargs(10))
     resp.raise_for_status()
     return resp.json().get("tasks", [])
 
@@ -298,7 +312,7 @@ def claim_task(base_url: str, task_id: str, worker_id: str) -> Optional[dict]:
     resp = requests.post(
         f"{base_url}/api/tasks/{task_id}/claim",
         json={"worker_id": worker_id},
-        timeout=10,
+        **_timeout_kwargs(10),
     )
     if resp.status_code == 409:
         # Already claimed/running
@@ -335,7 +349,7 @@ def complete_task(
         "result_summary": summary,
         "result_data": result_data_str,
     }
-    resp = requests.post(f"{base_url}/api/tasks/{task_id}/complete", json=payload, timeout=10)
+    resp = requests.post(f"{base_url}/api/tasks/{task_id}/complete", json=payload, **_timeout_kwargs(10))
     resp.raise_for_status()
 
 
@@ -354,8 +368,19 @@ def fail_task(base_url: str, task_id: str, message: str, stderr_text: str = "") 
         "error_type": "runner_error",
         "stderr": stderr_text,
     }
-    resp = requests.post(f"{base_url}/api/tasks/{task_id}/fail", json=payload, timeout=10)
+    resp = requests.post(f"{base_url}/api/tasks/{task_id}/fail", json=payload, **_timeout_kwargs(10))
     resp.raise_for_status()
+
+
+def fetch_queue_info(queue_id: str, base_url: str) -> dict:
+    """Fetch queue information from API"""
+    url = f"{base_url}/api/queues/{queue_id}"
+    try:
+        resp = requests.get(url, **_timeout_kwargs(10))
+        resp.raise_for_status()
+        return resp.json().get("queue", {})
+    except requests.RequestException as e:
+        raise RuntimeError(f"Failed to fetch queue {queue_id}: {e}")
 
 
 def display_queue_instructions(queue: dict) -> None:
@@ -365,7 +390,8 @@ def display_queue_instructions(queue: dict) -> None:
     Instructions provide context, guardrails, and scope boundaries for all tasks.
     Once displayed, they remain in LLM context for subsequent tasks.
     """
-    instructions = queue.get("instructions", "").strip()
+    instructions = queue.get("instructions") or ""
+    instructions = instructions.strip()
     if not instructions:
         return
 
@@ -377,7 +403,8 @@ def display_queue_instructions(queue: dict) -> None:
 
 
 def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = True) -> bool:
-    tasks = fetch_tasks(base_url, queue["id"])
+    queue_id = queue["id"]
+    tasks = fetch_tasks(base_url, queue_id)
     # Oldest-first: sort by created_at ascending
     tasks = sorted(tasks, key=lambda t: t.get("created_at") or "")
     queued = [t for t in tasks if (t.get("status") or "").lower() == "queued"]
@@ -395,25 +422,46 @@ def process_one(base_url: str, queue: dict, worker_id: str, execute: bool = True
 
     prompt = ""
     payload = task.get("payload")
+    agent_role_display = task.get("agent_role_key")
     if isinstance(payload, str):
         try:
             parsed = json.loads(payload)
             prompt = parsed.get("prompt") or payload
+            agent_role_display = parsed.get("agent_role_label") or parsed.get("agent_role_key") or agent_role_display
         except json.JSONDecodeError:
             prompt = payload
     elif isinstance(payload, dict):
         prompt = payload.get("prompt") or json.dumps(payload)
+        agent_role_display = payload.get("agent_role_label") or payload.get("agent_role_key") or agent_role_display
 
     friendly_id = task.get("friendly_id", task_id)
     log(f"Task: {friendly_id} ({task_id})")
     log(f"Tool: {tool_name}")
+    if agent_role_display:
+        log(f"Agent Role: {agent_role_display}")
     log(f"Prompt:\n{prompt}\n")
 
     # Generate explicit execution instruction based on tool_name
     if tool_name == "llm-haiku":
         log(f"🔧 EXECUTE WITH: /haiku {prompt}")
     elif tool_name == "llm-codex":
-        log(f"🔧 EXECUTE WITH: /codex {prompt}")
+        # Fetch queue info to check for existing Codex session
+        try:
+            queue_info = fetch_queue_info(queue_id, base_url)
+            codex_session = queue_info.get("codex_session_id")
+
+            if codex_session:
+                # Resume existing Codex session for context continuity
+                log(f"🔧 EXECUTE WITH: codex exec --full-auto -C {os.getcwd()} \"{prompt}\" --resume {codex_session}")
+            else:
+                # First codex task in queue - create new session
+                log(f"🔧 EXECUTE WITH: codex exec --full-auto -C {os.getcwd()} \"{prompt}\"")
+                log("📝 CAPTURE SESSION ID from output (look for 'session id: 019...')")
+                log(f"💾 STORE WITH: curl -X POST {base_url}/api/queues/{queue_id}/codex-session -H 'Content-Type: application/json' -d '{{\"session_id\": \"<captured_id>\"}}'")
+        except Exception as e:
+            # Fallback if queue fetch fails
+            log(f"⚠️  Could not fetch queue info: {e}")
+            log(f"🔧 EXECUTE WITH: codex exec --full-auto -C {os.getcwd()} \"{prompt}\" (no session resume)")
     elif tool_name == "llm-sonnet":
         log(f"🔧 EXECUTE WITH: Current Sonnet session (answer directly)")
     else:

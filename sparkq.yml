@@ -53,10 +53,11 @@ tools:
 queue_runner:
   poll_interval: 30
   auto_fail_interval_seconds: 30
-  base_url: null
+  base_url: http://localhost:5005
 
 features:
   flags: {}
 
 defaults:
   queue: {}
+  model: llm-sonnet

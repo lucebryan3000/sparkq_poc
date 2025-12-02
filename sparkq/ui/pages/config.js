@@ -13,6 +13,9 @@
     'task-execution': loadTaskExecutionTab,
     automation: loadAutomationTab,
     prompts: loadPromptsTab,
+    scripts: loadScriptsTab,
+    enqueue: loadEnqueueTab,
+    'agent-roles': loadAgentRolesTab,
     advanced: loadAdvancedTab,
   };
 
@@ -75,31 +78,63 @@
     }
   }
 
+  function getSettingsContainer() {
+    return document.getElementById('settings-page') || document.getElementById('config-page') || document.querySelector('.page-content');
+  }
+
+  async function updateAgentRole(roleKey, payload) {
+    return api('PUT', `/api/agent-roles/${encodeURIComponent(roleKey)}`, payload, { action: 'update agent role' });
+  }
+
+  function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   async function renderConfigPage(container) {
     if (!container) {
       return;
     }
 
-    // Create tab structure with inline styles
     container.innerHTML = `
-      <div style="margin-bottom: 20px; border-bottom: 2px solid #3f3f46;">
-        <div style="display: flex; gap: 0;" role="tablist" aria-label="Configuration sections" data-tablist>
-          <button type="button" id="overview-tab" class="tab-btn" role="tab" aria-selected="true" aria-controls="tab-content" data-tab-target="overview" style="padding: 12px 24px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: #a1a1aa; transition: all 0.2s;" data-active="true" tabindex="0">
-            Overview
-          </button>
-          <button type="button" id="task-execution-tab" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="task-execution" style="padding: 12px 24px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: #a1a1aa; transition: all 0.2s;" tabindex="-1">
-            Task Execution
-          </button>
-          <button type="button" id="automation-tab" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="automation" style="padding: 12px 24px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: #a1a1aa; transition: all 0.2s;" tabindex="-1">
-            Automation
-          </button>
-          <button type="button" id="prompts-tab" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="prompts" style="padding: 12px 24px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: #a1a1aa; transition: all 0.2s;" tabindex="-1">
-            Quick Prompts
-          </button>
-          <button type="button" id="advanced-tab" class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="advanced" style="padding: 12px 24px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: #a1a1aa; transition: all 0.2s;" tabindex="-1">
-            Advanced
-          </button>
+      <div class="card" style="margin-bottom:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div>
+            <h1 style="margin:0 0 4px 0; font-size:22px;">Settings</h1>
+            <p class="muted" style="margin:0;">Configure SparkQueue defaults, automation, and quick actions.</p>
+          </div>
         </div>
+      </div>
+      <div class="config-tablist" role="tablist" aria-label="Configuration sections" data-tablist>
+        <button type="button" id="overview-tab" class="tab-btn config-tab" role="tab" aria-selected="true" aria-controls="tab-content" data-tab-target="overview" data-active="true" tabindex="0">
+          Overview
+        </button>
+        <button type="button" id="task-execution-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="task-execution" tabindex="-1">
+          Task Execution
+        </button>
+        <button type="button" id="automation-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="automation" tabindex="-1">
+          Automation
+        </button>
+        <button type="button" id="prompts-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="prompts" tabindex="-1">
+          Quick Prompts
+        </button>
+        <button type="button" id="scripts-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="scripts" tabindex="-1">
+          Scripts
+        </button>
+        <button type="button" id="enqueue-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="enqueue" tabindex="-1">
+          Enqueue
+        </button>
+        <button type="button" id="agent-roles-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="agent-roles" tabindex="-1">
+          Agent Roles
+        </button>
+        <button type="button" id="advanced-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="advanced" tabindex="-1">
+          Advanced
+        </button>
       </div>
       <div id="tab-content" role="tabpanel" tabindex="0" aria-labelledby="overview-tab"></div>
     `;
@@ -107,8 +142,12 @@
     // Attach tab switching handlers
     attachTabSwitching(container);
 
-    // Load default tab (Overview)
-    await setActiveTab(container, 'overview', { forceReload: true });
+    const params = new URLSearchParams(window.location.search || '');
+    const initialTab = params.get('tab');
+    const startTab = TAB_LOADERS[initialTab] ? initialTab : 'overview';
+
+    // Load default tab (Overview) or requested tab
+    await setActiveTab(container, startTab, { forceReload: true });
   }
 
   function attachTabSwitching(container) {
@@ -165,6 +204,34 @@
     return Array.from(tabList.querySelectorAll('.tab-btn'));
   }
 
+  function syncSettingsTabToUrl(tabKey) {
+    if (!window.history || !window.history.replaceState) {
+      return;
+    }
+
+    try {
+      if (Utils.buildRoute) {
+        const newPath = Utils.buildRoute('settings', tabKey ? { tab: tabKey } : {});
+        window.history.replaceState({ page: 'settings', tab: tabKey }, '', newPath);
+        return;
+      }
+    } catch (err) {
+      console.debug('Failed to build settings route', err);
+    }
+
+    try {
+      const url = new URL(window.location.href);
+      if (tabKey) {
+        url.searchParams.set('tab', tabKey);
+      } else {
+        url.searchParams.delete('tab');
+      }
+      window.history.replaceState({ page: 'settings', tab: tabKey }, '', url.pathname + url.search);
+    } catch (err) {
+      console.debug('Failed to sync settings tab to URL', err);
+    }
+  }
+
   async function setActiveTab(container, tabKey, options = {}) {
     const { forceReload = false, focusTab = false } = options;
     if (!TAB_LOADERS[tabKey]) {
@@ -181,8 +248,7 @@
       tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
       tab.setAttribute('data-active', isActive ? 'true' : 'false');
       tab.tabIndex = isActive ? 0 : -1;
-      tab.style.color = isActive ? '#f4f4f5' : '#a1a1aa';
-      tab.style.borderBottomColor = isActive ? '#3b82f6' : 'transparent';
+      tab.classList.toggle('active', isActive);
 
       if (focusTab && isActive) {
         tab.focus();
@@ -197,6 +263,8 @@
     if (isAlreadyActive && !forceReload) {
       return;
     }
+
+    syncSettingsTabToUrl(tabKey);
 
     const loader = TAB_LOADERS[tabKey];
     if (loader) {
@@ -259,13 +327,13 @@
       <div class="card">
         <h2 style="margin: 0 0 16px; font-size: 18px;">⚡ Quick Actions</h2>
         <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-          <button type="button" id="qa-purge-tasks" style="padding: 10px 16px; background: #27272a; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 6px; cursor: pointer;">
+          <button type="button" id="qa-purge-tasks" class="button secondary" style="padding: 10px 16px;">
             🗑️ Purge Old Tasks
           </button>
-          <button type="button" id="qa-reload-config" style="padding: 10px 16px; background: #27272a; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 6px; cursor: pointer;">
+          <button type="button" id="qa-reload-config" class="button secondary" style="padding: 10px 16px;">
             🔄 Reload Config
           </button>
-          <button type="button" id="qa-view-all-tasks" style="padding: 10px 16px; background: #27272a; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 6px; cursor: pointer;">
+          <button type="button" id="qa-view-all-tasks" class="button secondary" style="padding: 10px 16px;">
             📋 View All Tasks
           </button>
         </div>
@@ -305,9 +373,10 @@
     const viewAllBtnQa = tabContent.querySelector('#qa-view-all-tasks');
     if (viewAllBtnQa) {
       viewAllBtnQa.addEventListener('click', () => {
-        const navBtn = document.querySelector(".nav-tab[data-tab='sparkqueue']");
-        if (navBtn) {
-          navBtn.click();
+        if (Utils.navigateTo) {
+          Utils.navigateTo('dashboard');
+        } else {
+          window.location.assign('/dashboard');
         }
       });
     }
@@ -338,6 +407,8 @@
 
     const tools = config?.tools || {};
     const taskClasses = config?.task_classes || {};
+    const defaults = config?.defaults || {};
+    const defaultModel = defaults?.model || 'llm-sonnet';
 
     const toolEntries = Object.entries(tools || {});
     const taskClassEntries = Object.entries(taskClasses || {});
@@ -350,13 +421,13 @@
                 <td>${formatValue(detail?.description, '—')}</td>
                 <td>${formatValue(detail?.task_class, '—')}</td>
                 <td style="text-align:right;">
-                  <button type="button" class="delete-tool-row" data-name="${name}" style="padding:6px 10px; background:#27272a; color:#ef4444; border:1px solid #3f3f46; border-radius:4px; cursor:pointer; font-size:12px;">Delete</button>
+                  <button type="button" class="delete-tool-row button danger" data-name="${name}" style="padding:6px 10px; font-size:12px;">Delete</button>
                 </td>
               </tr>
             `,
           )
           .join('')
-      : `<tr><td colspan="4" style="text-align:center; color:#a1a1aa;">No tools</td></tr>`;
+      : `<tr><td colspan="4" class="muted" style="text-align:center;">No tools</td></tr>`;
     const taskClassRows = taskClassEntries.length
       ? taskClassEntries
           .map(
@@ -366,15 +437,37 @@
                 <td>${formatValue(detail?.timeout, '—')}</td>
                 <td>${formatValue(detail?.description, '—')}</td>
                 <td style="text-align:right;">
-                  <button type="button" class="delete-task-class-row" data-name="${name}" style="padding:6px 10px; background:#27272a; color:#ef4444; border:1px solid #3f3f46; border-radius:4px; cursor:pointer; font-size:12px;">Delete</button>
+                  <button type="button" class="delete-task-class-row button danger" data-name="${name}" style="padding:6px 10px; font-size:12px;">Delete</button>
                 </td>
               </tr>
             `,
           )
           .join('')
-      : `<tr><td colspan="4" style="text-align:center; color:#a1a1aa;">No task classes</td></tr>`;
+      : `<tr><td colspan="4" class="muted" style="text-align:center;">No task classes</td></tr>`;
+
+    // Build LLM tool options for the default model dropdown
+    const llmTools = toolEntries.filter(([name]) => name.startsWith('llm-'));
+    const llmToolOptions = llmTools.length
+      ? llmTools.map(([name, detail]) =>
+          `<option value="${name}" ${name === defaultModel ? 'selected' : ''}>${detail?.description || name}</option>`
+        ).join('')
+      : '<option value="llm-sonnet">Sonnet</option>';
 
     tabContent.innerHTML = `
+      <div class="card">
+        <h2>Default Settings</h2>
+        <p class="muted">Configure default values for new tasks.</p>
+        <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin-bottom: 20px;">
+          <div>
+            <label style="display:block; margin-bottom:6px;" class="muted">Default Model</label>
+            <select id="default-model-select" class="form-control form-select" style="min-width:200px;">
+              ${llmToolOptions}
+            </select>
+            <p class="small-helper" style="margin-top: 4px;">Model used by default when creating new tasks</p>
+          </div>
+          <button type="button" id="save-default-model-btn" class="button primary" style="padding:10px 16px;">Save Default Model</button>
+        </div>
+      </div>
       <div class="card">
         <h2>Tools</h2>
         <p class="muted">Define executable tools that can be invoked via the API.</p>
@@ -395,20 +488,20 @@
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:10px;">
           <div>
-            <label style="display:block; margin-bottom:4px; color:#a1a1aa;">Name</label>
-            <input id="tool-name-input" type="text" placeholder="llm-haiku" style="width:160px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:4px;" class="muted">Name</label>
+            <input id="tool-name-input" type="text" placeholder="llm-haiku" class="form-control" style="width:160px;" />
           </div>
           <div>
-            <label style="display:block; margin-bottom:4px; color:#a1a1aa;">Description</label>
-            <input id="tool-desc-input" type="text" placeholder="Description" style="width:200px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:4px;" class="muted">Description</label>
+            <input id="tool-desc-input" type="text" placeholder="Description" class="form-control" style="width:200px;" />
           </div>
           <div>
-            <label style="display:block; margin-bottom:4px; color:#a1a1aa;">Task Class</label>
-            <select id="tool-task-class-select" style="padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5; min-width:160px;">
+            <label style="display:block; margin-bottom:4px;" class="muted">Task Class</label>
+            <select id="tool-task-class-select" class="form-control form-select" style="min-width:160px;">
               ${(taskClassEntries || []).map(([name]) => `<option value="${name}">${name}</option>`).join('')}
             </select>
           </div>
-          <button type="button" id="save-tool-row-btn" style="padding:10px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer;">Save Tool</button>
+          <button type="button" id="save-tool-row-btn" class="button primary" style="padding:10px 16px;">Save Tool</button>
         </div>
       </div>
       <div class="card">
@@ -431,23 +524,29 @@
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-top:10px;">
           <div>
-            <label style="display:block; margin-bottom:4px; color:#a1a1aa;">Name</label>
-            <input id="task-class-name-input" type="text" placeholder="LLM_LITE" style="width:160px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:4px;" class="muted">Name</label>
+            <input id="task-class-name-input" type="text" placeholder="LLM_LITE" class="form-control" style="width:160px;" />
           </div>
           <div>
-            <label style="display:block; margin-bottom:4px; color:#a1a1aa;">Timeout (seconds)</label>
-            <input id="task-class-timeout-input" type="number" min="1" placeholder="300" style="width:140px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:4px;" class="muted">Timeout (seconds)</label>
+            <input id="task-class-timeout-input" type="number" min="1" placeholder="300" class="form-control" style="width:140px;" />
           </div>
           <div>
-            <label style="display:block; margin-bottom:4px; color:#a1a1aa;">Description</label>
-            <input id="task-class-desc-input" type="text" placeholder="Optional" style="width:200px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:4px;" class="muted">Description</label>
+            <input id="task-class-desc-input" type="text" placeholder="Optional" class="form-control" style="width:200px;" />
           </div>
-          <button type="button" id="save-task-class-row-btn" style="padding:10px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer;">Save Task Class</button>
+          <button type="button" id="save-task-class-row-btn" class="button primary" style="padding:10px 16px;">Save Task Class</button>
         </div>
       </div>
     `;
 
     // Attach handlers
+    const saveDefaultModelBtn = tabContent.querySelector('#save-default-model-btn');
+    if (saveDefaultModelBtn) {
+      saveDefaultModelBtn.addEventListener('click', async () => {
+        await Pages.Config.saveDefaultModel();
+      });
+    }
     const saveToolRowBtn = tabContent.querySelector('#save-tool-row-btn');
     if (saveToolRowBtn) {
       saveToolRowBtn.addEventListener('click', async () => {
@@ -512,10 +611,10 @@
         <p class="muted">Automatically delete old completed/failed tasks.</p>
         <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
           <div>
-            <label style="display:block; margin-bottom:6px; color:#a1a1aa;">Older Than Days</label>
-            <input id="purge-days" type="number" min="1" value="${formatValue(purge.older_than_days, '')}" style="width:120px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:6px;" class="muted">Older Than Days</label>
+            <input id="purge-days" type="number" min="1" value="${formatValue(purge.older_than_days, '')}" class="form-control" style="width:120px;" />
           </div>
-          <button type="button" id="save-purge-btn" style="padding:10px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer;">Save Purge</button>
+          <button type="button" id="save-purge-btn" class="button primary" style="padding:10px 16px;">Save Purge</button>
         </div>
       </div>
       <div class="card">
@@ -523,25 +622,25 @@
         <p class="muted">Controls background poll interval and auto-fail cadence.</p>
         <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
           <div>
-            <label style="display:block; margin-bottom:6px; color:#a1a1aa;">Poll Interval (s)</label>
-            <input id="qr-poll-interval" type="number" min="1" value="${formatValue(queueRunner.poll_interval, '')}" style="width:140px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:6px;" class="muted">Poll Interval (s)</label>
+            <input id="qr-poll-interval" type="number" min="1" value="${formatValue(queueRunner.poll_interval, '')}" class="form-control" style="width:140px;" />
           </div>
           <div>
-            <label style="display:block; margin-bottom:6px; color:#a1a1aa;">Auto-fail Interval (s)</label>
-            <input id="qr-auto-fail-interval" type="number" min="1" value="${formatValue(autoFailIntervalSeconds, '')}" style="width:160px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:6px;" class="muted">Auto-fail Interval (s)</label>
+            <input id="qr-auto-fail-interval" type="number" min="1" value="${formatValue(autoFailIntervalSeconds, '')}" class="form-control" style="width:160px;" />
           </div>
           <div style="flex:1; min-width:200px;">
-            <label style="display:block; margin-bottom:6px; color:#a1a1aa;">Base URL (optional)</label>
-            <input id="qr-base-url" type="text" placeholder="http://host:port" value="${formatValue(queueRunner.base_url, '')}" style="width:100%; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:6px;" class="muted">Base URL (optional)</label>
+            <input id="qr-base-url" type="text" placeholder="http://host:port" value="${formatValue(queueRunner.base_url, '')}" class="form-control" style="width:100%;" />
           </div>
-          <button type="button" id="save-queue-runner-btn" style="padding:10px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer;">Save Queue Runner</button>
+          <button type="button" id="save-queue-runner-btn" class="button primary" style="padding:10px 16px;">Save Queue Runner</button>
         </div>
       </div>
       <div class="card">
         <h2>Stale Handling</h2>
         <p>Warn at <strong>${formatValue(warnMultiplier, '1')}</strong>x timeout; auto-fail at <strong>${formatValue(failMultiplier, '2')}</strong>x.</p>
         <p class="muted">Auto-fail runs on the server cadence above. Use this to jump to running tasks and inspect warnings.</p>
-        <button type="button" id="view-running-tasks-btn" style="padding:10px 16px; background:#27272a; color:#f4f4f5; border:1px solid #3f3f46; border-radius:6px; cursor:pointer;">View Running Tasks</button>
+        <button type="button" id="view-running-tasks-btn" class="button secondary" style="padding:10px 16px;">View Running Tasks</button>
       </div>
     `;
 
@@ -605,18 +704,18 @@
         <p class="muted">Core project settings (name, repo path, PRD path).</p>
         <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
           <div>
-            <label style="display:block; margin-bottom:6px; color:#a1a1aa;">Project Name</label>
-            <input id="project-name" type="text" value="${formatValue(project.name, '')}" style="width:200px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:6px;" class="muted">Project Name</label>
+            <input id="project-name" type="text" value="${formatValue(project.name, '')}" class="form-control" style="width:200px;" />
           </div>
           <div>
-            <label style="display:block; margin-bottom:6px; color:#a1a1aa;">Repo Path</label>
-            <input id="project-repo-path" type="text" value="${formatValue(project.repo_path, '')}" style="width:300px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:6px;" class="muted">Repo Path</label>
+            <input id="project-repo-path" type="text" value="${formatValue(project.repo_path, '')}" class="form-control" style="width:300px;" />
           </div>
           <div>
-            <label style="display:block; margin-bottom:6px; color:#a1a1aa;">PRD Path (optional)</label>
-            <input id="project-prd-path" type="text" value="${formatValue(project.prd_path, '')}" style="width:300px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:6px;" class="muted">PRD Path (optional)</label>
+            <input id="project-prd-path" type="text" value="${formatValue(project.prd_path, '')}" class="form-control" style="width:300px;" />
           </div>
-          <button type="button" id="save-project-config-btn" style="padding:10px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer;">Save Project</button>
+          <button type="button" id="save-project-config-btn" class="button primary" style="padding:10px 16px;">Save Project</button>
         </div>
       </div>
       <div class="card">
@@ -624,48 +723,48 @@
         <p class="muted">Directories to search for executable scripts.</p>
         <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
           <div>
-            <label style="display:block; margin-bottom:6px; color:#a1a1aa;">SparkQ Scripts Dir</label>
-            <input id="sparkq-scripts-dir" type="text" value="${formatValue(scriptDirs, '')}" style="width:200px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:6px;" class="muted">SparkQ Scripts Dir</label>
+            <input id="sparkq-scripts-dir" type="text" value="${formatValue(scriptDirs, '')}" class="form-control" style="width:200px;" />
           </div>
           <div>
-            <label style="display:block; margin-bottom:6px; color:#a1a1aa;">Project Script Dirs (comma-separated)</label>
-            <input id="project-script-dirs" type="text" value="${formatValue(projectScriptDirs, '')}" style="width:300px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
+            <label style="display:block; margin-bottom:6px;" class="muted">Project Script Dirs (comma-separated)</label>
+            <input id="project-script-dirs" type="text" value="${formatValue(projectScriptDirs, '')}" class="form-control" style="width:300px;" />
           </div>
-          <button type="button" id="save-script-dirs-btn" style="padding:10px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer;">Save Script Dirs</button>
+          <button type="button" id="save-script-dirs-btn" class="button primary" style="padding:10px 16px;">Save Script Dirs</button>
         </div>
       </div>
       <div class="grid grid-2">
         <div class="card">
           <h2>Build Metadata</h2>
-          <label style="display:block; margin-bottom:6px; color:#a1a1aa;">Build ID</label>
+          <label style="display:block; margin-bottom:6px;" class="muted">Build ID</label>
           <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
-            <input id="build-id-input" type="text" value="${formatValue(uiBuildId, '')}" style="min-width:200px; padding:8px 10px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5;" />
-            <button type="button" id="save-build-btn" style="padding:10px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer;">Save Build ID</button>
+            <input id="build-id-input" type="text" value="${formatValue(uiBuildId, '')}" class="form-control" style="min-width:200px;" />
+            <button type="button" id="save-build-btn" class="button primary" style="padding:10px 16px;">Save Build ID</button>
           </div>
         </div>
         <div class="card">
           <h2>Feature Flags</h2>
           <p class="muted" style="margin-top:0;">Edit JSON object of feature flags (key → boolean).</p>
-          <textarea id="feature-flags-input" rows="4" style="width:100%; padding:10px 12px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5; font-family:'Courier New', monospace; resize:vertical;">${featureFlagsJSON}</textarea>
+          <textarea id="feature-flags-input" rows="4" class="form-control" style="width:100%; font-family:'Courier New', monospace; resize:vertical;">${featureFlagsJSON}</textarea>
           <div style="margin-top:10px; display:flex; gap:10px; justify-content:flex-end;">
-            <button type="button" id="save-flags-btn" style="padding:10px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer;">Save Flags</button>
+            <button type="button" id="save-flags-btn" class="button primary" style="padding:10px 16px;">Save Flags</button>
           </div>
         </div>
       </div>
       <div class="card">
         <h2>Queue Defaults</h2>
         <p class="muted" style="margin-top:0;">Optional queue defaults (object). Leave empty to keep defaults.</p>
-        <textarea id="queue-defaults-json-input" rows="6" style="width:100%; padding:10px 12px; background:#27272a; border:1px solid #3f3f46; border-radius:6px; color:#f4f4f5; font-family:'Courier New', monospace; resize:vertical;">${queueDefaultsJSON}</textarea>
+        <textarea id="queue-defaults-json-input" rows="6" class="form-control" style="width:100%; font-family:'Courier New', monospace; resize:vertical;">${queueDefaultsJSON}</textarea>
         <div style="margin-top:10px; display:flex; gap:10px; justify-content:flex-end;">
-          <button type="button" id="save-queue-defaults-btn" style="padding:10px 16px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer;">Validate & Save</button>
+          <button type="button" id="save-queue-defaults-btn" class="button primary" style="padding:10px 16px;">Validate & Save</button>
         </div>
       </div>
       <div class="card">
         <h2>Config Management</h2>
         <p class="muted">Export or validate your configuration.</p>
         <div style="display:flex; gap:12px;">
-          <button type="button" id="export-config-btn" style="padding:10px 16px; background:#27272a; color:#f4f4f5; border:1px solid #3f3f46; border-radius:6px; cursor:pointer;">📥 Export Config</button>
-          <button type="button" id="validate-config-btn" style="padding:10px 16px; background:#27272a; color:#f4f4f5; border:1px solid #3f3f46; border-radius:6px; cursor:pointer;">✅ Validate Config</button>
+          <button type="button" id="export-config-btn" class="button secondary" style="padding:10px 16px;">📥 Export Config</button>
+          <button type="button" id="validate-config-btn" class="button secondary" style="padding:10px 16px;">✅ Validate Config</button>
         </div>
       </div>
     `;
@@ -741,69 +840,65 @@
 
     const promptListHtml = prompts.length
       ? prompts.map(p => renderPromptItem(p)).join('')
-      : '<p class="muted" style="text-align: center; padding: 40px 0;">No prompts yet. Click "New Prompt" to create one.</p>';
+      : '<p class="muted empty-state">No prompts yet. Click "New Prompt" to create one.</p>';
 
     tabContent.innerHTML = `
       <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-          <h2 style="margin: 0;">Quick Prompts</h2>
-          <button type="button" id="new-prompt-btn" style="padding: 8px 16px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
+        <div class="card-header">
+          <h2 class="card-title">Quick Prompts</h2>
+          <button type="button" id="new-prompt-btn" class="button primary">
             + New Prompt
           </button>
         </div>
-        <div id="prompt-list">
+        <div id="prompt-list" class="prompt-list">
           ${promptListHtml}
         </div>
       </div>
 
       <!-- Modal for Create/Edit Prompt -->
-      <div id="prompt-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 1000; overflow-y: auto;" aria-hidden="true">
-        <div style="min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 20px;">
-          <div data-dialog role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="prompt-dialog-description" tabindex="-1" style="background: #1a1f2e; border-radius: 8px; max-width: 600px; width: 100%; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);">
-            <div style="padding: 24px; border-bottom: 1px solid #3f3f46;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2 id="modal-title" style="margin: 0;">New Prompt</h2>
-                <button type="button" id="close-modal-btn" aria-label="Close prompt dialog" style="background: none; border: none; color: #a1a1aa; font-size: 24px; cursor: pointer; padding: 0; width: 32px; height: 32px; line-height: 1;">×</button>
+      <div id="prompt-modal" class="modal modal-overlay" style="display: none;" aria-hidden="true">
+        <div class="modal-content" data-dialog role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="prompt-dialog-description" tabindex="-1" style="transform: scale(0.95);">
+          <div class="modal-header">
+            <h2 id="modal-title" class="modal-title">New Prompt</h2>
+            <button type="button" id="close-modal-btn" aria-label="Close prompt dialog" class="modal-close-button">×</button>
+          </div>
+          <div class="modal-body">
+            <form id="prompt-form">
+              <input type="hidden" id="prompt-id" value="">
+              <p id="prompt-dialog-description" class="muted" style="margin: 0 0 12px;">Create or edit a reusable quick prompt template.</p>
+
+              <div class="form-group">
+                <label for="prompt-command">Command</label>
+                <input type="text" id="prompt-command" required placeholder="e.g., code-review" class="form-control">
+                <p class="small-helper">Lowercase letters, numbers, and hyphens only. Used with '>' trigger.</p>
               </div>
-            </div>
-            <div style="padding: 24px;">
-              <form id="prompt-form">
-                <input type="hidden" id="prompt-id" value="">
-                <p id="prompt-dialog-description" style="margin: 0 0 16px; color: #a1a1aa; font-size: 13px;">Create or edit a reusable quick prompt template.</p>
 
-                <div style="margin-bottom: 20px;">
-                  <label for="prompt-command" style="display: block; margin-bottom: 8px; font-weight: 500; color: #f4f4f5;">Command</label>
-                  <input type="text" id="prompt-command" required placeholder="e.g., code-review" style="width: 100%; padding: 10px 12px; background: #27272a; border: 1px solid #3f3f46; border-radius: 6px; color: #f4f4f5; font-size: 14px;">
-                  <p style="margin: 6px 0 0; font-size: 12px; color: #71717a;">Lowercase letters, numbers, and hyphens only. Used with '>' trigger.</p>
-                </div>
+              <div class="form-group">
+                <label for="prompt-label">Label</label>
+                <input type="text" id="prompt-label" required placeholder="e.g., Code Review" class="form-control">
+                <p class="small-helper">Display name shown in autocomplete popup.</p>
+              </div>
 
-                <div style="margin-bottom: 20px;">
-                  <label for="prompt-label" style="display: block; margin-bottom: 8px; font-weight: 500; color: #f4f4f5;">Label</label>
-                  <input type="text" id="prompt-label" required placeholder="e.g., Code Review" style="width: 100%; padding: 10px 12px; background: #27272a; border: 1px solid #3f3f46; border-radius: 6px; color: #f4f4f5; font-size: 14px;">
-                  <p style="margin: 6px 0 0; font-size: 12px; color: #71717a;">Display name shown in autocomplete popup.</p>
-                </div>
+              <div class="form-group">
+                <label for="prompt-description">Description (optional)</label>
+                <input type="text" id="prompt-description" placeholder="Brief description..." class="form-control">
+              </div>
 
-                <div style="margin-bottom: 20px;">
-                  <label for="prompt-description" style="display: block; margin-bottom: 8px; font-weight: 500; color: #f4f4f5;">Description (optional)</label>
-                  <input type="text" id="prompt-description" placeholder="Brief description..." style="width: 100%; padding: 10px 12px; background: #27272a; border: 1px solid #3f3f46; border-radius: 6px; color: #f4f4f5; font-size: 14px;">
-                </div>
+              <div class="form-group">
+                <label for="prompt-template">Template Text</label>
+                <textarea id="prompt-template" required placeholder="Enter the template text that will be inserted..." rows="8" class="form-control" style="font-family: 'Courier New', monospace; resize: vertical;"></textarea>
+                <p class="small-helper">The text that will replace the command when selected.</p>
+              </div>
 
-                <div style="margin-bottom: 20px;">
-                  <label for="prompt-template" style="display: block; margin-bottom: 8px; font-weight: 500; color: #f4f4f5;">Template Text</label>
-                  <textarea id="prompt-template" required placeholder="Enter the template text that will be inserted..." rows="8" style="width: 100%; padding: 10px 12px; background: #27272a; border: 1px solid #3f3f46; border-radius: 6px; color: #f4f4f5; font-size: 14px; font-family: 'Courier New', monospace; resize: vertical;"></textarea>
-                  <p style="margin: 6px 0 0; font-size: 12px; color: #71717a;">The text that will replace the command when selected.</p>
-                </div>
-
-                <div style="display: flex; gap: 12px; justify-content: flex-end;">
-                  <button type="button" id="cancel-modal-btn" style="padding: 10px 20px; background: #27272a; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 6px; cursor: pointer; font-size: 14px;">
-                    Cancel
-                  </button>
-                  <button type="submit" style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
-                    Save Prompt
-                  </button>
-                </div>
-              </form>
-            </div>
+              <div class="modal-actions">
+                <button type="button" id="cancel-modal-btn" class="button secondary">
+                  Cancel
+                </button>
+                <button type="submit" class="button primary">
+                  Save Prompt
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>
@@ -854,32 +949,215 @@
     Pages.Config.attachPromptHandlers();
   }
 
+  async function loadScriptsTab(container) {
+    const tabContent = container.querySelector('#tab-content');
+    if (!tabContent) return;
+
+    const scriptsPage = Pages.Scripts;
+    if (scriptsPage && typeof scriptsPage.render === 'function') {
+      await scriptsPage.render(tabContent);
+      return;
+    }
+
+    tabContent.innerHTML = `
+      <div class="card">
+        <p class="muted">Scripts module not available.</p>
+      </div>
+    `;
+  }
+
+  async function loadEnqueueTab(container) {
+    const tabContent = container.querySelector('#tab-content');
+    if (!tabContent) return;
+
+    if (Utils.injectEnqueueStyles) {
+      Utils.injectEnqueueStyles();
+    }
+
+    const enqueuePage = Pages.Enqueue;
+    if (enqueuePage && typeof enqueuePage.render === 'function') {
+      await enqueuePage.render(tabContent);
+      return;
+    }
+
+    tabContent.innerHTML = `
+      <div class="card">
+        <p class="muted">Enqueue module not available.</p>
+      </div>
+    `;
+  }
+
+  async function loadAgentRolesTab(container) {
+    const tabContent = container.querySelector('#tab-content');
+    if (!tabContent) return;
+
+    tabContent.innerHTML = `
+      <div class="card">
+        <div class="muted"><span class="loading"></span> Loading agent roles…</div>
+      </div>
+    `;
+
+    let roles = [];
+    try {
+      const response = await api('GET', '/api/agent-roles?active_only=false', null, { action: 'load agent roles' });
+      roles = response?.roles || [];
+    } catch (err) {
+      tabContent.innerHTML = `
+        <div class="card">
+          <div class="muted">Unable to load agent roles.</div>
+        </div>
+      `;
+      showError(`Failed to load agent roles: ${err.message || err}`, err);
+      return;
+    }
+
+    const renderRoleCard = (role) => {
+      const active = Boolean(role?.active);
+      const badgeLabel = active ? 'Active' : 'Inactive';
+      const toggleLabel = active ? 'Deactivate' : 'Activate';
+      const badgeStyle = active
+        ? 'background: rgba(46, 204, 113, 0.15); color: var(--success, #198754);'
+        : 'background: var(--muted); color: var(--subtle);';
+      return `
+        <div class="role-card" data-role-key="${escapeHtml(role.key)}" style="border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:12px;">
+          <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+            <div>
+              <div class="muted" style="font-size:12px; letter-spacing:0.4px;">${escapeHtml(role.key)}</div>
+              <div style="font-size:17px; font-weight:700;">${escapeHtml(role.label)}</div>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+              <span style="padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; ${badgeStyle}">${badgeLabel}</span>
+              <button class="button secondary role-toggle-btn" data-role-key="${escapeHtml(role.key)}" data-active="${active ? 'true' : 'false'}" style="padding:6px 12px;">${toggleLabel}</button>
+              <button class="button role-edit-btn" data-role-key="${escapeHtml(role.key)}" style="padding:6px 12px;">Edit</button>
+            </div>
+          </div>
+          <p class="muted" style="margin-top:10px; white-space:pre-line;">${escapeHtml(role.description)}</p>
+        </div>
+      `;
+    };
+
+    const listHtml = roles.length
+      ? roles.map(renderRoleCard).join('')
+      : '<p class="muted">No agent roles found.</p>';
+
+    tabContent.innerHTML = `
+      <div class="card">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+          <div>
+            <h2 class="card-title" style="margin-bottom:4px;">Agent Roles</h2>
+            <p class="muted" style="margin:0;">Toggle availability or adjust labels/descriptions. Changes affect new queue defaults and task creation; existing tasks keep their stored prompts.</p>
+          </div>
+        </div>
+        <div id="agent-role-list">
+          ${listHtml}
+        </div>
+      </div>
+    `;
+
+    const listEl = tabContent.querySelector('#agent-role-list');
+    if (!listEl) return;
+
+    listEl.querySelectorAll('.role-toggle-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const roleKey = btn.getAttribute('data-role-key');
+        const currentActive = btn.getAttribute('data-active') === 'true';
+        try {
+          await updateAgentRole(roleKey, { active: !currentActive });
+          Utils.showToast(!currentActive ? 'Role activated' : 'Role deactivated', 'success', 2500);
+          await loadAgentRolesTab(container);
+        } catch (err) {
+          showError(`Failed to update role: ${err.message || err}`, err);
+        }
+      });
+    });
+
+    listEl.querySelectorAll('.role-edit-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const roleKey = btn.getAttribute('data-role-key');
+        const role = roles.find((r) => r.key === roleKey);
+        if (!role) return;
+
+        const content = document.createElement('div');
+        content.innerHTML = `
+          <div style="display:flex; flex-direction:column; gap:12px; min-width:320px; max-width:640px;">
+            <div>
+              <label class="muted" style="display:block; margin-bottom:6px;">Label</label>
+              <input id="edit-role-label" class="form-control" type="text" value="${escapeHtml(role.label)}" style="width:100%;" />
+            </div>
+            <div>
+              <label class="muted" style="display:block; margin-bottom:6px;">Description (used as prompt prefix)</label>
+              <textarea id="edit-role-description" class="form-control" rows="6" style="width:100%; font-family:ui-monospace, monospace;">${escapeHtml(role.description)}</textarea>
+            </div>
+            <label style="display:flex; align-items:center; gap:8px; font-weight:600;">
+              <input id="edit-role-active" type="checkbox" ${role.active ? 'checked' : ''} />
+              Active
+            </label>
+          </div>
+        `;
+
+        const result = await Utils.showModal(`Edit Role: ${roleKey}`, content, [
+          { label: 'Cancel', value: null },
+          { label: 'Save', primary: true, value: 'save' },
+        ]);
+
+        if (result !== 'save') {
+          return;
+        }
+
+        const labelInput = content.querySelector('#edit-role-label');
+        const descInput = content.querySelector('#edit-role-description');
+        const activeInput = content.querySelector('#edit-role-active');
+
+        const newLabel = (labelInput?.value || '').trim();
+        const newDescription = (descInput?.value || '').trim();
+        const newActive = Boolean(activeInput?.checked);
+
+        if (!newLabel) {
+          showError('Label cannot be empty.');
+          return;
+        }
+        if (!newDescription) {
+          showError('Description cannot be empty.');
+          return;
+        }
+
+        try {
+          await updateAgentRole(roleKey, {
+            label: newLabel,
+            description: newDescription,
+            active: newActive,
+          });
+          Utils.showToast('Role updated', 'success', 2500);
+          await loadAgentRolesTab(container);
+        } catch (err) {
+          showError(`Failed to save role: ${err.message || err}`, err);
+        }
+      });
+    });
+  }
+
   function renderPromptItem(prompt) {
     const description = prompt.description
-      ? `<p style="margin: 4px 0 0; font-size: 13px; color: #71717a;">${formatValue(prompt.description, '')}</p>`
+      ? `<p class="prompt-description muted">${formatValue(prompt.description, '')}</p>`
       : '';
 
     return `
-      <div class="prompt-item" style="padding: 16px; border: 1px solid #3f3f46; border-radius: 6px; margin-bottom: 12px; background: #27272a;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-          <div style="flex: 1;">
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 4px;">
-              <span style="font-size: 20px;">📝</span>
-              <div>
-                <p style="margin: 0; font-weight: 600; color: #f4f4f5; font-size: 15px;">${formatValue(prompt.label, '—')}</p>
-                <p style="margin: 4px 0 0; font-size: 13px; color: #a1a1aa; font-family: 'Courier New', monospace;">&gt;${formatValue(prompt.command, '—')}</p>
-              </div>
-            </div>
+      <div class="prompt-item">
+        <div class="prompt-item-main">
+          <span class="prompt-icon">📝</span>
+          <div>
+            <p class="prompt-title">${formatValue(prompt.label, '—')}</p>
+            <p class="prompt-command">&gt;${formatValue(prompt.command, '—')}</p>
             ${description}
           </div>
-          <div style="display: flex; gap: 8px; margin-left: 16px;">
-            <button type="button" class="edit-prompt-btn" data-prompt-id="${prompt.id}" style="padding: 6px 12px; background: #27272a; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 4px; cursor: pointer; font-size: 13px;">
-              Edit
-            </button>
-            <button type="button" class="delete-prompt-btn" data-prompt-id="${prompt.id}" style="padding: 6px 12px; background: #27272a; color: #ef4444; border: 1px solid #3f3f46; border-radius: 4px; cursor: pointer; font-size: 13px;">
-              Delete
-            </button>
-          </div>
+        </div>
+        <div class="prompt-actions">
+          <button type="button" class="edit-prompt-btn button secondary" data-prompt-id="${prompt.id}">
+            Edit
+          </button>
+          <button type="button" class="delete-prompt-btn button danger" data-prompt-id="${prompt.id}">
+            Delete
+          </button>
         </div>
       </div>
     `;
@@ -973,12 +1251,19 @@
       lastFocusedElement = document.activeElement;
 
       if (modal) {
-        modal.style.display = 'block';
+        modal.style.display = 'flex';
         modal.setAttribute('aria-hidden', 'false');
         document.body.style.overflow = 'hidden';
+        requestAnimationFrame(() => {
+          modal.classList.add('visible');
+        });
       }
       if (dialog) {
-        dialog.focus();
+        dialog.style.transform = 'scale(0.95)';
+        requestAnimationFrame(() => {
+          dialog.style.transform = 'scale(1)';
+          dialog.focus();
+        });
       }
 
       // Focus first input
@@ -989,10 +1274,16 @@
     },
 
     hidePromptModal() {
-      const { modal } = getPromptModalElements();
+      const { modal, dialog } = getPromptModalElements();
       if (modal) {
-        modal.style.display = 'none';
-        modal.setAttribute('aria-hidden', 'true');
+        modal.classList.remove('visible');
+        if (dialog) {
+          dialog.style.transform = 'scale(0.95)';
+        }
+        setTimeout(() => {
+          modal.style.display = 'none';
+          modal.setAttribute('aria-hidden', 'true');
+        }, 200);
         document.body.style.overflow = '';
       }
       if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
@@ -1041,7 +1332,7 @@
         Pages.Config.hidePromptModal();
 
         // Reload prompts tab
-        const container = document.querySelector('.page-content');
+        const container = getSettingsContainer();
         if (container) {
           await setActiveTab(container, 'prompts', { forceReload: true });
         }
@@ -1065,7 +1356,7 @@
         Utils.showToast('Prompt deleted successfully');
 
         // Reload prompts tab
-        const container = document.querySelector('.page-content');
+        const container = getSettingsContainer();
         if (container) {
           await setActiveTab(container, 'prompts', { forceReload: true });
         }
@@ -1095,7 +1386,7 @@
 
     async savePurge() {
       const input = document.getElementById('purge-days');
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       const raw = input ? input.value : '';
       const days = raw ? parseInt(raw, 10) : NaN;
       if (!Number.isInteger(days) || days <= 0) {
@@ -1116,7 +1407,7 @@
       const pollInput = document.getElementById('qr-poll-interval');
       const autoFailInput = document.getElementById('qr-auto-fail-interval');
       const baseUrlInput = document.getElementById('qr-base-url');
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
 
       const pollVal = pollInput ? parseInt(pollInput.value, 10) : NaN;
       const autoFailVal = autoFailInput ? parseInt(autoFailInput.value, 10) : NaN;
@@ -1150,22 +1441,16 @@
     },
 
     goToRunningTasks() {
-      const navBtn = document.querySelector(".nav-tab[data-tab='sparkqueue']");
-      if (navBtn) {
-        navBtn.click();
+      if (Utils.navigateTo) {
+        Utils.navigateTo('dashboard');
+      } else {
+        window.location.assign('/dashboard');
       }
-      setTimeout(() => {
-        const statusSelect = document.querySelector('#sparkqueue-page #task-status-filter');
-        if (statusSelect) {
-          statusSelect.value = 'running';
-          statusSelect.dispatchEvent(new Event('change'));
-        }
-      }, 150);
     },
 
     async saveBuildId() {
       const input = document.getElementById('build-id-input');
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       const value = input ? (input.value || '').trim() : '';
       if (!value) {
         showError('Build ID cannot be empty.');
@@ -1182,7 +1467,7 @@
     },
 
     async saveFeatureFlags() {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       try {
         const flags = parseJSONField('feature-flags-input');
         await updateConfigEntry('features', 'flags', flags);
@@ -1195,7 +1480,7 @@
     },
 
     async saveTools() {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       try {
         const tools = parseJSONField('tools-json-input');
         await updateConfigEntry('tools', 'all', tools);
@@ -1208,7 +1493,7 @@
     },
 
     async saveTaskClasses() {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       try {
         const taskClasses = parseJSONField('task-classes-json-input');
         await updateConfigEntry('task_classes', 'all', taskClasses);
@@ -1221,7 +1506,7 @@
     },
 
     async saveQueueDefaults() {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       try {
         const defaults = parseJSONField('queue-defaults-json-input');
         await updateConfigEntry('defaults', 'queue', defaults);
@@ -1233,8 +1518,28 @@
       }
     },
 
+    async saveDefaultModel() {
+      const container = getSettingsContainer();
+      const modelSelect = document.getElementById('default-model-select');
+      const selectedModel = modelSelect?.value || 'llm-sonnet';
+
+      if (!selectedModel) {
+        showError('Please select a default model.');
+        return;
+      }
+
+      try {
+        await updateConfigEntry('defaults', 'model', selectedModel);
+        invalidateConfigCache();
+        Utils.showToast('Default model saved', 'success', 3000);
+        if (container) await loadTaskExecutionTab(container);
+      } catch (err) {
+        showError(err.message || err);
+      }
+    },
+
     async saveTaskClassRow() {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       const nameInput = document.getElementById('task-class-name-input');
       const timeoutInput = document.getElementById('task-class-timeout-input');
       const descInput = document.getElementById('task-class-desc-input');
@@ -1262,7 +1567,7 @@
     },
 
     async deleteTaskClassRow(name) {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       if (!name) return;
       try {
         await api('DELETE', `/api/task-classes/${encodeURIComponent(name)}`, null, { action: 'delete task class' });
@@ -1275,7 +1580,7 @@
     },
 
     async saveToolRow() {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       const nameInput = document.getElementById('tool-name-input');
       const descInput = document.getElementById('tool-desc-input');
       const taskClassSelect = document.getElementById('tool-task-class-select');
@@ -1303,7 +1608,7 @@
     },
 
     async deleteToolRow(name) {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       if (!name) return;
       try {
         await api('DELETE', `/api/tools/${encodeURIComponent(name)}`, null, { action: 'delete tool' });
@@ -1316,7 +1621,7 @@
     },
 
     async saveProjectConfig() {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       const nameInput = document.getElementById('project-name');
       const repoPathInput = document.getElementById('project-repo-path');
       const prdPathInput = document.getElementById('project-prd-path');
@@ -1345,7 +1650,7 @@
     },
 
     async saveScriptDirs() {
-      const container = document.querySelector('.page-content');
+      const container = getSettingsContainer();
       const sparkqInput = document.getElementById('sparkq-scripts-dir');
       const projectInput = document.getElementById('project-script-dirs');
 
@@ -1398,5 +1703,7 @@
       }
     }
   };
+
+  Pages.Settings = Pages.Config;
 
 })(window.Pages, window.API, window.Utils);

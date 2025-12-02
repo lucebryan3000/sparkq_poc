@@ -22,6 +22,7 @@ from .constants import (
     STALE_FAIL_MULTIPLIER,
     STALE_WARNING_MULTIPLIER,
 )
+from .agent_roles import agent_role_definitions
 from .metrics import incr, observe
 from .errors import ConflictError, NotFoundError, ValidationError
 
@@ -53,6 +54,7 @@ class QueueRow(TypedDict):
     name: str
     instructions: NotRequired[str]
     codex_session_id: NotRequired[str]
+    default_agent_role_key: NotRequired[str]
     status: str
     created_at: str
     updated_at: str
@@ -64,6 +66,7 @@ class TaskRow(TypedDict):
     tool_name: str
     task_class: str
     payload: str
+    agent_role_key: NotRequired[str]
     status: str
     timeout: int
     attempts: int
@@ -77,6 +80,16 @@ class TaskRow(TypedDict):
     finished_at: NotRequired[str]
     claimed_at: NotRequired[str]
     stale_warned_at: NotRequired[str]
+
+
+class AgentRoleRow(TypedDict):
+    id: int
+    key: str
+    label: str
+    description: str
+    active: bool
+    created_at: str
+    updated_at: str
 
 
 # ID generation helpers
@@ -101,7 +114,7 @@ def gen_prompt_id() -> str:
 
 
 def now_iso() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(UTC).isoformat()
 
 
 class Storage:
@@ -178,6 +191,7 @@ class Storage:
                 name TEXT NOT NULL UNIQUE,
                 instructions TEXT,
                 codex_session_id TEXT,
+                default_agent_role_key TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -185,6 +199,7 @@ class Storage:
             """
             )
             _ensure_column("queues", "codex_session_id", "TEXT")
+            _ensure_column("queues", "default_agent_role_key", "TEXT")
 
             cursor.execute(
                 """
@@ -194,6 +209,7 @@ class Storage:
                 tool_name TEXT NOT NULL,
                 task_class TEXT NOT NULL,
                 payload TEXT NOT NULL,
+                agent_role_key TEXT,
                 status TEXT NOT NULL DEFAULT 'queued',
                 timeout INTEGER NOT NULL,
                 attempts INTEGER NOT NULL DEFAULT 0,
@@ -212,6 +228,25 @@ class Storage:
             )
             _ensure_column("tasks", "claimed_at", "TEXT")
             _ensure_column("tasks", "stale_warned_at", "TEXT")
+            _ensure_column("tasks", "agent_role_key", "TEXT")
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS agent_roles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT NOT NULL UNIQUE,
+                    label TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_roles_key ON agent_roles(key)"
+            )
+            self._seed_agent_roles(cursor)
 
             # Create prompts table for text expanders (Phase 14A)
             cursor.execute(
@@ -362,6 +397,39 @@ class Storage:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_tools_task_class ON tools(task_class)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_config_namespace ON config(namespace)")
 
+    def _seed_agent_roles(self, cursor):
+        """Seed built-in agent roles without overwriting custom active flags."""
+        try:
+            definitions = agent_role_definitions()
+        except Exception:
+            self.logger.exception("Failed to load agent role definitions")
+            return
+
+        now = now_iso()
+        for role in definitions:
+            try:
+                active_value = 1 if role.get("active", True) else 0
+                cursor.execute(
+                    """
+                    INSERT INTO agent_roles (key, label, description, active, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        label=excluded.label,
+                        description=excluded.description,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        role["key"],
+                        role["label"],
+                        role["description"],
+                        active_value,
+                        now,
+                        now,
+                    ),
+                )
+            except Exception:
+                self.logger.exception("Failed to seed agent role %s", role)
+
     # === Project CRUD ===
     def create_project(self, name: str, repo_path: str = None, prd_path: str = None) -> ProjectRow:
         project_id = gen_project_id()
@@ -475,15 +543,15 @@ class Storage:
             return cursor.rowcount > 0
 
     # === Queue CRUD ===
-    def create_queue(self, session_id: str, name: str, instructions: str = None) -> QueueRow:
+    def create_queue(self, session_id: str, name: str, instructions: str = None, default_agent_role_key: str = None) -> QueueRow:
         queue_id = gen_queue_id()
         now = now_iso()
 
         with self.connection() as conn:
             conn.execute(
-                """INSERT INTO queues (id, session_id, name, instructions, status, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (queue_id, session_id, name, instructions, 'active', now, now)
+                """INSERT INTO queues (id, session_id, name, instructions, default_agent_role_key, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (queue_id, session_id, name, instructions, default_agent_role_key, 'active', now, now)
             )
 
         return {
@@ -491,6 +559,7 @@ class Storage:
             'session_id': session_id,
             'name': name,
             'instructions': instructions,
+            'default_agent_role_key': default_agent_role_key,
             'status': 'active',
             'created_at': now,
             'updated_at': now
@@ -599,25 +668,126 @@ class Storage:
             )
             return cursor.rowcount > 0
 
+    # === Agent Roles ===
+    def list_agent_roles(self, active_only: bool = True) -> List[AgentRoleRow]:
+        query = (
+            "SELECT id, key, label, description, active, created_at, updated_at FROM agent_roles"
+        )
+        params: List[Any] = []
+        if active_only:
+            query += " WHERE active = 1"
+        query += " ORDER BY label"
+
+        with self.connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "key": row["key"],
+                "label": row["label"],
+                "description": row["description"],
+                "active": bool(row["active"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+    def get_agent_role_by_key(self, role_key: str, include_inactive: bool = True) -> Optional[AgentRoleRow]:
+        if not role_key:
+            return None
+
+        query = (
+            "SELECT id, key, label, description, active, created_at, updated_at "
+            "FROM agent_roles WHERE key = ?"
+        )
+        params: List[Any] = [role_key]
+        if not include_inactive:
+            query += " AND active = 1"
+
+        with self.connection() as conn:
+            row = conn.execute(query, params).fetchone()
+            if not row:
+                return None
+
+        return {
+            "id": row["id"],
+            "key": row["key"],
+            "label": row["label"],
+            "description": row["description"],
+            "active": bool(row["active"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def update_agent_role(
+        self,
+        role_key: str,
+        label: Optional[str] = None,
+        description: Optional[str] = None,
+        active: Optional[bool] = None,
+    ) -> AgentRoleRow:
+        """Update an agent role's label/description/active flag."""
+        if not role_key:
+            raise ValidationError("role_key is required")
+        existing = self.get_agent_role_by_key(role_key, include_inactive=True)
+        if not existing:
+            raise NotFoundError(f"Agent role not found: {role_key}")
+
+        updates: Dict[str, Any] = {}
+        if label is not None:
+            cleaned = str(label).strip()
+            if not cleaned:
+                raise ValidationError("label cannot be empty")
+            updates["label"] = cleaned
+        if description is not None:
+            cleaned = str(description).strip()
+            if not cleaned:
+                raise ValidationError("description cannot be empty")
+            updates["description"] = cleaned
+        if active is not None:
+            updates["active"] = 1 if bool(active) else 0
+
+        if not updates:
+            return existing
+
+        updates["updated_at"] = now_iso()
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        params = list(updates.values()) + [role_key]
+
+        with self.connection() as conn:
+            conn.execute(f"UPDATE agent_roles SET {set_clause} WHERE key = ?", params)
+
+        return self.get_agent_role_by_key(role_key, include_inactive=True)
+
     # === Task CRUD ===
     def create_task(
-        self, queue_id: str, tool_name: str, task_class: str, payload: str, timeout: int,
-        prompt_path: str = None, metadata: str = None
+        self,
+        queue_id: str,
+        tool_name: str,
+        task_class: str,
+        payload: str,
+        timeout: int,
+        prompt_path: str = None,
+        metadata: str = None,
+        agent_role_key: str = None,
     ) -> TaskRow:
         task_id = gen_task_id()
         now = now_iso()
 
         with self.connection() as conn:
             conn.execute(
-                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, status, timeout, attempts,
+                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, agent_role_key, status, timeout, attempts,
                                       claimed_at, stale_warned_at, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     task_id,
                     queue_id,
                     tool_name,
                     task_class,
                     payload,
+                    agent_role_key,
                     'queued',
                     timeout,
                     0,
@@ -634,6 +804,7 @@ class Storage:
             'tool_name': tool_name,
             'task_class': task_class,
             'payload': payload,
+            'agent_role_key': agent_role_key,
             'status': 'queued',
             'timeout': timeout,
             'attempts': 0,
@@ -1079,15 +1250,16 @@ class Storage:
 
         with self.connection() as conn:
             conn.execute(
-                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, status, timeout, attempts,
+                """INSERT INTO tasks (id, queue_id, tool_name, task_class, payload, agent_role_key, status, timeout, attempts,
                                       claimed_at, stale_warned_at, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     new_task_id,
                     original_task['queue_id'],
                     original_task['tool_name'],
                     original_task['task_class'],
                     original_task['payload'],
+                    original_task.get('agent_role_key'),
                     'queued',
                     original_task['timeout'],
                     0,
@@ -1121,7 +1293,7 @@ class Storage:
         if not existing:
             return None
 
-        allowed = {'tool_name', 'payload', 'timeout', 'status'}
+        allowed = {'tool_name', 'payload', 'timeout', 'status', 'agent_role_key'}
         allowed_updates = {k: v for k, v in updates.items() if k in allowed}
 
         if not allowed_updates:

@@ -1,4 +1,5 @@
 import sys
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools import test_index
+TEST_INDEX_PATH = REPO_ROOT / "tools" / "test_index.py"
+spec = importlib.util.spec_from_file_location("sparkqueue_tools_test_index", TEST_INDEX_PATH)
+if spec is None or spec.loader is None:
+    raise ImportError(f"Unable to load test_index from {TEST_INDEX_PATH}")
+test_index = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = test_index
+spec.loader.exec_module(test_index)
 
 
 def test_parse_api_routes(tmp_path):

@@ -10,7 +10,7 @@ from .models import TaskClassDefaults
 # Helper imports inside functions to avoid circular dependencies
 
 
-TASK_CLASS_DEFAULT_TIMEOUTS = TaskClassDefaults().dict()
+TASK_CLASS_DEFAULT_TIMEOUTS = TaskClassDefaults().model_dump()
 
 
 def default_timeout_for_task_class(task_class: str | None) -> int:

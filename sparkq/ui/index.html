@@ -73,33 +73,23 @@
 <body>
   <header class='app-header'>
     <div class='header-left'>
-      <button class='hamburger-btn' id='menu-toggle' aria-label='Toggle menu'>
-        <span></span>
-        <span></span>
-        <span></span>
+      <button type='button' class='navbar-brand' id='navbar-brand-btn' aria-label='Go to dashboard' title='Go to dashboard'>
+        <span class='brand-mark'>⚡</span>
+        <span class='brand-text'>SparkQueue</span>
       </button>
-      <button class='navbar-brand' id='navbar-brand-btn' aria-label='Go to dashboard'>SparkQueue</button>
     </div>
     <div class='header-right'>
-      <span id="build-id" style="font-size: 11px; color: #9ca3af; margin-right: 8px;"></span>
-      <button class='button secondary' id='theme-toggle-btn' title='Toggle dark/light mode' style='padding: 6px 12px; font-size: 14px;'>🌙</button>
+      <span id="build-id" class="build-chip"></span>
+      <div class="nav-actions">
+        <button type='button' class='icon-button' id='settings-nav-btn' aria-label='Settings' title='Open settings'>⚙️</button>
+        <button type='button' class='icon-button' id='theme-toggle-btn' title='Toggle dark/light mode' aria-label='Toggle theme'>🌙</button>
+      </div>
     </div>
   </header>
 
-  <nav class='hamburger-menu' id='nav-menu'>
-    <button class='nav-tab active' data-tab='dashboard'>Dashboard</button>
-    <button class='nav-tab' data-tab='sparkqueue'>SparkQueue</button>
-    <button class='nav-tab' data-tab='enqueue'>Enqueue</button>
-    <button class='nav-tab' data-tab='config'>Config</button>
-    <button class='nav-tab' data-tab='scripts'>Scripts</button>
-  </nav>
-
   <main id='app' class='container'>
     <div id='dashboard-page' class='page-content'></div>
-    <div id='sparkqueue-page' class='page-content'></div>
-    <div id='enqueue-page' class='page-content'></div>
-    <div id='config-page' class='page-content'></div>
-    <div id='scripts-page' class='page-content'></div>
+    <div id='settings-page' class='page-content'></div>
   </main>
 
   <div id='breadcrumbs' class='breadcrumbs'></div>
@@ -108,8 +98,13 @@
     (function() {
       const el = document.getElementById('build-id');
       const buildId = window.__SPARKQ_BUILD_ID__ || window.__BUILD_ID__;
-      if (el && buildId) {
-        el.textContent = `UI v${buildId}`;
+      if (el) {
+        if (buildId) {
+          el.textContent = `UI v${buildId}`;
+          el.style.display = 'inline-flex';
+        } else {
+          el.style.display = 'none';
+        }
       }
     })();
   </script>

@@ -215,27 +215,257 @@
     }
   }
 
+  function statusPillClass(status) {
+    const lower = String(status || '').toLowerCase();
+    if (['running', 'in_progress', 'in-progress'].includes(lower)) {
+      return 'status-pill--running';
+    }
+    if (lower === 'queued' || lower === 'pending') {
+      return 'status-pill--queued';
+    }
+    if (['succeeded', 'completed', 'done', 'success'].includes(lower)) {
+      return 'status-pill--succeeded';
+    }
+    if (['failed', 'error', 'ended', 'timeout', 'cancelled', 'canceled'].includes(lower)) {
+      return 'status-pill--failed';
+    }
+    return '';
+  }
+
+  function renderStatusPill(status) {
+    const label = (status || 'unknown').toString();
+    const pillClass = statusPillClass(status);
+    return `<span class="status-pill${pillClass ? ` ${pillClass}` : ''}">${label}</span>`;
+  }
+
+  async function showEditTaskDialog(task, queueId, queueName, container) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal modal-overlay';
+    overlay.style.opacity = '0';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-content';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.style.transform = 'scale(0.95)';
+    modal.tabIndex = -1;
+
+    let payloadText = '';
+    let originalPayload = task.payload;
+    if (typeof task.payload === 'string') {
+      const trimmed = task.payload.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          originalPayload = parsed;
+          if (parsed && typeof parsed.prompt === 'string') {
+            payloadText = parsed.prompt;
+          } else {
+            payloadText = '';
+          }
+        } catch (_) {
+          payloadText = '';
+        }
+      } else {
+        payloadText = task.payload;
+      }
+    } else if (task.payload && typeof task.payload.prompt === 'string') {
+      payloadText = task.payload.prompt;
+    } else if (task.payload && typeof task.payload === 'object') {
+      payloadText = '';
+    }
+
+    const statusLabel = (task.status || 'queued').toString();
+    const friendlyLabel = task.friendly_id || `Task #${task.id}`;
+    const toolLabel = getFriendlyToolName(task.tool_name) || task.tool_name || '';
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const title = document.createElement('h3');
+    title.className = 'modal-title';
+    title.textContent = `Edit ${friendlyLabel}`;
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'edit-task-close';
+    closeBtn.type = 'button';
+    closeBtn.className = 'modal-close-button';
+    closeBtn.setAttribute('aria-label', 'Close edit task dialog');
+    closeBtn.innerHTML = '&times;';
+    header.append(title, closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+
+    const badgeRow = document.createElement('div');
+    badgeRow.innerHTML = renderStatusPill(statusLabel);
+    body.appendChild(badgeRow);
+
+    const toolGroup = document.createElement('div');
+    toolGroup.className = 'form-group';
+    const toolLabelEl = document.createElement('label');
+    toolLabelEl.textContent = 'Tool';
+    const toolInput = document.createElement('input');
+    toolInput.id = 'edit-task-tool';
+    toolInput.type = 'text';
+    toolInput.className = 'form-control';
+    toolInput.value = toolLabel;
+    toolInput.disabled = true;
+    toolGroup.append(toolLabelEl, toolInput);
+    body.appendChild(toolGroup);
+
+    const payloadGroup = document.createElement('div');
+    payloadGroup.className = 'form-group';
+    const payloadLabelEl = document.createElement('label');
+    payloadLabelEl.textContent = 'Prompt / Payload';
+    const payloadInput = document.createElement('textarea');
+    payloadInput.id = 'edit-task-payload';
+    payloadInput.className = 'form-control';
+    payloadInput.style.minHeight = '140px';
+    payloadInput.value = payloadText;
+    payloadGroup.append(payloadLabelEl, payloadInput);
+    body.appendChild(payloadGroup);
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.id = 'edit-task-delete';
+    deleteBtn.className = 'button danger';
+    deleteBtn.textContent = '🗑️ Delete';
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.id = 'edit-task-cancel';
+    cancelBtn.className = 'button secondary';
+    cancelBtn.textContent = 'Cancel';
+    const saveBtn = document.createElement('button');
+    saveBtn.id = 'edit-task-save';
+    saveBtn.className = 'button primary';
+    saveBtn.textContent = 'Save';
+    actions.append(cancelBtn, saveBtn);
+    footer.append(deleteBtn, actions);
+
+    modal.append(header, body, footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+      overlay.classList.add('visible');
+      modal.style.transform = 'scale(1)';
+      payloadInput.focus();
+      payloadInput.select();
+    });
+
+    const getPayload = () => {
+      const promptText = payloadInput?.value ?? '';
+      let payload = promptText;
+      if (originalPayload && typeof originalPayload === 'object') {
+        payload = { ...originalPayload, prompt: promptText };
+      }
+      if (payload && typeof payload === 'object') {
+        try {
+          return { payload: JSON.stringify(payload) };
+        } catch (err) {
+          console.error('Failed to serialize payload, falling back to prompt text:', err);
+          return { payload: promptText };
+        }
+      }
+      return { payload };
+    };
+
+    const result = await new Promise((resolve) => {
+      let onKeyDown;
+      const finish = (value) => {
+        overlay.classList.remove('visible');
+        modal.style.transform = 'scale(0.95)';
+        setTimeout(() => overlay.remove(), 200);
+        if (onKeyDown) {
+          document.removeEventListener('keydown', onKeyDown);
+        }
+        resolve(value);
+      };
+
+      onKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          finish(null);
+        }
+        if (e.key === 'Enter' && document.activeElement?.tagName !== 'TEXTAREA') {
+          e.preventDefault();
+          saveBtn.click();
+        }
+      };
+      document.addEventListener('keydown', onKeyDown);
+
+      overlay.addEventListener('click', (event) => {
+        if (event.target === overlay) {
+          finish(null);
+        }
+      });
+
+      const handleSave = () => finish(getPayload());
+      const handleCancel = () => finish(null);
+      const handleDelete = () => finish({ delete: true });
+      cancelBtn.addEventListener('click', handleCancel);
+      closeBtn.addEventListener('click', handleCancel);
+      saveBtn.addEventListener('click', handleSave);
+      deleteBtn.addEventListener('click', handleDelete);
+    });
+
+    if (!result) return;
+
+    const payload = result;
+
+    if (payload.delete) {
+      const friendly = task?.friendly_id || task.id;
+      const label = friendly;
+      let confirmed = false;
+      try {
+        confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
+      } catch (err) {
+        confirmed = window.confirm(`Are you sure you want to delete task ${label}? This cannot be undone.`);
+      }
+      if (!confirmed) return;
+      try {
+        await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
+        showToast(`Task ${label} deleted`, 'success');
+        loadQueueDetails(container, queueId, queueName);
+      } catch (err) {
+        console.error('Failed to delete task:', err);
+        showToast('Failed to delete task', 'error');
+      }
+      return;
+    }
+
+    try {
+      await api('PUT', `/api/tasks/${encodeURIComponent(task.id)}`, payload, { action: 'update task' });
+      showToast('Task updated successfully', 'success');
+      loadQueueDetails(container, queueId, queueName);
+    } catch (err) {
+      console.error('Failed to update task:', err);
+      const msg = err?.detail || err?.message || 'Failed to update task';
+      showToast(msg, 'error');
+    }
+  }
+
   function buildInstructionsSection(queueDetails, isArchived) {
     const instructions = queueDetails?.instructions;
 
     if (instructions && instructions.trim()) {
       return `
-        <div class="instructions-section" style="margin-bottom: 20px; padding: 16px; background: rgba(59, 130, 246, 0.1); border-left: 3px solid #3b82f6; border-radius: 6px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h4 style="margin: 0; font-size: 14px; font-weight: 600;">📋 Queue Instructions</h4>
-            ${!isArchived ? `<button class="button-link" onclick="window.quickAdd?.showInstructions()" style="font-size: 12px; color: #3b82f6; background: none; border: none; cursor: pointer; text-decoration: underline;">Edit</button>` : ''}
+        <div class="instructions-section">
+          <div class="instructions-header">
+            <h4 class="instructions-title">📋 Queue Instructions</h4>
+            ${!isArchived ? `<button class="button-link" onclick="window.quickAdd?.showInstructions()">Edit</button>` : ''}
           </div>
-          <div class="instructions-content" style="white-space: pre-wrap; font-size: 13px; color: rgba(255,255,255,0.9); line-height: 1.5; font-family: ui-monospace, monospace;">
+          <div class="instructions-content">
 ${instructions}</div>
         </div>
       `;
     } else if (!isArchived) {
       return `
-        <div class="instructions-section" style="margin-bottom: 20px; padding: 12px; background: rgba(255, 255, 255, 0.05); border-radius: 6px; text-align: center;">
-          <button class="button secondary" onclick="window.quickAdd?.showInstructions()" style="font-size: 13px; padding: 8px 12px;">
+        <div class="instructions-section instructions-empty">
+          <button class="button secondary" onclick="window.quickAdd?.showInstructions()">
             + Add Queue Instructions
           </button>
-          <span class="muted" style="margin-left: 8px; font-size: 12px;">Provide context and guardrails for this queue</span>
+          <span class="muted instructions-helper">Provide context and guardrails for this queue</span>
         </div>
       `;
     }
@@ -285,15 +515,15 @@ ${instructions}</div>
     const taskRows = tasks
       .map((task) => {
         const duration = task.duration ? formatDuration(task.duration) : '—';
-        const status = task.status || 'pending';
-        const statusClass = status === 'completed' ? 'success' : status === 'failed' ? 'error' : 'muted';
+        const statusLabel = task.status || 'pending';
+        const statusPill = renderStatusPill(statusLabel);
         const friendlyTool = getFriendlyToolName(task.tool_name);
 
         return `
-          <tr>
+          <tr class="task-row-clickable" data-task-id="${task.id}" style="cursor: pointer;">
             <td>${task.id}</td>
             <td>${friendlyTool || '—'}</td>
-            <td><span class="${statusClass}">${status}</span></td>
+            <td>${statusPill}</td>
             <td>${formatTimestamp(task.created_at)}</td>
             <td>${duration}</td>
           </tr>
@@ -376,10 +606,23 @@ ${instructions}</div>
 
     // Initialize QuickAdd component
     if (window.QuickAdd && !isArchived) {
-      quickAdd = new window.QuickAdd('quick-add-container', queueId, queueName);
+      quickAdd = new window.QuickAdd('quick-add-container', queueId, queueName, queueDetails);
+      window.quickAdd = quickAdd;
       quickAdd.setRefreshCallback(() => loadQueueDetails(container, queueId, queueName));
       quickAdd.render();
     }
+
+    // Attach click handlers to task rows
+    const taskRowElements = detailsContainer.querySelectorAll('.task-row-clickable');
+    taskRowElements.forEach((row) => {
+      row.addEventListener('click', async () => {
+        const taskId = row.getAttribute('data-task-id');
+        const task = tasks.find((t) => String(t.id) === String(taskId));
+        if (task) {
+          await showEditTaskDialog(task, queueId, queueName, container);
+        }
+      });
+    });
   }
 
   Pages.Queues = {

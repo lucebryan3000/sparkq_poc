@@ -3,6 +3,7 @@ import time
 
 import pytest
 
+from src.errors import ValidationError
 
 class TestStorageInit:
     def test_creates_expected_tables(self, storage):
@@ -138,6 +139,34 @@ class TestQueueOperations:
         assert row is not None
         assert row["name"] == "queue-alpha"
         assert row["session_id"] == session["id"]
+
+
+class TestAgentRoles:
+    def test_update_agent_role_updates_fields(self, storage):
+        role = storage.get_agent_role_by_key("backend_architect", include_inactive=True)
+        assert role is not None
+
+        updated = storage.update_agent_role(
+            "backend_architect",
+            label="Backend Chief",
+            description="Updated description",
+            active=False,
+        )
+
+        assert updated["label"] == "Backend Chief"
+        assert updated["description"] == "Updated description"
+        assert updated["active"] is False
+
+        reloaded = storage.get_agent_role_by_key("backend_architect", include_inactive=True)
+        assert reloaded["label"] == "Backend Chief"
+        assert reloaded["description"] == "Updated description"
+        assert reloaded["active"] is False
+
+    def test_update_agent_role_validates_non_empty_fields(self, storage):
+        with pytest.raises(ValidationError):
+            storage.update_agent_role("backend_architect", label="  ")
+        with pytest.raises(ValidationError):
+            storage.update_agent_role("backend_architect", description="")
 
     def test_queue_name_must_be_unique(self, storage, session):
         storage.create_queue(session_id=session["id"], name="unique-queue")

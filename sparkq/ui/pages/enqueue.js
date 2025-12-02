@@ -16,6 +16,11 @@
   let scriptIndexLoaded = false;
   let scriptIndexPromise = null;
   let pendingScriptSelection = null;
+  const consumePendingSelection = Utils.consumePendingScriptSelection || (() => {
+    const selection = pendingScriptSelection;
+    pendingScriptSelection = null;
+    return selection;
+  });
 
   function injectEnqueueStyles() {
     if (document.getElementById('enqueue-styles')) {
@@ -115,7 +120,7 @@
           <div class="grid grid-2">
             <div class="input-group">
               <label for="enqueue-queue">Queue</label>
-              <input id="enqueue-queue" list="enqueue-queue-options" placeholder="Enter or choose a queue ID" required />
+              <input id="enqueue-queue" list="enqueue-queue-options" placeholder="Enter or choose a queue ID" class="form-control" required />
               <datalist id="enqueue-queue-options">
                 ${queueOptions}
               </datalist>
@@ -123,7 +128,7 @@
             <div class="input-group">
               <label for="enqueue-tool">Script</label>
               <div class="autocomplete-wrapper">
-                <input id="enqueue-tool" type="text" autocomplete="off" placeholder="Start typing a script name" required />
+                <input id="enqueue-tool" type="text" autocomplete="off" placeholder="Start typing a script name" class="form-control" required />
                 <div id="script-suggestions" class="autocomplete-list"></div>
               </div>
               <div id="script-helper" class="script-helper"></div>
@@ -133,24 +138,24 @@
           <div class="grid grid-2">
             <div class="input-group">
               <label for="enqueue-task-class">Task Class</label>
-              <select id="enqueue-task-class" required>
+              <select id="enqueue-task-class" class="form-control form-select" required>
                 ${taskClasses.map((entry) => `<option value="${entry}">${entry}</option>`).join('')}
               </select>
             </div>
             <div class="input-group">
               <label for="enqueue-timeout">Timeout (seconds)</label>
-              <input id="enqueue-timeout" type="number" min="1" step="1" placeholder="Optional" />
+              <input id="enqueue-timeout" type="number" min="1" step="1" placeholder="Optional" class="form-control" />
             </div>
           </div>
 
           <div class="grid grid-2">
             <div class="input-group">
               <label for="enqueue-prompt-path">Prompt Path (optional)</label>
-              <input id="enqueue-prompt-path" type="text" placeholder="/path/to/prompt" />
+              <input id="enqueue-prompt-path" type="text" placeholder="/path/to/prompt" class="form-control" />
             </div>
             <div class="input-group">
               <label for="enqueue-metadata">Metadata (JSON, optional)</label>
-              <textarea id="enqueue-metadata" rows="3" placeholder='{"key":"value"}'></textarea>
+              <textarea id="enqueue-metadata" rows="3" placeholder='{"key":"value"}' class="form-control"></textarea>
             </div>
           </div>
 
@@ -395,8 +400,11 @@
       }
     });
 
-    if (pendingScriptSelection) {
-      const match = scripts.find((entry) => String(entry.name || '') === String(pendingScriptSelection.name || ''));
+    const pendingFromNav = typeof consumePendingSelection === 'function' ? consumePendingSelection() : null;
+    const selection = pendingFromNav || pendingScriptSelection;
+
+    if (selection) {
+      const match = scripts.find((entry) => String(entry.name || '') === String(selection.name || ''));
       if (match) {
         selectScript(match);
       }

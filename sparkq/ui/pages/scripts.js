@@ -4,6 +4,8 @@
   const api = API.api;
   const formatValue = Utils.formatValue;
   const normalizeScriptIndex = Utils.normalizeScriptIndex;
+  const setPendingSelection = Utils.setPendingScriptSelection || ((script) => { pendingScriptSelection = script; });
+  const navigateTo = Utils.navigateTo;
 
   let scriptIndexCache = [];
   let scriptIndexLoaded = false;
@@ -81,11 +83,11 @@
         <div class="grid grid-2">
           <div class="input-group">
             <label for="scripts-search">Search</label>
-            <input id="scripts-search" type="text" placeholder="Search by name or description" />
+            <input id="scripts-search" type="text" placeholder="Search by name or description" class="form-control" />
           </div>
           <div class="input-group">
             <label for="scripts-task-class">Task Class</label>
-            <select id="scripts-task-class">
+            <select id="scripts-task-class" class="form-control form-select">
               <option value="">All task classes</option>
               ${taskClassOptions.map((value) => `<option value="${value}">${value}</option>`).join('')}
             </select>
@@ -156,9 +158,13 @@
           event.preventDefault();
           const script = list[idx];
           if (script) {
-            pendingScriptSelection = script;
+            setPendingSelection(script);
           }
-          window.location.hash = '#enqueue';
+          if (navigateTo) {
+            navigateTo('settings', { tab: 'enqueue' });
+          } else {
+            window.location.href = '/settings?tab=enqueue';
+          }
         });
       });
     }

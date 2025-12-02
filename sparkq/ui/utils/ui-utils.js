@@ -135,70 +135,37 @@
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
-    toast.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      padding: 12px 20px;
-      border-radius: 6px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      opacity: 0;
-      transform: translateY(20px);
-      transition: all 0.3s ease;
-      z-index: 10000;
-      font-size: 14px;
-      color: white;
-      max-width: 300px;
-    `;
 
-    // Set background based on type
-    const colors = {
-      'success': '#10b981',
-      'error': '#ef4444',
-      'warning': '#f59e0b',
-      'info': '#3b82f6'
+    const removeToast = (el) => {
+      if (!el) return;
+      el.classList.remove('toast-show');
+      setTimeout(() => {
+        el.remove();
+        activeToasts = activeToasts.filter((t) => t !== el);
+      }, 300);
     };
-    toast.style.background = colors[type] || colors.success;
+
+    if (activeToasts.length >= MAX_TOASTS) {
+      removeToast(activeToasts.shift());
+    }
 
     document.body.appendChild(toast);
     activeToasts.push(toast);
 
-    // Trigger animation
-    setTimeout(() => {
-      toast.style.opacity = '1';
-      toast.style.transform = 'translateY(0)';
-    }, 10);
+    requestAnimationFrame(() => {
+      toast.classList.add('toast-show');
+    });
 
-    // Auto-dismiss
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transform = 'translateY(20px)';
-      setTimeout(() => {
-        toast.remove();
-        activeToasts = activeToasts.filter(t => t !== toast);
-      }, 300);
-    }, timeoutMs);
+    setTimeout(() => removeToast(toast), timeoutMs);
   }
 
   // === Modal Dialog System ===
 
   function createModalOverlay() {
     const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.6);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-      opacity: 0;
-      transition: opacity 0.3s ease;
-    `;
+    overlay.className = 'modal modal-overlay';
+    overlay.setAttribute('role', 'presentation');
+    overlay.style.opacity = '0';
     return overlay;
   }
 
@@ -207,90 +174,79 @@
       const overlay = createModalOverlay();
       const modal = document.createElement('div');
       modal.className = 'modal-content';
-      modal.style.cssText = `
-        background: var(--surface, #1a1a1a);
-        border: 1px solid var(--border, #333);
-        border-radius: 12px;
-        padding: 24px;
-        max-width: 500px;
-        width: 90%;
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
-        transform: scale(0.95);
-        transition: transform 0.3s ease;
-        color: var(--text, #fff);
-      `;
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.style.transform = 'scale(0.95)';
+      modal.tabIndex = -1;
 
-      // Close function
-      const closeModal = () => {
-        overlay.style.opacity = '0';
+      let resolved = false;
+      let primaryButton = null;
+      let handleKeydown = null;
+
+      const finish = (value = null) => {
+        if (resolved) return;
+        resolved = true;
+        overlay.classList.remove('visible');
         modal.style.transform = 'scale(0.95)';
-        setTimeout(() => overlay.remove(), 300);
+        setTimeout(() => overlay.remove(), 250);
+        if (handleKeydown) {
+          document.removeEventListener('keydown', handleKeydown);
+        }
+        resolve(value);
       };
 
-      // Title
       if (title) {
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+
         const titleEl = document.createElement('h2');
-        titleEl.style.cssText = `
-          margin: 0 0 16px 0;
-          font-size: 20px;
-          font-weight: 600;
-          color: var(--text, #fff);
-        `;
+        titleEl.className = 'modal-title';
         titleEl.textContent = title;
-        modal.appendChild(titleEl);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'modal-close-button';
+        closeBtn.setAttribute('aria-label', 'Close dialog');
+        closeBtn.innerHTML = '&times;';
+        closeBtn.addEventListener('click', () => finish(null));
+
+        header.appendChild(titleEl);
+        header.appendChild(closeBtn);
+        modal.appendChild(header);
       }
 
-      // Content
       const contentEl = document.createElement('div');
-      contentEl.style.cssText = `
-        margin-bottom: 24px;
-        color: var(--text-secondary, #ccc);
-        line-height: 1.5;
-      `;
+      contentEl.className = 'modal-body';
       if (typeof content === 'string') {
-        contentEl.textContent = content;
+        const paragraph = document.createElement('p');
+        paragraph.textContent = content;
+        paragraph.classList.add('muted');
+        paragraph.style.margin = '0 0 12px';
+        contentEl.appendChild(paragraph);
       } else {
         contentEl.appendChild(content);
       }
       modal.appendChild(contentEl);
 
-      // Buttons
-      let primaryButton = null;
       if (buttons.length > 0) {
         const buttonsEl = document.createElement('div');
-        buttonsEl.style.cssText = `
-          display: flex;
-          gap: 12px;
-          justify-content: flex-end;
-        `;
+        buttonsEl.className = 'modal-actions';
         buttons.forEach(btn => {
           const button = document.createElement('button');
+          button.type = btn.type || 'button';
+          button.className = `button ${btn.primary ? 'primary' : 'secondary'}`;
           button.textContent = btn.label;
-          button.style.cssText = `
-            padding: 10px 20px;
-            border-radius: 6px;
-            border: 1px solid var(--border, #333);
-            background: ${btn.primary ? 'var(--primary, #3b82f6)' : 'var(--surface-2, #252525)'};
-            color: ${btn.primary ? '#fff' : 'var(--text, #fff)'};
-            cursor: pointer;
-            font-weight: 500;
-            transition: all 0.2s ease;
-          `;
-          button.onmouseover = () => {
-            button.style.opacity = '0.8';
-          };
-          button.onmouseout = () => {
-            button.style.opacity = '1';
-          };
-          button.onclick = (e) => {
-            e.preventDefault();
-            closeModal();
-            if (btn.onclick) btn.onclick();
-            resolve(null);
-          };
           if (btn.primary) {
             primaryButton = button;
           }
+          button.addEventListener('click', (e) => {
+            e.preventDefault();
+            const value = typeof btn.value === 'function' ? btn.value() : btn.value;
+            if (typeof btn.onclick === 'function') {
+              btn.onclick();
+            }
+            finish(value ?? null);
+          });
           buttonsEl.appendChild(button);
         });
         modal.appendChild(buttonsEl);
@@ -299,30 +255,27 @@
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
 
-      // Animate in
-      setTimeout(() => {
-        overlay.style.opacity = '1';
-        modal.style.transform = 'scale(1)';
-      }, 10);
-
-      // Click overlay to close
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-          closeModal();
-          resolve(null);
-        }
-      });
-
-      // ESC to close, Enter to submit primary button
-      const handleKeydown = (e) => {
+      handleKeydown = (e) => {
         if (e.key === 'Escape') {
-          closeModal();
-          resolve(null);
+          finish(null);
         } else if (e.key === 'Enter' && primaryButton) {
           e.preventDefault();
           primaryButton.click();
         }
       };
+
+      requestAnimationFrame(() => {
+        overlay.classList.add('visible');
+        modal.style.transform = 'scale(1)';
+        modal.focus({ preventScroll: true });
+      });
+
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          finish(null);
+        }
+      });
+
       document.addEventListener('keydown', handleKeydown);
     });
   }
@@ -333,71 +286,55 @@
 
       const messageEl = document.createElement('p');
       messageEl.textContent = message;
-      messageEl.style.cssText = `
-        margin: 0 0 12px 0;
-        color: var(--text-secondary, #ccc);
-      `;
+      messageEl.classList.add('muted');
+      messageEl.style.margin = '0 0 12px';
       contentEl.appendChild(messageEl);
 
       const input = document.createElement('input');
       input.type = options.type || 'text';
       input.value = defaultValue;
       input.placeholder = options.placeholder || '';
-      input.style.cssText = `
-        width: 100%;
-        padding: 10px 12px;
-        border: 1px solid var(--border, #333);
-        border-radius: 6px;
-        background: var(--surface-2, #252525);
-        color: var(--text, #fff);
-        font-size: 14px;
-        box-sizing: border-box;
-      `;
+      input.classList.add('form-control');
+      input.style.width = '100%';
+      input.style.boxSizing = 'border-box';
       if (options.textarea) {
         const textarea = document.createElement('textarea');
         textarea.value = defaultValue;
         textarea.placeholder = options.placeholder || '';
         textarea.rows = options.rows || 4;
-        textarea.style.cssText = `
-          width: 100%;
-          padding: 10px 12px;
-          border: 1px solid var(--border, #333);
-          border-radius: 6px;
-          background: var(--surface-2, #252525);
-          color: var(--text, #fff);
-          font-size: 14px;
-          box-sizing: border-box;
-          min-height: 100px;
-          font-family: ui-monospace, monospace;
-          line-height: 1.5;
-        `;
+        textarea.classList.add('form-control');
+        textarea.style.width = '100%';
+        textarea.style.boxSizing = 'border-box';
+        textarea.style.minHeight = '100px';
+        textarea.style.fontFamily = 'ui-monospace, monospace';
+        textarea.style.lineHeight = '1.5';
         contentEl.appendChild(textarea);
       } else {
         contentEl.appendChild(input);
       }
 
-      // Don't try to call closeModal from buttons - just resolve the promise
+      const getValue = () => {
+        if (options.textarea) {
+          const textareaEl = contentEl.querySelector('textarea');
+          return textareaEl ? textareaEl.value : '';
+        }
+        return input.value;
+      };
+
       const buttons = [
         {
           label: 'Cancel',
-          onclick: () => {
-            resolve(null);
-          }
+          value: null,
         },
         {
           label: 'OK',
           primary: true,
-          onclick: () => {
-            const value = options.textarea ? contentEl.querySelector('textarea').value : input.value;
-            resolve(value);
-          }
+          value: getValue,
         }
       ];
 
       showModal(title, contentEl, buttons).then((result) => {
-        if (result === undefined) {
-          resolve(null);
-        }
+        resolve(result ?? null);
       });
 
       // Focus input
@@ -416,21 +353,17 @@
       const buttons = [
         {
           label: options.cancelLabel || 'Cancel',
-          onclick: () => {
-            resolve(false);
-          }
+          value: false,
         },
         {
           label: options.confirmLabel || 'OK',
           primary: true,
-          onclick: () => {
-            resolve(true);
-          }
+          value: true,
         }
       ];
 
-      showModal(title, message, buttons).then(() => {
-        resolve(false);
+      showModal(title, message, buttons).then((result) => {
+        resolve(Boolean(result));
       });
     });
   }

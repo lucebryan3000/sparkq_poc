@@ -76,7 +76,7 @@ def get_test_logs_dir() -> Path:
 @_cacheable
 def get_build_prompts_dir() -> Path:
     """Get the build prompts directory."""
-    return (get_project_root() / "_build" / "prompts-build").resolve()
+    return (get_project_root() / "_build" / "prompts").resolve()
 
 
 @_cacheable

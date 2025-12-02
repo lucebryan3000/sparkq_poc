@@ -12,6 +12,11 @@ purge:
 sparkq_scripts_dir: sparkq/scripts
 project_script_dirs:
 - scripts
+# Default queue preferences (apply when creating new queues)
+defaults:
+  queue:
+    # Set a default Agent Role key for new queues (must match a role from /api/agent-roles)
+    default_agent_role_key: null
 task_classes:
   FAST_SCRIPT:
     timeout: 30

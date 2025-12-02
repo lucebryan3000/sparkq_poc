@@ -27,6 +27,17 @@ let taskPaginationState = {
   limit: 50,
   total: 0,
 };
+const ROUTES = {
+  dashboard: '/dashboard',
+  settings: '/settings',
+};
+const LEGACY_ROUTES = {
+  '/': { page: 'dashboard' },
+  '/sparkqueue': { page: 'dashboard' },
+  '/enqueue': { page: 'settings', tab: 'enqueue' },
+  '/scripts': { page: 'settings', tab: 'scripts' },
+  '/config': { page: 'settings' },
+};
 
 // ===== API CLIENT =====
 
@@ -208,6 +219,74 @@ function normalizeScriptIndex(response) {
     return response.index;
   }
   return [];
+}
+
+// ===== ROUTING HELPERS =====
+
+function normalizePath(pathname) {
+  if (!pathname || pathname === '/') {
+    return '/';
+  }
+  const trimmed = pathname.trim();
+  if (!trimmed) {
+    return '/';
+  }
+  return trimmed.replace(/\/+$/, '') || '/';
+}
+
+function buildRoute(page, options = {}) {
+  const targetPage = page === 'settings' ? 'settings' : 'dashboard';
+  const basePath = ROUTES[targetPage] || ROUTES.dashboard;
+  const url = new URL(basePath, window.location.origin);
+  if (options.tab) {
+    url.searchParams.set('tab', options.tab);
+  }
+  return url.pathname + url.search;
+}
+
+function resolveRoute(pathname = window.location.pathname, search = window.location.search) {
+  const normalized = normalizePath(pathname);
+  const searchParams = new URLSearchParams(search || '');
+
+  if (normalized === ROUTES.dashboard) {
+    return { page: 'dashboard', searchParams };
+  }
+  if (normalized === ROUTES.settings) {
+    return { page: 'settings', searchParams };
+  }
+
+  const legacy = LEGACY_ROUTES[normalized];
+  if (legacy) {
+    const page = legacy.page || 'dashboard';
+    const tab = legacy.tab || searchParams.get('tab') || undefined;
+    const redirectPath = buildRoute(page, tab ? { tab } : {});
+    return { page, redirectPath, searchParams };
+  }
+
+  return { page: 'dashboard', redirectPath: buildRoute('dashboard'), searchParams };
+}
+
+function navigateTo(page, options = {}) {
+  const targetPage = page === 'settings' ? 'settings' : 'dashboard';
+  const path = buildRoute(targetPage, options);
+  const useReplace = options.replace === true;
+  if (useReplace) {
+    history.replaceState({ page: targetPage }, '', path);
+  } else {
+    history.pushState({ page: targetPage }, '', path);
+  }
+  currentPage = targetPage;
+  router(targetPage);
+}
+
+function setPendingScriptSelection(selection) {
+  pendingScriptSelection = selection || null;
+}
+
+function consumePendingScriptSelection() {
+  const selection = pendingScriptSelection;
+  pendingScriptSelection = null;
+  return selection;
 }
 
 // ===== COMPONENTS =====
@@ -535,14 +614,11 @@ function toggleTheme() {
 
 function cachePages() {
   pages.dashboard = document.getElementById('dashboard-page');
-  pages.sparkqueue = document.getElementById('sparkqueue-page');
-  pages.enqueue = document.getElementById('enqueue-page');
-  pages.config = document.getElementById('config-page');
-  pages.scripts = document.getElementById('scripts-page');
+  pages.settings = document.getElementById('settings-page') || document.getElementById('config-page');
 
   // Verify all pages were cached
   const missing = [];
-  ['dashboard', 'sparkqueue', 'enqueue', 'config', 'scripts'].forEach(name => {
+  ['dashboard', 'settings'].forEach(name => {
     if (!pages[name]) {
       missing.push(name);
     }
@@ -552,97 +628,111 @@ function cachePages() {
   }
 }
 
-function setupNavTabs() {
-  const buttons = document.querySelectorAll('.nav-tab');
-  buttons.forEach((tab) => {
-    tab.addEventListener('click', (event) => {
-      event.preventDefault();
-      const tabName = tab.dataset.tab;
-      currentPage = tabName;
-      router(currentPage);
-      closeHamburgerMenu();
-    });
-  });
+function resolvePageComponent(pageKey) {
+  if (pageKey === 'settings') {
+    return window.Pages.Settings || window.Pages.Config;
+  }
+  if (pageKey === 'dashboard') {
+    return window.Pages.Dashboard;
+  }
+  const fallbackKey = pageKey.charAt(0).toUpperCase() + pageKey.slice(1);
+  return window.Pages[fallbackKey];
 }
 
-function setupHamburgerMenu() {
-  const menuToggle = document.getElementById('menu-toggle');
-  const navMenu = document.getElementById('nav-menu');
-
-  if (!menuToggle || !navMenu) return;
-
-  // Toggle menu on button click
-  menuToggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    navMenu.classList.toggle('open');
-  });
-
-  // Close menu when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!navMenu.contains(e.target) && e.target !== menuToggle) {
-      navMenu.classList.remove('open');
-    }
-  });
-
-  // Close menu on Escape key
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      navMenu.classList.remove('open');
-    }
-  });
-}
-
-function setupNavbarBrandButton() {
+function setupNavigationButtons() {
   const brandBtn = document.getElementById('navbar-brand-btn');
   if (brandBtn) {
-    brandBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      currentPage = 'dashboard';
-      router(currentPage);
-      closeHamburgerMenu();
+    brandBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      navigateTo('dashboard');
+    });
+  }
+
+  const settingsBtn = document.getElementById('settings-nav-btn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      navigateTo('settings');
     });
   }
 }
 
-function closeHamburgerMenu() {
-  const navMenu = document.getElementById('nav-menu');
-  if (navMenu) {
-    navMenu.classList.remove('open');
+function setupPopstateListener() {
+  window.addEventListener('popstate', () => {
+    const { page, redirectPath } = resolveRoute(window.location.pathname, window.location.search);
+    if (redirectPath) {
+      history.replaceState({ page }, '', redirectPath);
+    }
+    currentPage = page === 'settings' ? 'settings' : 'dashboard';
+    router(currentPage);
+  });
+}
+
+function applyInitialRoute() {
+  const { page, redirectPath } = resolveRoute(window.location.pathname, window.location.search);
+  if (redirectPath) {
+    history.replaceState({ page }, '', redirectPath);
+  }
+  currentPage = page === 'settings' ? 'settings' : 'dashboard';
+  router(currentPage);
+}
+
+function updateActiveNav(page) {
+  const header = document.querySelector('.app-header');
+  if (header) {
+    header.dataset.activePage = page;
+  }
+
+  const brandBtn = document.getElementById('navbar-brand-btn');
+  const settingsBtn = document.getElementById('settings-nav-btn');
+  if (brandBtn) {
+    brandBtn.classList.toggle('active', page === 'dashboard');
+    if (page === 'dashboard') {
+      brandBtn.setAttribute('aria-current', 'page');
+      brandBtn.setAttribute('title', 'Dashboard');
+    } else {
+      brandBtn.removeAttribute('aria-current');
+      brandBtn.setAttribute('title', 'Go to dashboard');
+    }
+  }
+  if (settingsBtn) {
+    settingsBtn.classList.toggle('active', page === 'settings');
+    if (page === 'settings') {
+      settingsBtn.setAttribute('aria-current', 'page');
+      settingsBtn.setAttribute('title', 'Settings');
+    } else {
+      settingsBtn.removeAttribute('aria-current');
+      settingsBtn.setAttribute('title', 'Open settings');
+    }
   }
 }
 
 async function router(page = currentPage) {
+  const targetPage = page === 'settings' ? 'settings' : 'dashboard';
   Object.keys(pages).forEach((pageName) => {
     if (pages[pageName]) {
-      pages[pageName].style.display = pageName === page ? 'block' : 'none';
+      pages[pageName].style.display = pageName === targetPage ? 'block' : 'none';
     }
   });
 
-  document.querySelectorAll('.nav-tab').forEach((tab) => {
-    if (tab.dataset.tab === page) {
-      tab.classList.add('active');
-    } else {
-      tab.classList.remove('active');
-    }
-  });
-
-  // Render page
-  const pageKey = page.charAt(0).toUpperCase() + page.slice(1);
-  if (window.Pages[pageKey] && typeof window.Pages[pageKey].render === 'function') {
+  const component = resolvePageComponent(targetPage);
+  if (component && typeof component.render === 'function') {
     try {
-      await window.Pages[pageKey].render(pages[page]);
+      await component.render(pages[targetPage]);
     } catch (err) {
-      console.error('[SparkQ] Error rendering page:', pageKey, err);
-      if (pages[page]) {
-        pages[page].innerHTML = `<div class="card"><p class="error">Error loading ${page}: ${err.message}</p></div>`;
+      console.error('[SparkQ] Error rendering page:', targetPage, err);
+      if (pages[targetPage]) {
+        pages[targetPage].innerHTML = `<div class="card"><p class="error">Error loading ${targetPage}: ${err.message}</p></div>`;
       }
     }
   } else {
-    console.error('[SparkQ] Page renderer not found:', pageKey);
-    if (pages[page]) {
-      pages[page].innerHTML = `<div class="card"><p class="error">Page module not loaded: ${pageKey}</p></div>`;
+    console.error('[SparkQ] Page renderer not found:', targetPage);
+    if (pages[targetPage]) {
+      pages[targetPage].innerHTML = `<div class="card"><p class="error">Page module not loaded: ${targetPage}</p></div>`;
     }
   }
+
+  updateActiveNav(targetPage);
 }
 
 
@@ -719,6 +809,7 @@ async function syncBuildIdFromServer() {
       const buildEl = document.getElementById('build-id');
       if (buildEl) {
         buildEl.textContent = `UI v${serverBuild}`;
+        buildEl.style.display = 'inline-flex';
       }
     }
   } catch (err) {
@@ -759,20 +850,24 @@ window.Utils = {
   initTheme,
   applyTheme,
   toggleTheme,
+  navigateTo,
+  buildRoute,
+  resolveRoute,
+  setPendingScriptSelection,
+  consumePendingScriptSelection,
 };
 
 // ===== INITIALIZATION =====
 
 function initApp() {
   cachePages();
-  setupNavTabs();
-  setupHamburgerMenu();
-  setupNavbarBrandButton();
-  router(currentPage);
   initTheme();
   setupKeyboardShortcuts();
   updateThemeButtonIcon();
   attachThemeButtonListener();
+  setupNavigationButtons();
+  setupPopstateListener();
+  applyInitialRoute();
   syncBuildIdFromServer();
 }
 

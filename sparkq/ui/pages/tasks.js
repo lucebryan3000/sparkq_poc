@@ -26,6 +26,29 @@
     total: 0,
   };
 
+  function statusPillClass(status) {
+    const lower = String(status || '').toLowerCase();
+    if (['running', 'in_progress', 'in-progress'].includes(lower)) {
+      return 'status-pill--running';
+    }
+    if (lower === 'queued' || lower === 'pending') {
+      return 'status-pill--queued';
+    }
+    if (['succeeded', 'completed', 'done', 'success'].includes(lower)) {
+      return 'status-pill--succeeded';
+    }
+    if (['failed', 'error', 'ended', 'timeout', 'cancelled', 'canceled'].includes(lower)) {
+      return 'status-pill--failed';
+    }
+    return '';
+  }
+
+  function renderStatusPill(status) {
+    const label = (status || 'unknown').toString();
+    const pillClass = statusPillClass(status);
+    return `<span class="status-pill${pillClass ? ` ${pillClass}` : ''}">${label}</span>`;
+  }
+
   async function renderTasksPage(container) {
     if (!container) {
       return;
@@ -114,6 +137,9 @@
         const isArchivedQueue = archivedQueues.has(task.queue_id);
         const queueLabel = isArchivedQueue ? `${queueName} (Archived)` : queueName;
         const rowClass = timeStatus.isStale ? 'task-stale-error' : timeStatus.isWarned ? 'task-stale-warning' : '';
+        const agentRole = task.agent_role_label || task.agent_role_key || '—';
+        const statusLabel = task.status || 'queued';
+        const statusPill = renderStatusPill(statusLabel);
 
         // Enhanced badge with tooltips and auto-failed detection
         const staleBadge = (() => {
@@ -158,7 +184,8 @@
             <td>${task.id}</td>
             <td>${queueLabel}</td>
             <td>${getFriendlyToolName(task.tool_name)}</td>
-            <td>${task.status} ${staleBadge}</td>
+            <td>${agentRole}</td>
+            <td>${statusPill}${staleBadge ? ` ${staleBadge}` : ''}</td>
             <td>${formatTimestamp(task.created_at)}</td>
           </tr>
         `;
@@ -174,6 +201,7 @@
                 <th>ID</th>
                 <th>Queue</th>
                 <th>Tool</th>
+                <th>Agent Role</th>
                 <th>Status</th>
                 <th>Created</th>
               </tr>

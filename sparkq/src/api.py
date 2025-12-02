@@ -4,6 +4,7 @@ import logging
 import os
 import sqlite3
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -22,6 +23,7 @@ from .constants import (
     TASK_CLASS_TIMEOUTS,
 )
 from .config import get_database_path, load_config
+from .agent_roles import build_prompt_with_role
 from .errors import ConflictError, NotFoundError, SparkQError, ValidationError
 from .index import ScriptIndex
 from .models import TaskStatus
@@ -44,12 +46,14 @@ _DEV_NO_CACHE_HEADERS = {
 }
 _config_cache: Dict[str, Any] = {"data": None, "expires_at": 0.0}
 
-app = FastAPI(title="SparkQ API")
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup"""
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """App lifecycle hooks."""
     storage.init_db()
+    yield
+
+
+app = FastAPI(title="SparkQ API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -154,6 +158,42 @@ DEFAULT_TASK_TIMEOUTS = {**TASK_CLASS_TIMEOUTS}
 _LIST_HAS_OFFSET = "offset" in inspect.signature(storage.list_tasks).parameters
 _CREATE_HAS_PAYLOAD = "payload" in inspect.signature(storage.create_task).parameters
 _CLAIM_HAS_WORKER = "worker_id" in inspect.signature(storage.claim_task).parameters
+
+
+def _normalize_agent_role_key(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
+
+
+def _resolve_agent_role(role_key: Optional[str], allow_inactive: bool = False) -> Optional[dict]:
+    normalized = _normalize_agent_role_key(role_key)
+    if not normalized:
+        return None
+    role = storage.get_agent_role_by_key(normalized, include_inactive=allow_inactive)
+    if not role:
+        raise HTTPException(status_code=400, detail=f"Agent role not found: {normalized}")
+    if not allow_inactive and not role.get("active"):
+        raise HTTPException(status_code=400, detail=f"Agent role '{normalized}' is not active")
+    return role
+
+
+def _build_prompt_payload(prompt_text: str, queue: dict, agent_role: Optional[dict]) -> Dict[str, Any]:
+    instructions = (queue.get("instructions") or "").strip()
+    full_prompt = build_prompt_with_role(prompt_text, instructions, agent_role)
+    payload: Dict[str, Any] = {
+        "prompt": full_prompt,
+        "raw_prompt": prompt_text,
+        "mode": "chat",
+    }
+    if instructions:
+        payload["queue_instructions"] = instructions
+    if agent_role:
+        payload["agent_role_key"] = agent_role.get("key")
+        payload["agent_role_label"] = agent_role.get("label")
+        payload["agent_role_description"] = agent_role.get("description")
+    return payload
 
 
 # === Config helpers (Phase 20) ===
@@ -334,7 +374,9 @@ def _build_config_response(include_cache: bool = True) -> Dict[str, Any]:
     ui_cfg = db_config.get("ui", {})
     ui_build_id = ui_cfg.get("build_id", defaults.get("ui", {}).get("build_id", SERVER_BUILD_ID))
     feature_flags = db_config.get("features", {}).get("flags", {})
-    queue_defaults = db_config.get("defaults", {}).get("queue", {})
+    defaults_cfg = db_config.get("defaults", {})
+    queue_defaults = defaults_cfg.get("queue", {})
+    default_model = defaults_cfg.get("model", defaults.get("defaults", {}).get("model", "llm-sonnet"))
 
     response = {
         "server": defaults.get("server"),
@@ -345,7 +387,10 @@ def _build_config_response(include_cache: bool = True) -> Dict[str, Any]:
         "task_classes": task_classes,
         "ui": {"build_id": ui_build_id},
         "features": {"flags": feature_flags},
-        "defaults": {"queue": queue_defaults},
+        "defaults": {
+            "queue": queue_defaults,
+            "model": default_model
+        },
         "stale_handling": {
             "warn_multiplier": STALE_WARNING_MULTIPLIER,
             "fail_multiplier": STALE_FAIL_MULTIPLIER,
@@ -503,11 +548,13 @@ class QueueCreateRequest(BaseModel):
     session_id: str
     name: str
     instructions: Optional[str] = None
+    default_agent_role_key: Optional[str] = None
 
 
 class QueueUpdateRequest(BaseModel):
     name: Optional[str] = None
     instructions: Optional[str] = None
+    default_agent_role_key: Optional[str] = None
 
 
 class CodexSessionRequest(BaseModel):
@@ -521,6 +568,7 @@ class TaskCreateRequest(BaseModel):
     timeout: Optional[int] = None
     prompt_path: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    agent_role_key: Optional[str] = None
 
 
 class TaskClaimRequest(BaseModel):
@@ -552,6 +600,7 @@ class QuickAddTaskRequest(BaseModel):
     # For script mode
     script_path: Optional[str] = None
     script_args: Optional[str] = None
+    agent_role_key: Optional[str] = None
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -599,6 +648,12 @@ class PromptUpdateRequest(BaseModel):
     description: Optional[str] = None
 
 
+class AgentRoleUpdateRequest(BaseModel):
+    label: Optional[str] = None
+    description: Optional[str] = None
+    active: Optional[bool] = None
+
+
 def _serialize_task(task: Dict[str, Any], queue_names: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Normalize task fields for API responses."""
     serialized = dict(task)
@@ -635,16 +690,30 @@ def _serialize_task(task: Dict[str, Any], queue_names: Optional[Dict[str, str]] 
         serialized["result_summary"] = serialized.get("result")
     if "error_message" not in serialized and "error" in serialized:
         serialized["error_message"] = serialized.get("error")
+    payload_obj = None
+    payload = serialized.get("payload")
+    if isinstance(payload, str):
+        try:
+            payload_obj = json.loads(payload)
+        except Exception:
+            payload_obj = None
+
     if "prompt_preview" not in serialized:
-        payload = serialized.get("payload")
         preview = None
-        if isinstance(payload, str):
-            try:
-                payload_obj = json.loads(payload)
-                preview = payload_obj.get("prompt") or payload_obj.get("prompt_text") or payload_obj.get("prompt_path")
-            except Exception:
-                preview = payload
+        if payload_obj is not None:
+            preview = payload_obj.get("prompt") or payload_obj.get("prompt_text") or payload_obj.get("prompt_path")
+        elif isinstance(payload, str):
+            preview = payload
         serialized["prompt_preview"] = preview
+
+    if payload_obj:
+        serialized.setdefault("prompt", payload_obj.get("prompt"))
+        serialized.setdefault("raw_prompt", payload_obj.get("raw_prompt"))
+        serialized.setdefault("agent_role_key", payload_obj.get("agent_role_key") or serialized.get("agent_role_key"))
+        if payload_obj.get("agent_role_label"):
+            serialized.setdefault("agent_role_label", payload_obj.get("agent_role_label"))
+        if payload_obj.get("agent_role_description"):
+            serialized.setdefault("agent_role_description", payload_obj.get("agent_role_description"))
 
     return serialized
 
@@ -797,6 +866,34 @@ async def delete_session(session_id: str):
     return {"message": "Session deleted (cascade delete with all queues and tasks)"}
 
 
+@app.get("/api/agent-roles")
+async def list_agent_roles(active_only: bool = Query(True)):
+    """List available agent roles for selection."""
+    roles = storage.list_agent_roles(active_only=active_only)
+    return {"roles": roles}
+
+
+@app.put("/api/agent-roles/{role_key}")
+async def update_agent_role(role_key: str, payload: AgentRoleUpdateRequest):
+    """Update an agent role's label, description, or active flag."""
+    if payload.label is None and payload.description is None and payload.active is None:
+        raise HTTPException(status_code=400, detail="No fields provided to update agent role")
+
+    try:
+        updated = storage.update_agent_role(
+            role_key=role_key,
+            label=payload.label,
+            description=payload.description,
+            active=payload.active,
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"role": updated}
+
+
 @app.get("/api/queues")
 async def list_queues(
     session_id: Optional[str] = None,
@@ -852,11 +949,14 @@ async def create_queue(request: QueueCreateRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    role = _resolve_agent_role(request.default_agent_role_key)
+
     try:
         queue = storage.create_queue(
             session_id=request.session_id,
             name=request.name.strip(),
             instructions=request.instructions,
+            default_agent_role_key=role["key"] if role else None,
         )
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail="Queue name must be unique") from exc
@@ -874,7 +974,10 @@ async def get_queue(queue_id: str):
 
 @app.put("/api/queues/{queue_id}")
 async def update_queue(queue_id: str, request: QueueUpdateRequest):
-    if request.name is None and request.instructions is None:
+    fields_set = request.__fields_set__ or set()
+    role_provided = "default_agent_role_key" in fields_set
+
+    if request.name is None and request.instructions is None and not role_provided:
         raise HTTPException(status_code=400, detail="No fields provided to update queue")
 
     existing = storage.get_queue(queue_id)
@@ -893,6 +996,16 @@ async def update_queue(queue_id: str, request: QueueUpdateRequest):
     if request.instructions is not None:
         updates.append("instructions = ?")
         params.append(request.instructions)
+
+    if role_provided:
+        normalized_key = _normalize_agent_role_key(request.default_agent_role_key)
+        if normalized_key:
+            role = _resolve_agent_role(normalized_key)
+            params_key = role["key"]
+        else:
+            params_key = None
+        updates.append("default_agent_role_key = ?")
+        params.append(params_key)
 
     updates.append("updated_at = ?")
     params.append(now_iso())
@@ -1008,9 +1121,13 @@ async def create_task(request: TaskCreateRequest):
 
     registry = get_registry()
     timeout = registry.get_timeout(request.tool_name, override=request.timeout, task_class=request.task_class)
+    role = _resolve_agent_role(request.agent_role_key)
 
     if _CREATE_HAS_PAYLOAD:
         payload_data = {"prompt_path": request.prompt_path, "metadata": request.metadata}
+        if role:
+            payload_data["agent_role_key"] = role["key"]
+            payload_data["agent_role_label"] = role.get("label")
         payload_json = json.dumps(payload_data)
         metadata_value: Optional[str] = None
         if request.metadata is not None:
@@ -1026,6 +1143,7 @@ async def create_task(request: TaskCreateRequest):
             timeout=timeout,
             prompt_path=request.prompt_path,
             metadata=metadata_value,
+            agent_role_key=role["key"] if role else None,
         )
     else:
         task = storage.create_task(
@@ -1035,6 +1153,7 @@ async def create_task(request: TaskCreateRequest):
             timeout=timeout,
             prompt_path=request.prompt_path,
             metadata=request.metadata,
+            agent_role_key=role["key"] if role else None,
         )
 
     return {"task": _serialize_task(task)}
@@ -1215,6 +1334,10 @@ async def quick_add_task(request: QuickAddTaskRequest):
     if not queue:
         raise HTTPException(status_code=404, detail=f"Queue not found: {request.queue_id}")
 
+    queue_default_role = _resolve_agent_role(queue.get("default_agent_role_key"), allow_inactive=True)
+    override_role = _resolve_agent_role(request.agent_role_key) if request.agent_role_key is not None else None
+    agent_role = override_role or queue_default_role
+
     registry = get_registry()
 
     if request.mode == 'llm':
@@ -1240,10 +1363,7 @@ async def quick_add_task(request: QuickAddTaskRequest):
                 task_class = 'LLM_HEAVY'
             timeout = registry.get_timeout(tool_name, task_class=task_class)
 
-        payload = json.dumps({
-            "prompt": prompt_text,
-            "mode": "chat"
-        })
+        payload = json.dumps(_build_prompt_payload(prompt_text, queue, agent_role))
 
     elif request.mode == 'script':
         if not request.script_path:
@@ -1268,6 +1388,7 @@ async def quick_add_task(request: QuickAddTaskRequest):
             "script_path": script_path,
             "args": args
         })
+        agent_role = None  # Agent roles apply to LLM tasks only
 
     else:
         raise HTTPException(status_code=400, detail="Mode must be 'llm' or 'script'")
@@ -1278,7 +1399,8 @@ async def quick_add_task(request: QuickAddTaskRequest):
         tool_name=tool_name,
         task_class=task_class,
         payload=payload,
-        timeout=timeout
+        timeout=timeout,
+        agent_role_key=agent_role.get("key") if agent_role else None,
     )
 
     task_id = task_dict['id']

@@ -13,6 +13,7 @@ from typing import Optional
 
 import typer
 
+from .agent_roles import build_prompt_with_role
 from .config import get_database_path, load_config
 from . import env as env_module
 from .index import ScriptIndex
@@ -747,11 +748,28 @@ def enqueue(
         except json.JSONDecodeError as exc:
             _invalid_field("metadata", metadata, suggestion=f"Provide valid JSON ({exc})")
 
-    # Build payload (combine prompt and metadata)
+    # Build payload (combine prompt, agent role, and queue instructions)
+    instructions_text = (st.get("instructions") or "").strip()
+    agent_role = None
+    role_key = st.get("default_agent_role_key")
+    if role_key:
+        try:
+            agent_role = get_storage().get_agent_role_by_key(role_key, include_inactive=True)
+        except Exception:
+            agent_role = None
+
+    full_prompt = build_prompt_with_role(prompt_content, instructions_text, agent_role)
     payload_data = {
-        "prompt": prompt_content,
-        "metadata": metadata_dict
+        "prompt": full_prompt,
+        "raw_prompt": prompt_content,
+        "metadata": metadata_dict,
+        "queue_instructions": instructions_text or None,
+        "mode": "chat",
     }
+    if agent_role:
+        payload_data["agent_role_key"] = agent_role.get("key")
+        payload_data["agent_role_label"] = agent_role.get("label")
+        payload_data["agent_role_description"] = agent_role.get("description")
     payload_str = json.dumps(payload_data)
 
     # Create task
@@ -762,7 +780,8 @@ def enqueue(
         payload=payload_str,
         timeout=resolved_timeout,
         prompt_path=prompt_file,
-        metadata=metadata
+        metadata=metadata,
+        agent_role_key=agent_role.get("key") if agent_role else None,
     )
 
     typer.echo(f"Task {task['id']} enqueued to queue '{queue}'")

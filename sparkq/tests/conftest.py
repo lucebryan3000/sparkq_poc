@@ -5,10 +5,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-# Ensure the repository root is on sys.path for imports when running tests directly
-ROOT_DIR = Path(__file__).resolve().parent.parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+# Ensure the repository and package roots are on sys.path for imports when running tests directly
+ROOT_DIR = Path(__file__).resolve().parent.parent  # sparkq/
+PROJECT_ROOT = ROOT_DIR.parent  # repo root
+for path_str in (str(PROJECT_ROOT), str(ROOT_DIR)):
+    if path_str in sys.path:
+        sys.path.remove(path_str)
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(1, str(ROOT_DIR))
 
 from src.storage import Storage
 

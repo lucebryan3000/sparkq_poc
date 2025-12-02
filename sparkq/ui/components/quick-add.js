@@ -5,16 +5,20 @@
   const Utils = window.Utils;
 
   class QuickAdd {
-    constructor(containerId, queueId, queueName) {
+    constructor(containerId, queueId, queueName, queueDetails = null) {
       this.containerId = containerId;
       this.queueId = queueId;
       this.queueName = queueName;
+      this.queueDefaults = queueDetails || {};
       this.mode = 'llm';  // Default mode
       this.refreshCallback = null;
       this.llmTools = [];
       this.selectedTool = null;
       this.buildPrompts = [];
       this.selectedPrompt = '';
+      this.agentRoles = [];
+      this.selectedAgentRole = (queueDetails && queueDetails.default_agent_role_key) || '';
+      this.defaultsLoaded = Boolean(queueDetails);
 
       // Text expander state (Phase 14B)
       this.prompts = [];
@@ -25,10 +29,54 @@
       this.documentClickHandler = null;
     }
 
-    setStream(queueId, queueName) {
+    setStream(queueId, queueName, queueDetails = null) {
       this.queueId = queueId;
       this.queueName = queueName;
+      this.queueDefaults = queueDetails || {};
+      this.selectedAgentRole = (queueDetails && queueDetails.default_agent_role_key) || '';
+      this.defaultsLoaded = Boolean(queueDetails);
       this.render();
+    }
+
+    async updateCodexSessionDisplay() {
+      const display = document.getElementById('codex-session-display');
+      if (!display || !this.queueId) return;
+
+      try {
+        const response = await API.api('GET', `/api/queues/${this.queueId}`, null, { action: 'load queue' });
+        const codexSessionId = response?.queue?.codex_session_id;
+
+        if (codexSessionId) {
+          const last6 = codexSessionId.slice(-6);
+          display.textContent = `...${last6}`;
+          display.dataset.fullSessionId = codexSessionId;
+        } else {
+          display.textContent = '...000000';
+          display.dataset.fullSessionId = '';
+        }
+      } catch (err) {
+        console.error('[QuickAdd] Failed to load codex session:', err);
+        display.textContent = '...000000';
+        display.dataset.fullSessionId = '';
+      }
+    }
+
+    copyCodexSessionId() {
+      const display = document.getElementById('codex-session-display');
+      if (!display) return;
+
+      const fullSessionId = display.dataset.fullSessionId;
+      if (!fullSessionId) {
+        Utils.showToast('No Codex session ID available', 'info');
+        return;
+      }
+
+      navigator.clipboard.writeText(fullSessionId).then(() => {
+        Utils.showToast(`Full session ID copied to clipboard: ${fullSessionId}`, 'success');
+      }).catch(err => {
+        console.error('[QuickAdd] Failed to copy session ID:', err);
+        Utils.showToast('Failed to copy session ID', 'error');
+      });
     }
 
     setMode(mode) {
@@ -45,6 +93,9 @@
       try {
         const cfg = await API.api('GET', '/api/config', null, { action: 'load config' });
         const tools = cfg?.tools || {};
+        const defaults = cfg?.defaults || {};
+        const defaultModel = defaults?.model || 'llm-sonnet';
+
         this.llmTools = Object.entries(tools)
           .filter(([_, val]) => {
             const tc = (val?.task_class || '').toString().toUpperCase();
@@ -57,30 +108,61 @@
           }));
         if (this.llmTools.length) {
           const hasPrev = prevSelected && this.llmTools.some(t => t.name === prevSelected);
-          const haiku = this.llmTools.find(t => t.name === 'llm-haiku');
+          const defaultTool = this.llmTools.find(t => t.name === defaultModel);
           if (hasPrev) {
             this.selectedTool = prevSelected;
+          } else if (defaultTool) {
+            this.selectedTool = defaultTool.name;
           } else {
-            this.selectedTool = haiku ? haiku.name : this.llmTools[0].name;
+            this.selectedTool = this.llmTools[0].name;
           }
         }
       } catch (err) {
         console.error('[QuickAdd] Failed to load tools:', err);
         this.llmTools = [];
-        this.selectedTool = this.selectedTool || 'llm-haiku';
+        this.selectedTool = this.selectedTool || 'llm-sonnet';
       }
     }
 
     async loadBuildPrompts() {
       try {
-        const resp = await API.api('GET', '/api/build-prompts', null, { action: 'load build prompts' });
-        this.buildPrompts = resp?.prompts || [];
+        const resp = await API.api('GET', '/api/prompts?source=build', null, { action: 'load build prompts' });
+        this.buildPrompts = Array.isArray(resp?.prompts) ? resp.prompts : [];
         if (!this.selectedPrompt) {
           this.selectedPrompt = '';
         }
       } catch (err) {
         console.error('[QuickAdd] Failed to load build prompts:', err);
         this.buildPrompts = [];
+      }
+    }
+
+    async loadAgentRoles() {
+      try {
+        const resp = await API.api('GET', '/api/agent-roles', null, { action: 'load agent roles' });
+        this.agentRoles = Array.isArray(resp?.roles) ? resp.roles : [];
+        if (!this.selectedAgentRole && this.queueDefaults?.default_agent_role_key) {
+          this.selectedAgentRole = this.queueDefaults.default_agent_role_key;
+        }
+        if (!this.selectedAgentRole && !this.defaultsLoaded && this.queueId) {
+          try {
+            const queueResp = await API.api('GET', `/api/queues/${this.queueId}`, null, { action: 'load queue defaults' });
+            if (queueResp?.queue) {
+              this.queueDefaults = queueResp.queue;
+              this.selectedAgentRole = queueResp.queue.default_agent_role_key || '';
+              this.defaultsLoaded = true;
+            }
+          } catch (err) {
+            console.error('[QuickAdd] Failed to load queue defaults:', err);
+          }
+        }
+        const hasSelected = this.selectedAgentRole && this.agentRoles.some((r) => r.key === this.selectedAgentRole);
+        if (this.selectedAgentRole && !hasSelected) {
+          this.agentRoles = [...this.agentRoles, { key: this.selectedAgentRole, label: this.selectedAgentRole }];
+        }
+      } catch (err) {
+        console.error('[QuickAdd] Failed to load agent roles:', err);
+        this.agentRoles = [];
       }
     }
 
@@ -109,6 +191,7 @@
 
       await this.loadTools();
       await this.loadBuildPrompts();
+      await this.loadAgentRoles();
 
       const llmOptions = this.llmTools.length
         ? this.llmTools
@@ -119,43 +202,55 @@
       }
 
       const llmSelect = `
-        <label for="llm-tool-select" style="font-size: 13px; color: #bbb; display: block; margin-bottom: 6px;">Model</label>
+        <label for="llm-tool-select" class="muted" style="display:block; margin-bottom:6px;">Model</label>
         <select
           id="llm-tool-select"
+          class="form-control form-select"
           onchange="window.quickAdd.handleToolChange(event)"
-          style="display: inline-block; min-width: 220px; max-width: 320px; background: rgba(0, 0, 0, 0.3); border: 1px solid #444; border-radius: 6px; padding: 10px; color: #fff; margin-bottom: 10px;">
+          style="display: inline-block; min-width: 220px; max-width: 320px; margin-bottom: 10px;">
           ${llmOptions.map(opt => `<option value="${opt.name}" ${opt.name === this.selectedTool ? 'selected' : ''}>${opt.description}</option>`).join('')}
         </select>
       `;
 
       const promptSelect = this.buildPrompts.length
         ? `
-          <label for="prompt-file-select" style="font-size: 13px; color: #bbb; display: block; margin-bottom: 6px;">Prompt File</label>
+          <label for="prompt-file-select" class="muted" style="display:block; margin-bottom:6px;">Build Prompt</label>
           <select
             id="prompt-file-select"
+            class="form-control form-select"
             onchange="window.quickAdd.handlePromptFileChange(event)"
-            style="display: inline-block; min-width: 220px; max-width: 360px; background: rgba(0, 0, 0, 0.3); border: 1px solid #444; border-radius: 6px; padding: 10px; color: #fff; margin-bottom: 10px;">
-            <option value="">-- Select Prompt --</option>
-            ${this.buildPrompts.map(p => `<option value="${p.path}" ${p.path === this.selectedPrompt ? 'selected' : ''}>${p.name || p.path}</option>`).join('')}
+            style="display: inline-block; min-width: 220px; max-width: 360px; margin-bottom: 10px;">
+            <option value="">-- Select --</option>
+            ${this.buildPrompts.map(name => `<option value="${name}" ${name === this.selectedPrompt ? 'selected' : ''}>${name}</option>`).join('')}
           </select>
         `
         : '';
 
+      const agentRoleSelect = `
+        <label for="agent-role-select" class="muted" style="display:block; margin-bottom:6px;">Agent Role</label>
+        <select
+          id="agent-role-select"
+          class="form-control form-select"
+          onchange="window.quickAdd.handleAgentRoleChange(event)"
+          style="display: inline-block; min-width: 220px; max-width: 360px; margin-bottom: 10px;">
+          <option value="">-- None --</option>
+          ${this.agentRoles.map(role => `<option value="${role.key}" ${role.key === (this.selectedAgentRole || '') ? 'selected' : ''}>${role.label}</option>`).join('')}
+        </select>
+      `;
+
       container.innerHTML = `
-        <div class="quick-add-bar" style="background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+        <div class="quick-add-bar" style="margin-bottom: 20px;">
 
           <div class="mode-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; gap: 8px;">
               <button
-                class="mode-btn ${this.mode === 'llm' ? 'active' : ''}"
-                onclick="window.quickAdd.setMode('llm')"
-                style="padding: 8px 16px; background: ${this.mode === 'llm' ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)'}; border: 1px solid ${this.mode === 'llm' ? '#3b82f6' : '#444'}; border-radius: 6px; color: #fff; cursor: pointer; transition: all 0.2s;">
+                class="pill-toggle ${this.mode === 'llm' ? 'active' : ''}"
+                onclick="window.quickAdd.setMode('llm')">
                 💬 Prompt
               </button>
               <button
-                class="mode-btn ${this.mode === 'script' ? 'active' : ''}"
-                onclick="window.quickAdd.setMode('script')"
-                style="padding: 8px 16px; background: ${this.mode === 'script' ? '#3b82f6' : 'rgba(255, 255, 255, 0.05)'}; border: 1px solid ${this.mode === 'script' ? '#3b82f6' : '#444'}; border-radius: 6px; color: #fff; cursor: pointer; transition: all 0.2s;">
+                class="pill-toggle ${this.mode === 'script' ? 'active' : ''}"
+                onclick="window.quickAdd.setMode('script')">
                 📄 Script
               </button>
             </div>
@@ -172,33 +267,41 @@
             <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin-bottom:8px;">
               <div style="flex:0 0 auto;">${llmSelect}</div>
               ${promptSelect ? `<div style="flex:0 0 auto;">${promptSelect}</div>` : ''}
+              <div style="flex:0 0 auto;">${agentRoleSelect}</div>
             </div>
             <div class="prompt-input-wrapper" style="position: relative;">
               <textarea
                 id="prompt-field"
                 placeholder="Describe what you want Claude to do... (Press Enter to add)"
                 rows="3"
-                style="width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid #444; border-radius: 6px; padding: 12px; padding-right: 50px; color: #fff; font-size: 14px; font-family: inherit; resize: vertical; min-height: 60px;"
+                class="form-control"
+                style="width: 100%; padding-right: 50px; font-size: 14px; resize: vertical; min-height: 60px;"
               ></textarea>
               <button
                 id="tools-btn"
                 class="tools-btn"
                 title="Add integrations"
-                style="position: absolute; right: 12px; top: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid #444; border-radius: 4px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #a1a1aa; font-size: 18px; transition: all 0.2s;">
+                style="position: absolute; right: 12px; top: 12px; width: 32px; height: 32px; font-size: 18px;">
                 +
               </button>
             </div>
-            <div class="hint" style="font-size: 11px; color: #666; margin-top: 4px;">Press Enter to add | Shift+Enter for new line</div>
+            <div class="quick-add-hint">
+              <span>Press Enter to add | Shift+Enter for new line</span>
+              <span id="codex-session-wrapper" style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Click to copy full session ID">
+                <span>Codex Session ID:</span>
+                <span id="codex-session-display" style="font-family: monospace; color: var(--subtle);"></span>
+              </span>
+            </div>
 
             <!-- Tools Popup -->
-            <div id="tools-popup" class="tools-popup" style="display: none; position: absolute; right: 0; top: 100%; background: #1a1f2e; border: 1px solid #3f3f46; border-radius: 6px; min-width: 280px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); z-index: 100; margin-top: 4px; padding: 8px 0;">
+            <div id="tools-popup" class="tools-popup popup-panel" style="display: none; position: absolute; right: 0; top: 100%; z-index: 100; margin-top: 4px;">
               <div class="popup-section">
-                <div class="popup-section-title" style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; padding: 4px 12px; margin-bottom: 4px;">
+                <div class="popup-section-title">
                   Integrations
                 </div>
-                <div class="popup-item disabled" style="padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; opacity: 0.4; cursor: not-allowed;">
+                <div class="popup-item disabled">
                   <span>🔍 Web Search</span>
-                  <span class="coming-soon" style="font-size: 10px; color: #71717a; background: rgba(255, 255, 255, 0.05); padding: 2px 6px; border-radius: 3px;">
+                  <span class="coming-soon">
                     Coming Soon
                   </span>
                 </div>
@@ -206,9 +309,9 @@
             </div>
 
             <!-- Text Expander Autocomplete Popup (Phase 14B) -->
-            <div id="text-expander-popup" class="text-expander-popup" style="display: none; position: absolute; top: 100%; left: 0; background: #1a1f2e; border: 1px solid #3f3f46; border-radius: 6px; min-width: 320px; max-height: 400px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); z-index: 100; margin-top: 4px;">
+            <div id="text-expander-popup" class="text-expander-popup popup-panel" style="display: none; position: absolute; top: 100%; left: 0; min-width: 320px; max-height: 400px; overflow-y: auto; z-index: 100; margin-top: 4px;">
               <div class="popup-section" style="padding: 8px 0;">
-                <div class="popup-section-title" style="font-size: 11px; text-transform: uppercase; color: #71717a; padding: 8px 12px 4px; font-weight: 600;">TEXT EXPANDERS</div>
+                <div class="popup-section-title" style="padding: 8px 12px 4px;">TEXT EXPANDERS</div>
                 <div id="prompt-list-container">
                   <!-- Populated dynamically -->
                 </div>
@@ -219,19 +322,21 @@
           <div id="script-input" class="input-area" style="display: ${this.mode === 'script' ? 'block' : 'none'}">
             <select
               id="script-picker"
-              style="width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid #444; border-radius: 6px; padding: 10px; color: #fff; margin-bottom: 8px;">
+              class="form-control form-select"
+              style="width: 100%; margin-bottom: 8px;">
               <option value="">Select a script...</option>
             </select>
             <input
               type="text"
               id="script-args"
               placeholder="Arguments (optional): --verbose --env=dev"
-              style="width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid #444; border-radius: 6px; padding: 10px; color: #fff; margin-bottom: 8px;"
+              class="form-control"
+              style="width: 100%; margin-bottom: 8px;"
             />
             <button
               onclick="window.quickAdd.addScriptTask()"
               class="button primary"
-              style="padding: 10px 16px; background: #3b82f6; border: none; border-radius: 6px; color: #fff; cursor: pointer;">
+              style="padding: 10px 16px;">
               Add Task
             </button>
           </div>
@@ -247,6 +352,9 @@
       if (this.mode === 'script') {
         this.loadScripts();
       }
+
+      // Update Codex session display
+      this.updateCodexSessionDisplay();
     }
 
     attachEventListeners() {
@@ -290,6 +398,15 @@
           e.preventDefault();
           e.stopPropagation();
           this.addScriptTask();
+        });
+      }
+
+      const codexSessionWrapper = document.getElementById('codex-session-wrapper');
+      if (codexSessionWrapper) {
+        codexSessionWrapper.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.copyCodexSessionId();
         });
       }
 
@@ -415,7 +532,7 @@
         return;
       }
 
-      const selectedTool = this.selectedTool || 'llm-haiku';
+      const selectedTool = this.selectedTool || 'llm-sonnet';
 
       try {
         const response = await API.api('POST', '/api/tasks/quick-add', {
@@ -438,10 +555,14 @@
         const toolLabel = await this.resolveToolLabel(usedTool);
         Utils.showToast(`Task ${friendly} added (${toolLabel})`, 'success', 4000);
 
-        // Refresh if callback is set
-        if (this.refreshCallback && typeof this.refreshCallback === 'function') {
-          this.refreshCallback();
+        // Immediately update UI with returned task data before full refresh
+        if (response.task && this.refreshCallback && typeof this.refreshCallback === 'function') {
+          // Call refresh to update task list with new task
+          this.refreshCallback(response.task);
         }
+
+        // Update Codex session display (may have changed after task execution)
+        setTimeout(() => this.updateCodexSessionDisplay(), 500);
 
       } catch (error) {
         console.error('Failed to add task:', error);
@@ -450,15 +571,72 @@
     }
 
     handleToolChange(event) {
-      this.selectedTool = event?.target?.value || this.selectedTool || 'llm-haiku';
+      this.selectedTool = event?.target?.value || this.selectedTool || 'llm-sonnet';
     }
 
-    handlePromptFileChange(event) {
-      const val = event?.target?.value || '';
-      this.selectedPrompt = val;
+    async handleAgentRoleChange(event) {
+      const newValue = event?.target?.value || '';
+      const previous = this.selectedAgentRole || '';
+      this.selectedAgentRole = newValue;
+
+      if (!this.queueId) {
+        Utils.showToast('No queue selected', 'error');
+        if (event?.target) {
+          event.target.value = previous;
+        }
+        return;
+      }
+
+      try {
+        await API.api(
+          'PUT',
+          `/api/queues/${this.queueId}`,
+          { default_agent_role_key: newValue || null },
+          { action: 'update agent role' }
+        );
+        this.queueDefaults.default_agent_role_key = newValue || null;
+        const label = (this.agentRoles.find((r) => r.key === newValue) || {}).label || 'None';
+        Utils.showToast(newValue ? `Agent Role set to ${label}` : 'Agent Role cleared', 'success');
+      } catch (err) {
+        console.error('[QuickAdd] Failed to update agent role:', err);
+        this.selectedAgentRole = previous;
+        if (event?.target) {
+          event.target.value = previous;
+        }
+        Utils.showToast('Failed to update agent role', 'error');
+      }
+    }
+
+    async handlePromptFileChange(event) {
+      const filename = event?.target?.value || '';
+      this.selectedPrompt = filename;
       const promptField = document.getElementById('prompt-field');
-      if (promptField && val) {
-        promptField.value = `Run prompt ${val}`;
+
+      if (!promptField) {
+        return;
+      }
+
+      if (!filename) {
+        promptField.focus();
+        return;
+      }
+
+      try {
+        const response = await API.api(
+          'GET',
+          `/api/prompts/${encodeURIComponent(filename)}`,
+          null,
+          { action: 'load build prompt' }
+        );
+        const content = response?.content ?? '';
+        promptField.value = content;
+        const cursor = promptField.value.length;
+        promptField.selectionStart = cursor;
+        promptField.selectionEnd = cursor;
+        promptField.focus();
+      } catch (err) {
+        console.error('[QuickAdd] Failed to load build prompt:', err);
+        Utils.showToast('Failed to load prompt file', 'error');
       }
     }
 
@@ -498,9 +676,10 @@
         const toolLabel = await this.resolveToolLabel(tool);
         Utils.showToast(`Task ${friendly} added (${toolLabel})`, 'success', 4000);
 
-        // Refresh if callback is set
-        if (this.refreshCallback && typeof this.refreshCallback === 'function') {
-          this.refreshCallback();
+        // Immediately update UI with returned task data before full refresh
+        if (response.task && this.refreshCallback && typeof this.refreshCallback === 'function') {
+          // Call refresh to update task list with new task
+          this.refreshCallback(response.task);
         }
 
       } catch (error) {
@@ -620,13 +799,13 @@
 
       listContainer.innerHTML = this.filteredPrompts.map((prompt, index) => {
         const isSelected = index === this.selectedIndex;
-        const itemStyle = `padding: 10px 12px; cursor: pointer; display: flex; gap: 10px; align-items: flex-start; ${isSelected ? 'background: rgba(59, 130, 246, 0.1);' : ''}`;
+        const classes = `prompt-item prompt-popup-item${isSelected ? ' active' : ''}`;
         return `
-          <div class="prompt-item" data-index="${index}" style="${itemStyle}" onclick="window.quickAdd.selectPromptByIndex(${index})">
+          <div class="${classes}" data-index="${index}" onclick="window.quickAdd.selectPromptByIndex(${index})">
             <div class="prompt-icon" style="font-size: 16px; margin-top: 2px;">📝</div>
             <div class="prompt-details" style="flex: 1;">
-              <div class="prompt-command" style="font-family: SFMono-Regular, Menlo, monospace; font-size: 13px; color: #e5e7eb;">>${prompt.command || ''}</div>
-              ${prompt.description ? `<div class="prompt-description" style="font-size: 12px; color: #a1a1aa; margin-top: 2px;">${prompt.description}</div>` : ''}
+              <div class="prompt-command" style="font-family: SFMono-Regular, Menlo, monospace; font-size: 13px;">>${prompt.command || ''}</div>
+              ${prompt.description ? `<div class="prompt-description" style="font-size: 12px; margin-top: 2px;">${prompt.description}</div>` : ''}
             </div>
           </div>
         `;

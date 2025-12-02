@@ -22,7 +22,7 @@ class TestDatabaseSchema:
             )
             tables = [row[0] for row in cursor.fetchall()]
 
-        required_tables = {"projects", "sessions", "queues", "tasks"}
+        required_tables = {"projects", "sessions", "queues", "tasks", "agent_roles"}
         assert required_tables.issubset(set(tables)), f"Missing tables. Found: {tables}"
 
     def test_projects_table_columns(self, storage):
@@ -76,6 +76,7 @@ class TestDatabaseSchema:
             "session_id": "TEXT",
             "name": "TEXT",
             "instructions": "TEXT",
+            "default_agent_role_key": "TEXT",
             "status": "TEXT",
             "created_at": "TEXT",
             "updated_at": "TEXT",
@@ -96,6 +97,7 @@ class TestDatabaseSchema:
             "tool_name": "TEXT",
             "task_class": "TEXT",
             "payload": "TEXT",
+            "agent_role_key": "TEXT",
             "status": "TEXT",
             "timeout": "INTEGER",
             "attempts": "INTEGER",
