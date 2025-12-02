@@ -5,7 +5,6 @@ import fcntl
 import logging
 import os
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -262,7 +261,7 @@ def run_server_background(port: Optional[int] = None, host: Optional[str] = None
     create_lockfile()
     atexit.register(remove_lockfile)
 
-    def handle_signal(signum, frame):
+    def handle_signal(signum, _frame):
         logger.info("Received signal %s; shutting down SparkQ server", signum)
         remove_lockfile()
         raise SystemExit(0)
@@ -306,7 +305,7 @@ def run_server(port: Optional[int] = None, host: Optional[str] = None, backgroun
     create_lockfile()
     atexit.register(remove_lockfile)
 
-    def handle_signal(signum, frame):
+    def handle_signal(signum, _frame):
         logger.info("Received signal %s; shutting down SparkQ server", signum)
         remove_lockfile()
         raise SystemExit(0)

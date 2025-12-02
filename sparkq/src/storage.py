@@ -1355,9 +1355,7 @@ class Storage:
 
     def purge_old_tasks(self, older_than_days: int = 3) -> int:
         """Delete old succeeded/failed tasks older than specified days"""
-        from datetime import datetime, timedelta
-
-        cutoff_date = (datetime.utcnow() - timedelta(days=older_than_days)).isoformat() + "Z"
+        cutoff_date = (datetime.now(UTC) - timedelta(days=older_than_days)).isoformat().replace("+00:00", "Z")
 
         with self.connection() as conn:
             cursor = conn.execute(

@@ -110,7 +110,6 @@ sparkq/
 ├── pytest.ini                 # Test configuration
 ├── API.md                     # API endpoint reference
 ├── README.md                  # This file
-├── test_integration.py        # Integration test suite
 ├── src/
 │   ├── __main__.py            # CLI entrypoint
 │   ├── api.py                 # FastAPI routes
@@ -501,7 +500,7 @@ python -m sparkq.src.cli task --task-id <task-id>
 
 ```bash
 # From sparkq/ directory (with venv activated)
-python -m pytest test_integration.py -v
+python -m pytest tests/integration -v
 ```
 
 ### Run All Tests

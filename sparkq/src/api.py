@@ -987,7 +987,7 @@ async def get_queue(queue_id: str):
 
 @app.put("/api/queues/{queue_id}")
 async def update_queue(queue_id: str, request: QueueUpdateRequest):
-    fields_set = request.__fields_set__ or set()
+    fields_set = request.model_fields_set or set()
     role_provided = "default_agent_role_key" in fields_set
 
     if request.name is None and request.instructions is None and not role_provided:

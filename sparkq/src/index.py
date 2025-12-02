@@ -252,12 +252,3 @@ class ScriptIndex:
             if str(entry.get("name", "")).lower() == name_lower:
                 return entry
         return None
-
-    def export_json(self, path: str) -> None:
-        """Write the current index to a JSON file for external consumption."""
-        target = Path(path)
-        if target.parent:
-            target.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(target, "w", encoding="utf-8") as handle:
-            json.dump(self.index, handle, indent=2)

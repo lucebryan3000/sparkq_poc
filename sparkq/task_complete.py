@@ -16,29 +16,12 @@ if str(ROOT_DIR) not in sys.path:
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from src.config import get_queue_runner_config, get_server_config, load_config
+from src.config import load_config, resolve_base_url
 
 
 def get_base_url():
     """Get SparkQ API base URL from config."""
-    cfg = load_config()
-    qr_config = get_queue_runner_config(cfg)
-
-    if "base_url" in qr_config:
-        return qr_config["base_url"].rstrip("/")
-
-    # Auto-detect using server port
-    import socket
-    server_config = get_server_config(cfg)
-    port = server_config.get("port", 5005)
-
-    try:
-        hostname = socket.gethostname()
-        local_ip = socket.gethostbyname(hostname)
-    except (socket.error, Exception):
-        local_ip = "localhost"
-
-    return f"http://{local_ip}:{port}"
+    return resolve_base_url(load_config())
 
 
 def complete_task(task_id: str, summary: str, result_data: str = None):

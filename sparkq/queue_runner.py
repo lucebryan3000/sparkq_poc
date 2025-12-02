@@ -8,6 +8,8 @@ Execution Model:
   - Queue runner auto-completes tasks via API
   - Context preserved across tasks (single chat thread)
 
+For complete worker documentation, see: sparkq/WORKER_PLAYBOOK.md
+
 Configuration (sparkq.yml):
   queue_runner:
     base_url: http://192.168.1.100:5005  # Optional override; auto-detected if omitted
@@ -65,14 +67,8 @@ from src.config import (  # type: ignore
     get_queue_runner_config as config_queue_runner_config,
     get_server_config as config_server_config,
     load_config,
+    resolve_base_url,
 )
-
-try:
-    from anthropic import Anthropic, APIError
-except ImportError:
-    Anthropic = None
-    APIError = Exception
-
 
 def _timeout_kwargs(timeout: float) -> dict:
     """
@@ -126,25 +122,7 @@ def get_default_base_url():
     Auto-detection uses local IP (not localhost) so it works from other machines.
     Falls back to localhost if IP resolution fails.
     """
-    qr_config = load_queue_runner_config()
-
-    # Check if explicitly set in config
-    if "base_url" in qr_config:
-        return qr_config["base_url"].rstrip("/")
-
-    # Auto-detect using local IP + server port
-    server_config = get_server_config()
-    port = server_config.get("port", 5005)
-
-    # Get local IP address (not localhost)
-    try:
-        hostname = socket.gethostname()
-        local_ip = socket.gethostbyname(hostname)
-    except (socket.error, Exception):
-        # Fallback to localhost if IP resolution fails
-        local_ip = "localhost"
-
-    return f"http://{local_ip}:{port}"
+    return resolve_base_url(load_config())
 
 
 def resolve_worker_id(queue_name: str) -> str:
@@ -250,7 +228,7 @@ def release_lock() -> None:
             pass  # Best effort
 
 
-def handle_signal(signum, frame):
+def handle_signal(signum, _frame):
     """Handle termination signals gracefully."""
     log(f"Received signal {signum}, shutting down...")
     sys.exit(0)  # Triggers atexit handlers
@@ -326,7 +304,6 @@ def complete_task(
     task_id: str,
     summary: str,
     result: Any,
-    stdout_text: str = "",
 ) -> None:
     """
     Mark a task as successfully completed.
@@ -336,7 +313,6 @@ def complete_task(
         task_id: Task ID to complete
         summary: Summary of execution (must not be empty)
         result: Result data (will be converted to JSON string if needed)
-        stdout_text: Execution output/log text
     """
     # Ensure summary is non-empty (API requirement)
     if not summary or not summary.strip():

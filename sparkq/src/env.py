@@ -7,7 +7,6 @@ from typing import Literal
 EnvName = Literal["dev", "prod", "test"]
 
 _DEV_ALIASES = {"dev", "development", "local"}
-_PROD_ALIASES = {"prod", "production", "live"}
 
 
 @lru_cache(maxsize=1)
@@ -18,7 +17,7 @@ def get_app_env() -> EnvName:
 
     if env in _DEV_ALIASES:
         return "dev"
-    if env in _PROD_ALIASES:
+    if env in {"prod", "production", "live"}:
         return "prod"
     if env == "test":
         return "test"
@@ -28,11 +27,6 @@ def get_app_env() -> EnvName:
 def is_dev_env() -> bool:
     """True when running in development mode (or test)."""
     return get_app_env() in {"dev", "test"}
-
-
-def is_prod_env() -> bool:
-    """True when running in production mode."""
-    return get_app_env() == "prod"
 
 
 def reset_env_cache() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
+import socket
 
 import yaml
 
@@ -63,10 +64,27 @@ def get_server_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]
     }
 
 
-def get_tools_config(config: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str, Any]]:
-    """Return tools/task_classes sections (empty dicts if missing)."""
+def resolve_base_url(config: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Resolve the API base URL using queue_runner config or host/port defaults.
+
+    Preference:
+    1) queue_runner.base_url if provided
+    2) http://{local_ip}:{server.port} (falls back to localhost on lookup failure)
+    """
     cfg = config or load_config()
-    return {
-        "tools": cfg.get("tools", {}) or {},
-        "task_classes": cfg.get("task_classes", {}) or {},
-    }
+    qr_cfg = get_queue_runner_config(cfg)
+    base_override = qr_cfg.get("base_url")
+    if base_override:
+        return base_override.rstrip("/")
+
+    server_cfg = get_server_config(cfg)
+    port = server_cfg.get("port", DEFAULT_SERVER["port"])
+
+    try:
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
+    except (socket.error, Exception):
+        local_ip = "localhost"
+
+    return f"http://{local_ip}:{port}"

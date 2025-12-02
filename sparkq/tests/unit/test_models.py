@@ -1,6 +1,6 @@
 import json
 import re
-from datetime import datetime
+from datetime import datetime, UTC
 
 import pytest
 
@@ -54,7 +54,7 @@ class TestIDGeneration:
 
 class TestProjectModel:
     def test_project_creation_without_prd_path(self):
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         project = Project(
             id="prj_deadbeef",
             name="Test Project",
@@ -67,7 +67,7 @@ class TestProjectModel:
         assert project.id == "prj_deadbeef"
 
     def test_project_creation_with_prd_path(self):
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         project = Project(
             id="prj_feedbabe",
             name="Project With PRD",
@@ -102,7 +102,7 @@ class TestProjectModel:
 
 class TestSessionModel:
     def test_session_default_status_active(self):
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         session = Session(
             id="ses_deadbeef",
             project_id="prj_deadbeef",
@@ -116,7 +116,7 @@ class TestSessionModel:
         assert session.ended_at is None
 
     def test_session_accepts_enum_status_values(self):
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         session = Session(
             id="ses_feedbabe",
             project_id="prj_feedbabe",
@@ -134,7 +134,7 @@ class TestSessionModel:
 
 class TestQueueModel:
     def test_queue_creation_with_instructions(self):
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         queue = Queue(
             id="que_deadbeef",
             session_id="ses_deadbeef",
@@ -148,7 +148,7 @@ class TestQueueModel:
         assert queue.status == QueueStatus.ACTIVE
 
     def test_queue_allows_optional_instructions(self):
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         queue = Queue(
             id="que_feedbabe",
             session_id="ses_feedbabe",
@@ -163,7 +163,7 @@ class TestQueueModel:
 
 class TestTaskModel:
     def test_task_creation_defaults(self):
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         task = Task(
             id="tsk_deadbeef",
             queue_id="que_deadbeef",
@@ -182,7 +182,7 @@ class TestTaskModel:
         assert task.started_at is None
 
     def test_task_status_transitions(self):
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         task = Task(
             id="tsk_feedbabe",
             queue_id="que_feedbabe",
@@ -208,7 +208,7 @@ class TestTaskModel:
         assert task.error == "Something went wrong"
 
     def test_task_payload_serialization(self):
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
         payload = {"query": "SELECT * FROM table"}
         payload_json = json.dumps(payload)
         task = Task(

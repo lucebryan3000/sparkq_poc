@@ -67,7 +67,7 @@ class ToolRegistry:
         tool_cfg = self.get_tool(tool_name) if tool_name else None
         task_class_name = task_class or (tool_cfg.get("task_class") if tool_cfg else None)
 
-        if task_class_name:
+        if tool_cfg and task_class_name:
             task_class_cfg = self.task_classes.get(task_class_name, {}) if isinstance(self.task_classes, dict) else {}
             timeout_value = task_class_cfg.get("timeout") if isinstance(task_class_cfg, dict) else None
             if timeout_value is not None:
@@ -79,27 +79,6 @@ class ToolRegistry:
         """Get task class name for a tool"""
         tool = self.get_tool(tool_name)
         return tool.get('task_class') if tool else None
-
-    def list_llm_tools(self) -> list[dict]:
-        """
-        List tools whose task_class starts with LLM_.
-        Returns list of dicts: {name, description, task_class}
-        """
-        llm_tools = []
-        for name, cfg in (self.tools or {}).items():
-            task_class = cfg.get("task_class", "")
-            if isinstance(task_class, str) and task_class.upper().startswith("LLM_"):
-                llm_tools.append({
-                    "name": name,
-                    "description": cfg.get("description") or name,
-                    "task_class": task_class,
-                })
-        return llm_tools
-
-    def get_tool_display(self, name: str) -> str:
-        """Return a human-friendly label (description fallback to name)."""
-        tool = self.get_tool(name)
-        return tool.get("description") if tool else name
 
 
 # Module-level singleton

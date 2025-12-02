@@ -24,6 +24,11 @@ sparkq.yml                         # Runtime config (generated from sparkq.yml.e
 # Node.js - track package-lock for reproducible installs (private repo)
 node_modules/
 
+# Explicitly track these DB files (override global *.db ignore rules)
+!sparkq.db
+!sparkq/sparkq.db
+!sparkq/data/sparkq.db
+
 # Codex generated artifacts (keep README/prompt docs tracked)
 .codex/cache/
 .codex/temp/

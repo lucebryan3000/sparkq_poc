@@ -253,7 +253,7 @@ class TestTaskEndpoints:
         assert data["task"]["task_class"] == payload["task_class"]
         from src.models import TaskClassDefaults
 
-        defaults = TaskClassDefaults().dict()
+        defaults = TaskClassDefaults().model_dump()
         assert data["task"]["timeout"] == defaults["FAST_SCRIPT"]
 
     def test_get_task(self, api_client, queued_task):
