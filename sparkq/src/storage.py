@@ -114,7 +114,8 @@ def gen_prompt_id() -> str:
 
 
 def now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    # Normalize to Z-terminated ISO8601 for consistency in tests and APIs
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class Storage:
@@ -452,9 +453,9 @@ class Storage:
         }
 
     def get_project(self) -> Optional[ProjectRow]:
-        """Get the single project (v1: single project only)"""
+        """Get the first created project (v1: single project only)."""
         with self.connection() as conn:
-            cursor = conn.execute("SELECT * FROM projects LIMIT 1")
+            cursor = conn.execute("SELECT * FROM projects ORDER BY created_at ASC LIMIT 1")
             row = cursor.fetchone()
             return dict(row) if row else None
 
@@ -1161,10 +1162,24 @@ class Storage:
             if cursor.rowcount == 0:
                 raise NotFoundError(f"Task {task_id} not found")
 
-            # Fetch and return the updated task
             cursor = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
             row = cursor.fetchone()
-            return dict(row) if row else None
+            updated = dict(row) if row else None
+
+        if error_type == "TIMEOUT":
+            try:
+                self.log_audit(
+                    actor=None,
+                    action="task.auto_fail",
+                    details={
+                        "task_id": task_id,
+                        "error": error_message,
+                    },
+                )
+            except Exception:
+                self.logger.exception("Failed to log auto-fail audit for task %s", task_id)
+
+        return updated
 
     @staticmethod
     def is_auto_failed(task: Optional[TaskRow]) -> bool:
