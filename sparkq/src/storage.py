@@ -1287,6 +1287,51 @@ class Storage:
         )
         return new_task
 
+    def rerun_task(self, task_id: str) -> TaskRow:
+        """Reset an existing task in-place back to queued status."""
+        task = self.get_task(task_id)
+        if not task:
+            raise NotFoundError(f"Task {task_id} not found")
+
+        status = (task.get("status") or "").lower()
+        if status in {"queued", "running"}:
+            raise ConflictError(f"Cannot rerun task while status is {status}")
+
+        now = now_iso()
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE tasks
+                SET status = 'queued',
+                    attempts = 0,
+                    claimed_at = NULL,
+                    stale_warned_at = NULL,
+                    started_at = NULL,
+                    finished_at = NULL,
+                    result = NULL,
+                    error = NULL,
+                    stdout = NULL,
+                    stderr = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now, task_id),
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError(f"Task {task_id} not found")
+
+        self.log_audit(
+            actor=None,
+            action="task.rerun",
+            details={
+                "task_id": task_id,
+                "previous_status": status,
+                "queue_id": task.get("queue_id"),
+            },
+        )
+
+        return self.get_task(task_id)
+
     def update_task(self, task_id: str, **updates) -> Optional[TaskRow]:
         """Update task fields. Allowed fields: tool_name, payload, timeout, status. Returns updated task or None if not found."""
         existing = self.get_task(task_id)

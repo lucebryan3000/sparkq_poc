@@ -1889,10 +1889,19 @@ a {
 .task-cell.actions button {
   padding: 4px 8px;
   font-size: 12px;
+  background: var(--mode-btn-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .task-cell.actions .task-delete-btn {
   color: var(--accent-danger);
+}
+
+.task-cell.actions .task-rerun-btn {
+  color: var(--accent);
 }
 
 .task-row:hover {

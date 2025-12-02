@@ -174,8 +174,9 @@
     const actionsCell = readOnly
       ? '<div class="task-cell actions muted">View only</div>'
       : `<div class="task-cell actions">
-          <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task">✏️</button>
-          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task">✖️</button>
+          <button class="task-rerun-btn" data-task-id="${task?.id}" title="Rerun task" aria-label="Rerun task">⟳</button>
+          <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task" aria-label="Edit task">✏️</button>
+          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task" aria-label="Delete task">✖️</button>
         </div>`;
 
     return `
@@ -883,9 +884,7 @@
           </div>
         `;
 
-        if (!readOnly) {
-          this.attachTaskActionHandlers(container, pageTasks, queueId);
-        }
+        this.attachTaskActionHandlers(container, pageTasks, queueId, { readOnly });
 
         if (!readOnly) {
           const toggleBtn = container.querySelector(`#task-filter-toggle-${queueId}`);
@@ -1041,17 +1040,39 @@
       });
     },
 
-    async attachTaskActionHandlers(container, tasks, queueId) {
+    async attachTaskActionHandlers(container, tasks, queueId, { readOnly = false } = {}) {
       // Row click -> edit
       container.querySelectorAll('.task-row').forEach(row => {
         const taskId = row.dataset.taskId;
-        if (!taskId) return;
+        if (!taskId || readOnly) return;
+        const task = tasks.find(t => String(t.id) === String(taskId));
+        if (!task) return;
+        row.style.cursor = 'pointer';
         row.addEventListener('click', async (e) => {
-          // Avoid double-trigger when clicking buttons
           if (e.target.closest('button')) return;
+          await this.showEditTaskDialog(task, queueId);
+        });
+      });
+
+      if (readOnly) return;
+
+      // Attach rerun handlers
+      container.querySelectorAll('.task-rerun-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const taskId = btn.dataset.taskId;
           const task = tasks.find(t => String(t.id) === String(taskId));
-          if (task) {
-            await this.showEditTaskDialog(task, queueId);
+          if (!taskId || !task) return;
+          try {
+            await api('POST', `/api/tasks/${encodeURIComponent(taskId)}/rerun`, null, { action: 'rerun task' });
+            Utils.showToast(`Task ${taskId} requeued`, 'success', 3000);
+            const tasksContainer = document.getElementById('dashboard-tasks');
+            if (tasksContainer) {
+              this.renderTasks(tasksContainer, queueId);
+            }
+          } catch (err) {
+            console.error('Failed to rerun task:', err);
+            Utils.showToast(err?.message || 'Failed to rerun task', 'error');
           }
         });
       });
@@ -1080,7 +1101,6 @@
           try {
             confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
           } catch (err) {
-            // Fallback to native confirm if custom dialog fails
             confirmed = window.confirm(`Are you sure you want to delete task ${label}? This cannot be undone.`);
           }
           if (!confirmed) return;
