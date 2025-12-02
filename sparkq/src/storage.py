@@ -587,31 +587,6 @@ class Storage:
             if cursor.rowcount == 0:
                 raise NotFoundError(f"Queue {queue_id} not found")
 
-    def get_queue_codex_session(self, queue_id: str) -> Optional[str]:
-        """Get Codex session ID for queue (None if not set)"""
-        with self.connection() as conn:
-            row = conn.execute(
-                "SELECT codex_session_id FROM queues WHERE id = ?",
-                (queue_id,)
-            ).fetchone()
-            if row is None:
-                raise NotFoundError(f"Queue {queue_id} not found")
-            return row[0]
-
-    def get_queue_names(self, queue_ids: List[str]) -> Dict[str, str]:
-        """Return a mapping of queue_id -> name for provided IDs."""
-        unique_ids = [qid for qid in dict.fromkeys(queue_ids) if qid]
-        if not unique_ids:
-            return {}
-
-        placeholders = ",".join("?" for _ in unique_ids)
-        with self.connection() as conn:
-            rows = conn.execute(
-                f"SELECT id, name FROM queues WHERE id IN ({placeholders})", tuple(unique_ids)
-            ).fetchall()
-
-        return {row["id"]: row["name"] for row in rows}
-
     def list_queues(self, session_id: str = None, status: str = None) -> List[QueueRow]:
         with self.connection() as conn:
             query = "SELECT * FROM queues WHERE 1=1"
@@ -890,12 +865,13 @@ class Storage:
         """
         Return a mapping of queue_id -> queue name for display without per-task lookups.
         """
-        if not queue_ids:
+        unique_ids = [qid for qid in dict.fromkeys(queue_ids) if qid]
+        if not unique_ids:
             return {}
-        placeholders = ",".join(["?"] * len(queue_ids))
+        placeholders = ",".join(["?"] * len(unique_ids))
         query = f"SELECT id, name FROM queues WHERE id IN ({placeholders})"
         with self.connection() as conn:
-            rows = conn.execute(query, queue_ids).fetchall()
+            rows = conn.execute(query, unique_ids).fetchall()
         return {row["id"]: row["name"] for row in rows}
 
     def get_oldest_queued_task(self, queue_id: str) -> Optional[TaskRow]:

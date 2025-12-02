@@ -1192,6 +1192,32 @@
       toolGroup.append(toolLabelEl, toolInput);
       body.appendChild(toolGroup);
 
+      const agentRoleGroup = document.createElement('div');
+      agentRoleGroup.className = 'form-group';
+      const agentRoleLabel = document.createElement('label');
+      agentRoleLabel.textContent = 'Agent Role';
+      const agentRoleInput = document.createElement('input');
+      agentRoleInput.id = 'edit-task-agent-role';
+      agentRoleInput.type = 'text';
+      agentRoleInput.className = 'form-control';
+      agentRoleInput.value = task.agent_role_key || '';
+      agentRoleGroup.append(agentRoleLabel, agentRoleInput);
+      body.appendChild(agentRoleGroup);
+
+      const timeoutGroup = document.createElement('div');
+      timeoutGroup.className = 'form-group';
+      const timeoutLabel = document.createElement('label');
+      timeoutLabel.textContent = 'Timeout (seconds)';
+      const timeoutInput = document.createElement('input');
+      timeoutInput.id = 'edit-task-timeout';
+      timeoutInput.type = 'number';
+      timeoutInput.min = '1';
+      timeoutInput.step = '1';
+      timeoutInput.className = 'form-control';
+      timeoutInput.value = Number(task.timeout) || '';
+      timeoutGroup.append(timeoutLabel, timeoutInput);
+      body.appendChild(timeoutGroup);
+
       const payloadGroup = document.createElement('div');
       payloadGroup.className = 'form-group';
       const payloadLabelEl = document.createElement('label');
@@ -1242,13 +1268,28 @@
         }
         if (payload && typeof payload === 'object') {
           try {
-            return { payload: JSON.stringify(payload) };
+            payload = JSON.stringify(payload);
           } catch (err) {
             console.error('Failed to serialize payload, falling back to prompt text:', err);
-            return { payload: promptText };
+            payload = promptText;
           }
         }
-        return { payload };
+        const updates = { payload };
+
+        const timeoutRaw = (timeoutInput?.value || '').trim();
+        if (timeoutRaw) {
+          const timeoutVal = parseInt(timeoutRaw, 10);
+          if (!Number.isInteger(timeoutVal) || timeoutVal <= 0) {
+            showError('Timeout must be a positive integer.');
+            return null;
+          }
+          updates.timeout = timeoutVal;
+        }
+
+        const agentRoleVal = (agentRoleInput?.value || '').trim();
+        updates.agent_role_key = agentRoleVal || null;
+
+        return updates;
       };
 
       const result = await new Promise((resolve) => {
@@ -1280,7 +1321,11 @@
           }
         });
 
-        const handleSave = () => finish(getPayload());
+        const handleSave = () => {
+          const payload = getPayload();
+          if (!payload) return;
+          finish(payload);
+        };
         const handleCancel = () => finish(null);
         const handleDelete = () => finish({ delete: true });
         cancelBtn.addEventListener('click', handleCancel);

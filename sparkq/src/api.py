@@ -153,7 +153,6 @@ async def ui_cache_buster():
 
 
 TASK_STATUS_VALUES = {status.value for status in TaskStatus}
-DEFAULT_TASK_TIMEOUTS = {**TASK_CLASS_TIMEOUTS}
 
 _LIST_HAS_OFFSET = "offset" in inspect.signature(storage.list_tasks).parameters
 _CREATE_HAS_PAYLOAD = "payload" in inspect.signature(storage.create_task).parameters

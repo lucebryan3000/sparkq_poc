@@ -49,6 +49,233 @@
     return `<span class="status-pill${pillClass ? ` ${pillClass}` : ''}">${label}</span>`;
   }
 
+  async function showEditTaskDialog(task, onUpdate) {
+    if (!task) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal modal-overlay';
+    overlay.style.opacity = '0';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-content';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.style.transform = 'scale(0.95)';
+    modal.tabIndex = -1;
+
+    // Parse payload prompt text for editing convenience
+    let payloadText = '';
+    let originalPayload = task.payload;
+    if (typeof task.payload === 'string') {
+      const trimmed = task.payload.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          originalPayload = parsed;
+          if (parsed && typeof parsed.prompt === 'string') {
+            payloadText = parsed.prompt;
+          }
+        } catch (_) {
+          payloadText = trimmed;
+        }
+      } else {
+        payloadText = trimmed;
+      }
+    } else if (task.payload && typeof task.payload.prompt === 'string') {
+      payloadText = task.payload.prompt;
+    }
+
+    const friendlyLabel = task.friendly_id || task.id;
+    const toolLabel = getFriendlyToolName(task.tool_name) || task.tool_name || '';
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const title = document.createElement('h3');
+    title.className = 'modal-title';
+    title.textContent = `Edit ${friendlyLabel}`;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'modal-close-button';
+    closeBtn.type = 'button';
+    closeBtn.setAttribute('aria-label', 'Close dialog');
+    closeBtn.innerHTML = '&times;';
+    header.append(title, closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    body.innerHTML = `
+      <div style="margin-bottom:8px;">${renderStatusPill(task.status)}</div>
+    `;
+
+    const toolGroup = document.createElement('div');
+    toolGroup.className = 'form-group';
+    toolGroup.innerHTML = `
+      <label>Tool</label>
+      <input type="text" class="form-control" value="${toolLabel}" disabled />
+    `;
+    body.appendChild(toolGroup);
+
+    const agentRoleGroup = document.createElement('div');
+    agentRoleGroup.className = 'form-group';
+    const agentRoleInput = document.createElement('input');
+    agentRoleInput.type = 'text';
+    agentRoleInput.className = 'form-control';
+    agentRoleInput.value = task.agent_role_key || '';
+    agentRoleGroup.innerHTML = `<label>Agent Role</label>`;
+    agentRoleGroup.appendChild(agentRoleInput);
+    body.appendChild(agentRoleGroup);
+
+    const timeoutGroup = document.createElement('div');
+    timeoutGroup.className = 'form-group';
+    const timeoutInput = document.createElement('input');
+    timeoutInput.type = 'number';
+    timeoutInput.min = '1';
+    timeoutInput.step = '1';
+    timeoutInput.className = 'form-control';
+    timeoutInput.value = Number(task.timeout) || '';
+    timeoutGroup.innerHTML = `<label>Timeout (seconds)</label>`;
+    timeoutGroup.appendChild(timeoutInput);
+    body.appendChild(timeoutGroup);
+
+    const payloadGroup = document.createElement('div');
+    payloadGroup.className = 'form-group';
+    const payloadLabelEl = document.createElement('label');
+    payloadLabelEl.textContent = 'Prompt / Payload';
+    const payloadInput = document.createElement('textarea');
+    payloadInput.className = 'form-control';
+    payloadInput.style.minHeight = '140px';
+    payloadInput.value = payloadText;
+    payloadGroup.append(payloadLabelEl, payloadInput);
+    body.appendChild(payloadGroup);
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'button danger';
+    deleteBtn.textContent = '🗑️ Delete';
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'button secondary';
+    cancelBtn.textContent = 'Cancel';
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'button primary';
+    saveBtn.textContent = 'Save';
+    actions.append(cancelBtn, saveBtn);
+    footer.append(deleteBtn, actions);
+
+    modal.append(header, body, footer);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => {
+      overlay.classList.add('visible');
+      modal.style.transform = 'scale(1)';
+      payloadInput.focus();
+    });
+
+    const getUpdatePayload = () => {
+      const updates = {};
+      const promptText = payloadInput?.value ?? '';
+      let payload = promptText;
+      if (originalPayload && typeof originalPayload === 'object') {
+        payload = { ...originalPayload, prompt: promptText };
+      }
+      if (payload && typeof payload === 'object') {
+        try {
+          updates.payload = JSON.stringify(payload);
+        } catch (err) {
+          showError('Invalid payload JSON');
+          return null;
+        }
+      } else {
+        updates.payload = payload;
+      }
+
+      const timeoutRaw = (timeoutInput?.value || '').trim();
+      if (timeoutRaw) {
+        const timeoutVal = parseInt(timeoutRaw, 10);
+        if (!Number.isInteger(timeoutVal) || timeoutVal <= 0) {
+          showError('Timeout must be a positive integer.');
+          return null;
+        }
+        updates.timeout = timeoutVal;
+      }
+
+      const agentRoleVal = (agentRoleInput?.value || '').trim();
+      updates.agent_role_key = agentRoleVal || null;
+
+      return updates;
+    };
+
+    const close = () => {
+      overlay.classList.remove('visible');
+      modal.style.transform = 'scale(0.95)';
+      setTimeout(() => overlay.remove(), 200);
+    };
+
+    const handleDelete = async () => {
+      let confirmed = false;
+      try {
+        confirmed = await Utils.showConfirm('Delete Task', `Delete task ${friendlyLabel}? This cannot be undone.`);
+      } catch (_) {
+        confirmed = window.confirm(`Delete task ${friendlyLabel}? This cannot be undone.`);
+      }
+      if (!confirmed) return;
+      try {
+        await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
+        showSuccess(`Task ${friendlyLabel} deleted`);
+        close();
+        if (onUpdate) onUpdate();
+      } catch (err) {
+        handleApiError('delete task', err);
+      }
+    };
+
+    const handleSave = async () => {
+      const updates = getUpdatePayload();
+      if (!updates) return;
+      try {
+        await api('PUT', `/api/tasks/${encodeURIComponent(task.id)}`, updates, { action: 'update task' });
+        showSuccess('Task updated');
+        close();
+        if (onUpdate) onUpdate();
+      } catch (err) {
+        handleApiError('update task', err);
+      }
+    };
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        close();
+      }
+    });
+    closeBtn.addEventListener('click', close);
+    cancelBtn.addEventListener('click', close);
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleDelete();
+    });
+    saveBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleSave();
+    });
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
+      if (e.key === 'Enter' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    overlay.addEventListener('transitionend', () => {
+      document.removeEventListener('keydown', onKeyDown);
+    });
+  }
+
   async function renderTasksPage(container) {
     if (!container) {
       return;
@@ -178,6 +405,14 @@
           return '';
         })();
 
+        const actionsCell = isArchivedQueue
+          ? '<span class="muted" style="font-size:12px;">Read only</span>'
+          : `<div class="task-actions">
+              <button class="task-action-btn task-action-btn--rerun" data-task-id="${task.id}" title="Rerun task" aria-label="Rerun task">⟳</button>
+              <button class="task-action-btn task-action-btn--edit" data-task-id="${task.id}" title="Edit task" aria-label="Edit task">✏️</button>
+              <button class="task-action-btn task-action-btn--delete" data-task-id="${task.id}" title="Delete task" aria-label="Delete task">✖️</button>
+            </div>`;
+
         return `
           <tr class="task-row ${rowClass}" data-task-id="${task.id}" data-archived="${isArchivedQueue ? '1' : '0'}">
             <td style="width: 30px;"><input type="checkbox" class="task-checkbox" data-task-id="${task.id}" ${isArchivedQueue ? 'disabled' : ''} /></td>
@@ -187,6 +422,7 @@
             <td>${agentRole}</td>
             <td>${statusPill}${staleBadge ? ` ${staleBadge}` : ''}</td>
             <td>${formatTimestamp(task.created_at)}</td>
+            <td>${actionsCell}</td>
           </tr>
         `;
       })
@@ -204,6 +440,7 @@
                 <th>Agent Role</th>
                 <th>Status</th>
                 <th>Created</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -304,22 +541,63 @@
     const taskRows = container.querySelectorAll('.task-row');
     taskRows.forEach((row) => {
       const isArchived = row.dataset.archived === '1';
-      row.addEventListener('click', () => {
-        const checkbox = row.querySelector('.task-checkbox');
-        if (!checkbox || checkbox.disabled || isArchived) {
-          return;
-        }
-        checkbox.checked = !checkbox.checked;
-        if (checkbox.checked) {
-          selectedTasks.add(checkbox.dataset.taskId);
-        } else {
-          selectedTasks.delete(checkbox.dataset.taskId);
-        }
-        updateBulkActionsUI();
-      });
+      const taskId = row.dataset.taskId;
+      const task = tasks.find((t) => String(t.id) === String(taskId));
       if (isArchived) {
         row.classList.add('muted');
       }
+      row.addEventListener('click', async (e) => {
+        if (e.target.closest('button') || e.target.closest('input')) return;
+        if (!task || isArchived) return;
+        await showEditTaskDialog(task, () => renderTasksPage(container));
+      });
+    });
+
+    container.querySelectorAll('.task-action-btn--edit').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const taskId = btn.dataset.taskId;
+        const task = tasks.find((t) => String(t.id) === String(taskId));
+        if (!task) return;
+        await showEditTaskDialog(task, () => renderTasksPage(container));
+      });
+    });
+
+    container.querySelectorAll('.task-action-btn--delete').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const taskId = btn.dataset.taskId;
+        const task = tasks.find((t) => String(t.id) === String(taskId));
+        const label = task?.friendly_id || task?.id || taskId;
+        let confirmed = false;
+        try {
+          confirmed = await Utils.showConfirm('Delete Task', `Delete task ${label}? This cannot be undone.`);
+        } catch (_) {
+          confirmed = window.confirm(`Delete task ${label}? This cannot be undone.`);
+        }
+        if (!confirmed) return;
+        try {
+          await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });
+          showSuccess(`Task ${label} deleted`);
+          renderTasksPage(container);
+        } catch (err) {
+          handleApiError('delete task', err);
+        }
+      });
+    });
+
+    container.querySelectorAll('.task-action-btn--rerun').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const taskId = btn.dataset.taskId;
+        try {
+          await api('POST', `/api/tasks/${encodeURIComponent(taskId)}/rerun`, null, { action: 'rerun task' });
+          showSuccess(`Task ${taskId} requeued`);
+          renderTasksPage(container);
+        } catch (err) {
+          handleApiError('rerun task', err);
+        }
+      });
     });
 
     function updateBulkActionsUI() {
