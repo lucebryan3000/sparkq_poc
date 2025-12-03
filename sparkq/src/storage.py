@@ -25,6 +25,7 @@ from .constants import (
 from .agent_roles import agent_role_definitions
 from .metrics import incr, observe
 from .errors import ConflictError, NotFoundError, ValidationError
+from .models import TaskStatus
 
 
 class ProjectRow(TypedDict):
@@ -850,6 +851,52 @@ class Storage:
 
         return self.get_agent_role_by_key(role_key, include_inactive=True)
 
+    def create_agent_role(
+        self,
+        key: str,
+        label: str,
+        description: str,
+        active: bool = True,
+    ) -> AgentRoleRow:
+        """Create a new agent role."""
+        if not key:
+            raise ValidationError("key is required")
+        if not label:
+            raise ValidationError("label is required")
+        if not description:
+            raise ValidationError("description is required")
+
+        key_cleaned = str(key).strip()
+        label_cleaned = str(label).strip()
+        description_cleaned = str(description).strip()
+
+        # Check if role already exists
+        existing = self.get_agent_role_by_key(key_cleaned, include_inactive=True)
+        if existing:
+            raise ConflictError(f"Agent role already exists: {key_cleaned}")
+
+        now = now_iso()
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO agent_roles (key, label, description, active, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (key_cleaned, label_cleaned, description_cleaned, 1 if active else 0, now, now),
+            )
+
+        return self.get_agent_role_by_key(key_cleaned, include_inactive=True)
+
+    def delete_agent_role(self, role_key: str) -> None:
+        """Delete an agent role."""
+        if not role_key:
+            raise ValidationError("role_key is required")
+
+        existing = self.get_agent_role_by_key(role_key, include_inactive=True)
+        if not existing:
+            raise NotFoundError(f"Agent role not found: {role_key}")
+
+        with self.connection() as conn:
+            conn.execute("DELETE FROM agent_roles WHERE key = ?", (role_key,))
+
     # === Task CRUD ===
     def create_task(
         self,
@@ -974,6 +1021,30 @@ class Storage:
             }
 
         return stats_map
+
+    def get_stats_summary(self) -> Dict[str, int]:
+        """Return aggregate counts for sessions, queues, and tasks by status."""
+        try:
+            with self.connection() as conn:
+                sessions_row = conn.execute("SELECT COUNT(*) AS cnt FROM sessions").fetchone()
+                queues_row = conn.execute("SELECT COUNT(*) AS cnt FROM queues").fetchone()
+                task_rows = conn.execute(
+                    "SELECT status, COUNT(*) AS cnt FROM tasks GROUP BY status"
+                ).fetchall()
+        except Exception as exc:
+            self.logger.exception("Failed to compute stats summary: %s", exc)
+            return {"sessions": 0, "queues": 0, "queued_tasks": 0, "running_tasks": 0}
+
+        sessions_count = sessions_row["cnt"] if sessions_row else 0
+        queues_count = queues_row["cnt"] if queues_row else 0
+        status_counts = {str(row["status"]).lower(): row["cnt"] for row in task_rows or []}
+
+        return {
+            "sessions": sessions_count or 0,
+            "queues": queues_count or 0,
+            "queued_tasks": status_counts.get("queued", 0),
+            "running_tasks": status_counts.get("running", 0),
+        }
 
     def get_queue_names(self, queue_ids: List[str]) -> Dict[str, str]:
         """
@@ -1437,19 +1508,38 @@ class Storage:
         return self.get_task(task_id)
 
     def update_task(self, task_id: str, **updates) -> Optional[TaskRow]:
-        """Update task fields. Allowed fields: tool_name, payload, timeout, status. Returns updated task or None if not found."""
+        """
+        Update task fields. Allowed fields: tool_name, payload, timeout, agent_role_key,
+        and controlled status transitions. Returns updated task or None if not found.
+        """
         existing = self.get_task(task_id)
         if not existing:
             return None
 
-        allowed = {'tool_name', 'payload', 'timeout', 'status', 'agent_role_key'}
+        allowed = {"tool_name", "payload", "timeout", "status", "agent_role_key"}
         allowed_updates = {k: v for k, v in updates.items() if k in allowed}
 
         if not allowed_updates:
             return existing
 
-        allowed_updates['updated_at'] = now_iso()
-        set_clause = ', '.join([f"{k} = ?" for k in allowed_updates.keys()])
+        if "status" in allowed_updates:
+            new_status = allowed_updates["status"]
+            if new_status not in {status.value for status in TaskStatus}:
+                raise ValidationError(f"Invalid status value: {new_status}")
+
+            current_status = existing.get("status")
+            allowed_transitions = {
+                TaskStatus.QUEUED.value: {TaskStatus.RUNNING.value},
+                TaskStatus.RUNNING.value: {TaskStatus.SUCCEEDED.value, TaskStatus.FAILED.value},
+            }
+            if new_status != current_status:
+                if new_status not in allowed_transitions.get(current_status, set()):
+                    raise ValidationError(
+                        f"Invalid status transition: {current_status} -> {new_status}"
+                    )
+
+        allowed_updates["updated_at"] = now_iso()
+        set_clause = ", ".join([f"{k} = ?" for k in allowed_updates.keys()])
         values = list(allowed_updates.values()) + [task_id]
 
         with self.connection() as conn:

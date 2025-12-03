@@ -70,6 +70,9 @@ from src.config import (  # type: ignore
     resolve_base_url,
 )
 
+_DEFAULT_HTTP_REQUEST = requests.request
+_http_request = _DEFAULT_HTTP_REQUEST
+
 def _timeout_kwargs(timeout: float) -> dict:
     """
     Return timeout kwargs for the current HTTP client.
@@ -239,10 +242,65 @@ def log(msg: str) -> None:
     print(f"[runner] {msg}", flush=True)
 
 
+def _request_with_retry(
+    method: str,
+    url: str,
+    *,
+    retries: int = 2,
+    backoff_seconds: float = 1.0,
+    context: Optional[Dict[str, Any]] = None,
+    allowed_statuses: Optional[set[int]] = None,
+    raise_for_status: bool = True,
+    **kwargs,
+) -> requests.Response:
+    """
+    Execute an HTTP request with limited retries and structured logging.
+
+    Retries on network errors or 5xx responses (unless status allowed).
+    """
+    allowed = allowed_statuses or set()
+    attempt = 0
+    last_exc: Optional[Exception] = None
+    while attempt <= retries:
+        try:
+            if _http_request is not _DEFAULT_HTTP_REQUEST:
+                request_callable = _http_request
+            else:
+                request_callable = getattr(requests, "request", _DEFAULT_HTTP_REQUEST)
+            response = request_callable(method=method, url=url, **kwargs)
+            status = response.status_code
+            if status >= 500 and status not in allowed and attempt < retries:
+                log(f"HTTP {method} {url} -> {status}; context={context} retrying ({attempt+1}/{retries})")
+                time.sleep(backoff_seconds * (2 ** attempt))
+                attempt += 1
+                continue
+            if raise_for_status and status not in allowed:
+                response.raise_for_status()
+            return response
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= retries:
+                break
+            log(f"HTTP {method} error for {url}; context={context}; retrying ({attempt+1}/{retries})")
+            time.sleep(backoff_seconds * (2 ** attempt))
+            attempt += 1
+        else:
+            break
+
+    if last_exc:
+        log(f"HTTP {method} failed for {url}; context={context}; error={last_exc}")
+        raise last_exc
+    raise RuntimeError(f"HTTP {method} failed for {url}; context={context}")
+
+
 def fetch_queues(base_url: str) -> list[dict]:
     """Fetch all queues from the API."""
-    resp = requests.get(f"{base_url}/api/queues", **_timeout_kwargs(10))
-    resp.raise_for_status()
+    resp = _request_with_retry(
+        "GET",
+        f"{base_url}/api/queues",
+        context={"action": "fetch_queues", "base_url": base_url},
+        **_timeout_kwargs(10),
+    )
     return resp.json().get("queues", [])
 
 
@@ -270,8 +328,13 @@ def resolve_queue(base_url: str, name_or_id: str) -> Optional[dict]:
 
 def fetch_tasks(base_url: str, queue_id: str) -> list[dict]:
     """Fetch all tasks for a queue from the API."""
-    resp = requests.get(f"{base_url}/api/tasks", params={"queue_id": queue_id}, **_timeout_kwargs(10))
-    resp.raise_for_status()
+    resp = _request_with_retry(
+        "GET",
+        f"{base_url}/api/tasks",
+        params={"queue_id": queue_id},
+        context={"action": "fetch_tasks", "queue_id": queue_id},
+        **_timeout_kwargs(10),
+    )
     return resp.json().get("tasks", [])
 
 
@@ -287,13 +350,16 @@ def claim_task(base_url: str, task_id: str, worker_id: str) -> Optional[dict]:
     Returns:
         Updated task dict or None if already claimed
     """
-    resp = requests.post(
+    resp = _request_with_retry(
+        "POST",
         f"{base_url}/api/tasks/{task_id}/claim",
         json={"worker_id": worker_id},
+        context={"action": "claim_task", "task_id": task_id, "worker_id": worker_id},
+        allowed_statuses={409},
+        raise_for_status=False,
         **_timeout_kwargs(10),
     )
     if resp.status_code == 409:
-        # Already claimed/running
         return None
     resp.raise_for_status()
     return resp.json().get("task")
@@ -325,8 +391,13 @@ def complete_task(
         "result_summary": summary,
         "result_data": result_data_str,
     }
-    resp = requests.post(f"{base_url}/api/tasks/{task_id}/complete", json=payload, **_timeout_kwargs(10))
-    resp.raise_for_status()
+    _request_with_retry(
+        "POST",
+        f"{base_url}/api/tasks/{task_id}/complete",
+        json=payload,
+        context={"action": "complete_task", "task_id": task_id},
+        **_timeout_kwargs(10),
+    )
 
 
 def fail_task(base_url: str, task_id: str, message: str, stderr_text: str = "") -> None:
@@ -344,16 +415,25 @@ def fail_task(base_url: str, task_id: str, message: str, stderr_text: str = "") 
         "error_type": "runner_error",
         "stderr": stderr_text,
     }
-    resp = requests.post(f"{base_url}/api/tasks/{task_id}/fail", json=payload, **_timeout_kwargs(10))
-    resp.raise_for_status()
+    _request_with_retry(
+        "POST",
+        f"{base_url}/api/tasks/{task_id}/fail",
+        json=payload,
+        context={"action": "fail_task", "task_id": task_id},
+        **_timeout_kwargs(10),
+    )
 
 
 def fetch_queue_info(queue_id: str, base_url: str) -> dict:
     """Fetch queue information from API"""
     url = f"{base_url}/api/queues/{queue_id}"
     try:
-        resp = requests.get(url, **_timeout_kwargs(10))
-        resp.raise_for_status()
+        resp = _request_with_retry(
+            "GET",
+            url,
+            context={"action": "fetch_queue_info", "queue_id": queue_id},
+            **_timeout_kwargs(10),
+        )
         return resp.json().get("queue", {})
     except requests.RequestException as e:
         raise RuntimeError(f"Failed to fetch queue {queue_id}: {e}")

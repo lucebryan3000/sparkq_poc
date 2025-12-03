@@ -91,6 +91,7 @@ sparkqueue/
 - Host/port pulled from `sparkq.yml` (defaults 0.0.0.0:5005); `sparkq run --host/--port` overrides per run.
 - Database path resolves relative to the active config file and is created if missing; set `database.path` in `sparkq.yml` or export `SPARKQ_CONFIG` to switch configs.
 - Purge/auto-fail background tasks use `purge.older_than_days` and `queue_runner.auto_fail_interval_seconds` from config; `sparkq purge --older-than-days N` is available for manual cleanup.
+- CORS allowlist defaults to localhost; override with `SPARKQ_CORS_ALLOW_ORIGINS` (comma-separated) and only set `SPARKQ_CORS_ALLOW_CREDENTIALS=1` if your deployment requires credentials.
 
 ## Common Commands
 

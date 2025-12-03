@@ -182,8 +182,7 @@ Then add to `index.html`:
 
 ### Using watch:ui for Auto-Sync
 - Requires Node.js (>=18) and npm in your shell.
-- Run the watcher in **Terminal 1** to mirror source files into `dist/` automatically (replaces step 2 while it is running).
-- Watches `sparkq/ui/{core,pages,components,utils}/**/*.js` and calls `sparkq/ui/scripts/sync-dist.sh` whenever they change.
+- Run the watcher in **Terminal 1** to mirror `sparkq/ui/{core,pages,components,utils}/**/*.js` into `dist/` automatically (replaces step 2 while it is running).
 - Edit files in **Terminal 2**; every save triggers `sparkq/ui/scripts/sync-dist.sh`, so you only need to refresh the browser.
 - If you stop the watcher or can't run it, fall back to step 2 (`./sparkq.sh sync-ui`).
 

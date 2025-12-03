@@ -2,6 +2,7 @@
 
 import datetime
 import functools
+import logging
 import os
 import signal
 import sqlite3
@@ -15,6 +16,7 @@ import typer
 
 from .agent_roles import build_prompt_with_role
 from .config import get_database_path, load_config
+from .errors import NotFoundError, ValidationError
 from . import env as env_module
 from .index import ScriptIndex
 from .models import SessionStatus, QueueStatus, TaskClass, TaskStatus
@@ -26,6 +28,24 @@ app = typer.Typer(
     help="SparkQ - Dev-only task queue. Queue work, walk away, review results later.",
     no_args_is_help=True,
 )
+
+LOG_DIR = (Path(__file__).resolve().parent.parent / "logs").resolve()
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "cli.log"
+
+
+def _get_logger() -> logging.Logger:
+    logger = logging.getLogger("sparkq.cli")
+    if not logger.handlers:
+        handler = logging.FileHandler(LOG_FILE)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+    return logger
+
+
+logger = _get_logger()
 
 # Storage instance initialized lazily from config
 _storage_instance = None
@@ -119,8 +139,11 @@ def _handle_exception(exc: Exception):
     if isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError)):
         _config_error(str(exc))
 
-    # TODO: add debug-level traceback logging when logging is available
-    _emit_error(str(exc))
+    logger.exception("Unhandled CLI error")
+    _emit_error(
+        "Unexpected error occurred. See sparkq/logs/cli.log for details.",
+        "Re-run the command after addressing the logged error",
+    )
 
 
 def cli_handler(func):
@@ -700,16 +723,19 @@ def queue_set_model_profile(
     if not queue:
         _resource_missing("Queue", queue_id, "sparkq queue list")
 
-    # Update queue via storage (direct SQL since no dedicated storage method yet)
     storage = get_storage()
-    with storage.connection() as conn:
-        cursor = conn.execute(
-            "UPDATE queues SET model_profile = ?, updated_at = ? WHERE id = ?",
-            (profile, datetime.datetime.now(datetime.timezone.utc).isoformat(), queue["id"]),
+    try:
+        storage.update_queue_fields(
+            queue_id=queue["id"],
+            model_profile=profile,
+            set_model_profile=True,
         )
-        if cursor.rowcount == 0:
-            typer.echo("Failed to update queue model profile", err=True)
-            raise typer.Exit(1)
+    except ValidationError as exc:
+        _emit_error(str(exc))
+    except NotFoundError:
+        _resource_missing("Queue", queue_id, "sparkq queue list")
+    except sqlite3.IntegrityError as exc:
+        _db_error(f"Failed to update queue model profile: {exc}")
 
     typer.echo(f"✓ Set model profile for queue '{queue['name']}' to: {profile}")
 

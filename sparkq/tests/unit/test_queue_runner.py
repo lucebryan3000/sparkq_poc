@@ -44,9 +44,82 @@ def mock_requests(monkeypatch):
         # Complete/fail endpoints
         return MockResponse(json_data={"task": {}})
 
+    def fake_request(method, url, **kwargs):
+        if method.upper() == "GET":
+            return fake_get(url, **kwargs)
+        return fake_post(url, **kwargs)
+
     monkeypatch.setattr("sparkq.queue_runner.requests.get", fake_get)
     monkeypatch.setattr("sparkq.queue_runner.requests.post", fake_post)
+    monkeypatch.setattr("sparkq.queue_runner._http_request", fake_request)
     return history
+
+
+def test_request_with_retry_recovers_on_5xx(monkeypatch):
+    calls = []
+    responses = [
+        MockResponse(status_code=500),
+        MockResponse(status_code=200, json_data={"ok": True}),
+    ]
+
+    def fake_request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return responses.pop(0)
+
+    monkeypatch.setattr(queue_runner, "_http_request", fake_request)
+    monkeypatch.setattr(queue_runner.time, "sleep", lambda *args, **kwargs: None)
+
+    resp = queue_runner._request_with_retry(
+        "GET",
+        "http://localhost/api/test",
+        retries=1,
+        backoff_seconds=0,
+        context={"case": "recover"},
+    )
+
+    assert resp.status_code == 200
+    assert len(calls) == 2
+
+
+def test_request_with_retry_allows_status(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return MockResponse(status_code=409, json_data={"status": "conflict"})
+
+    monkeypatch.setattr(queue_runner, "_http_request", fake_request)
+    monkeypatch.setattr(queue_runner.time, "sleep", lambda *args, **kwargs: None)
+
+    resp = queue_runner._request_with_retry(
+        "POST",
+        "http://localhost/api/claim",
+        retries=0,
+        backoff_seconds=0,
+        context={"case": "allowed_status"},
+        allowed_statuses={409},
+        raise_for_status=False,
+    )
+
+    assert resp.status_code == 409
+    assert len(calls) == 1
+
+
+def test_request_with_retry_raises_after_retries(monkeypatch):
+    def fake_request(method, url, **kwargs):
+        raise queue_runner.requests.RequestException("network down")
+
+    monkeypatch.setattr(queue_runner, "_http_request", fake_request)
+    monkeypatch.setattr(queue_runner.time, "sleep", lambda *args, **kwargs: None)
+
+    with pytest.raises(queue_runner.requests.RequestException):
+        queue_runner._request_with_retry(
+            "GET",
+            "http://localhost/api/test",
+            retries=1,
+            backoff_seconds=0,
+            context={"case": "fail"},
+        )
 
 
 def test_process_one_picks_oldest_and_completes(monkeypatch, mock_requests):
@@ -71,6 +144,7 @@ def test_process_one_picks_oldest_and_completes(monkeypatch, mock_requests):
 
     monkeypatch.setattr("sparkq.queue_runner.requests.get", fake_get)
     monkeypatch.setattr("sparkq.queue_runner.requests.post", fake_post)
+    monkeypatch.setattr("sparkq.queue_runner._http_request", lambda method, url, **kwargs: fake_get(url, **kwargs) if method.upper() == "GET" else fake_post(url, **kwargs))
 
     queue = {"id": "que_123", "name": "TestQ"}
     did_work = process_one("http://localhost:5005", queue, "worker-1", execute=False)

@@ -146,7 +146,7 @@ def _read_build_prompt_file(filename: str) -> str:
 
 
 @app.get("/")
-async def root() -> Response:
+def root() -> Response:
     """Redirect root to UI dashboard."""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/ui/")
@@ -164,7 +164,7 @@ def _serve_ui_index() -> FileResponse:
 
 @app.get("/dashboard", include_in_schema=False)
 @app.get("/settings", include_in_schema=False)
-async def serve_spa_routes():
+def serve_spa_routes():
     """Serve the UI index for SPA routes so front-end routing can handle them."""
     return _serve_ui_index()
 
@@ -177,7 +177,7 @@ def _cache_buster_value() -> str:
 
 
 @app.get("/ui-cache-buster.js")
-async def ui_cache_buster() -> Response:
+def ui_cache_buster() -> Response:
     """Expose environment and cache-buster details to the UI."""
     env = APP_ENV
     cache_buster = _cache_buster_value()
@@ -532,17 +532,17 @@ def _status_code_for_error(exc: Exception) -> int:
 
 
 @app.exception_handler(SparkQError)
-async def sparkq_exception_handler(request: Request, exc: SparkQError):
+def sparkq_exception_handler(request: Request, exc: SparkQError):
     return _error_response(str(exc), _status_code_for_error(exc))
 
 
 @app.exception_handler(ValueError)
-async def storage_exception_handler(request: Request, exc: ValueError):
+def storage_exception_handler(request: Request, exc: ValueError):
     return _error_response(str(exc), 400)
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+def validation_exception_handler(request: Request, exc: RequestValidationError):
     missing_field = None
     for error in exc.errors():
         if error.get("type") == "value_error.missing":
@@ -560,14 +560,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 @app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
+def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code >= 500:
         logger.exception("HTTPException encountered: %s", exc)
     return _error_response(str(exc.detail) if exc.detail else None, exc.status_code)
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
+def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled server error")
     return _error_response("Internal server error", 500)
 
@@ -797,7 +797,7 @@ class MessageResponse(BaseModel):
 
 
 @app.post("/api/config/validate")
-async def validate_config(payload: ConfigUpdateRequest):
+def validate_config(payload: ConfigUpdateRequest):
     """Dry-run validation for config payload (expects {value}) without persisting."""
     value = payload.value
     if not isinstance(value, dict):
@@ -823,6 +823,13 @@ class PromptUpdateRequest(BaseModel):
     label: Optional[str] = None
     template_text: Optional[str] = None
     description: Optional[str] = None
+
+
+class AgentRoleCreateRequest(BaseModel):
+    key: str
+    label: str
+    description: str
+    active: bool = True
 
 
 class AgentRoleUpdateRequest(BaseModel):
@@ -904,7 +911,7 @@ def _serialize_task(task: Dict[str, Any], queue_names: Optional[Dict[str, str]] 
 
 
 @app.get("/health")
-async def health():
+def health():
     return {
         "status": "ok",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -913,13 +920,13 @@ async def health():
 
 
 @app.get("/api/version")
-async def version():
+def version():
     """Return the current UI/server build id for cache-busting or auto-reload."""
     return {"build_id": _current_build_id(), "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/api/build-prompts")
-async def list_build_prompts():
+def list_build_prompts():
     """
     List Markdown prompts under _build/prompts (non-recursive).
     Returns relative paths from repo root for compatibility.
@@ -939,7 +946,7 @@ async def list_build_prompts():
 
 
 @app.get("/stats")
-async def stats():
+def stats():
     """Get dashboard statistics."""
     try:
         summary = storage.get_stats_summary()
@@ -955,7 +962,7 @@ async def stats():
 
 
 @app.get("/api/sessions", response_model=SessionsResponse)
-async def list_sessions(limit: int = 100, offset: int = 0) -> SessionsResponse:
+def list_sessions(limit: int = 100, offset: int = 0) -> SessionsResponse:
     if limit < 0 or offset < 0:
         raise HTTPException(
             status_code=400, detail="Invalid pagination parameters: limit and offset must be non-negative"
@@ -967,7 +974,7 @@ async def list_sessions(limit: int = 100, offset: int = 0) -> SessionsResponse:
 
 
 @app.post("/api/sessions", response_model=SessionResponse)
-async def create_session(request: SessionCreateRequest) -> SessionResponse:
+def create_session(request: SessionCreateRequest) -> SessionResponse:
     if not request.name or not request.name.strip():
         raise HTTPException(status_code=400, detail="Session name is required")
 
@@ -976,7 +983,7 @@ async def create_session(request: SessionCreateRequest) -> SessionResponse:
 
 
 @app.get("/api/sessions/{session_id}", response_model=SessionResponse)
-async def get_session(session_id: str) -> SessionResponse:
+def get_session(session_id: str) -> SessionResponse:
     session = storage.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -984,7 +991,7 @@ async def get_session(session_id: str) -> SessionResponse:
 
 
 @app.put("/api/sessions/{session_id}", response_model=SessionResponse)
-async def update_session(session_id: str, request: SessionUpdateRequest) -> SessionResponse:
+def update_session(session_id: str, request: SessionUpdateRequest) -> SessionResponse:
     if request.name is None and request.description is None:
         raise HTTPException(status_code=400, detail="No fields provided to update session")
 
@@ -1003,7 +1010,7 @@ async def update_session(session_id: str, request: SessionUpdateRequest) -> Sess
 
 
 @app.put("/api/sessions/{session_id}/end", response_model=SessionMessageResponse)
-async def end_session(session_id: str) -> SessionMessageResponse:
+def end_session(session_id: str) -> SessionMessageResponse:
     ended = storage.end_session(session_id)
     if not ended:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -1013,7 +1020,7 @@ async def end_session(session_id: str) -> SessionMessageResponse:
 
 
 @app.delete("/api/sessions/{session_id}", response_model=MessageResponse)
-async def delete_session(session_id: str) -> MessageResponse:
+def delete_session(session_id: str) -> MessageResponse:
     deleted = storage.delete_session(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -1022,14 +1029,14 @@ async def delete_session(session_id: str) -> MessageResponse:
 
 
 @app.get("/api/agent-roles")
-async def list_agent_roles(active_only: bool = Query(True)):
+def list_agent_roles(active_only: bool = Query(True)):
     """List available agent roles for selection."""
     roles = storage.list_agent_roles(active_only=active_only)
     return {"roles": roles}
 
 
 @app.put("/api/agent-roles/{role_key}")
-async def update_agent_role(role_key: str, payload: AgentRoleUpdateRequest):
+def update_agent_role(role_key: str, payload: AgentRoleUpdateRequest):
     """Update an agent role's label, description, or active flag."""
     if payload.label is None and payload.description is None and payload.active is None:
         raise HTTPException(status_code=400, detail="No fields provided to update agent role")
@@ -1049,8 +1056,39 @@ async def update_agent_role(role_key: str, payload: AgentRoleUpdateRequest):
     return {"role": updated}
 
 
+@app.post("/api/agent-roles")
+def create_agent_role(payload: AgentRoleCreateRequest):
+    """Create a new agent role."""
+    try:
+        created = storage.create_agent_role(
+            key=payload.key,
+            label=payload.label,
+            description=payload.description,
+            active=payload.active,
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {"role": created}
+
+
+@app.delete("/api/agent-roles/{role_key}")
+def delete_agent_role(role_key: str):
+    """Delete an agent role."""
+    try:
+        storage.delete_agent_role(role_key)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"message": f"Agent role '{role_key}' deleted"}
+
+
 @app.get("/api/queues", response_model=QueuesResponse)
-async def list_queues(
+def list_queues(
     session_id: Optional[str] = None,
     limit: int = Query(100, ge=0),
     offset: int = Query(0, ge=0),
@@ -1104,7 +1142,7 @@ async def list_queues(
 
 
 @app.post("/api/queues", status_code=201, response_model=QueueResponse)
-async def create_queue(request: QueueCreateRequest) -> QueueResponse:
+def create_queue(request: QueueCreateRequest) -> QueueResponse:
     if not request.name or not request.name.strip():
         raise HTTPException(status_code=400, detail="Queue name is required")
 
@@ -1128,7 +1166,7 @@ async def create_queue(request: QueueCreateRequest) -> QueueResponse:
 
 
 @app.get("/api/queues/{queue_id}", response_model=QueueResponse)
-async def get_queue(queue_id: str) -> QueueResponse:
+def get_queue(queue_id: str) -> QueueResponse:
     queue = storage.get_queue(queue_id)
     if not queue:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1143,7 +1181,7 @@ async def get_queue(queue_id: str) -> QueueResponse:
 
 
 @app.put("/api/queues/{queue_id}", response_model=QueueResponse)
-async def update_queue(queue_id: str, request: QueueUpdateRequest) -> QueueResponse:
+def update_queue(queue_id: str, request: QueueUpdateRequest) -> QueueResponse:
     fields_set = request.model_fields_set or set()
     role_provided = "default_agent_role_key" in fields_set
     model_profile_provided = "model_profile" in fields_set
@@ -1197,7 +1235,7 @@ async def update_queue(queue_id: str, request: QueueUpdateRequest) -> QueueRespo
 
 
 @app.put("/api/queues/{queue_id}/end", response_model=QueueMessageResponse)
-async def end_queue(queue_id: str) -> QueueMessageResponse:
+def end_queue(queue_id: str) -> QueueMessageResponse:
     ended = storage.end_queue(queue_id)
     if not ended:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1207,7 +1245,7 @@ async def end_queue(queue_id: str) -> QueueMessageResponse:
 
 
 @app.put("/api/queues/{queue_id}/archive", response_model=QueueMessageResponse)
-async def archive_queue(queue_id: str) -> QueueMessageResponse:
+def archive_queue(queue_id: str) -> QueueMessageResponse:
     archived = storage.archive_queue(queue_id)
     if not archived:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1217,7 +1255,7 @@ async def archive_queue(queue_id: str) -> QueueMessageResponse:
 
 
 @app.put("/api/queues/{queue_id}/unarchive", response_model=QueueMessageResponse)
-async def unarchive_queue(queue_id: str) -> QueueMessageResponse:
+def unarchive_queue(queue_id: str) -> QueueMessageResponse:
     success = storage.unarchive_queue(queue_id)
     if not success:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1226,7 +1264,7 @@ async def unarchive_queue(queue_id: str) -> QueueMessageResponse:
 
 
 @app.post("/api/queues/{queue_id}/codex-session")
-async def set_queue_codex_session_endpoint(queue_id: str, request: CodexSessionRequest) -> dict:
+def set_queue_codex_session_endpoint(queue_id: str, request: CodexSessionRequest) -> dict:
     """Store Codex CLI session ID for queue context continuity"""
     try:
         storage.set_queue_codex_session(queue_id, request.session_id)
@@ -1240,7 +1278,7 @@ async def set_queue_codex_session_endpoint(queue_id: str, request: CodexSessionR
 
 
 @app.get("/api/queues/{queue_id}/llm-sessions")
-async def get_queue_llm_sessions(queue_id: str) -> dict:
+def get_queue_llm_sessions(queue_id: str) -> dict:
     """Get all LLM session metadata for a queue"""
     try:
         sessions = storage.get_llm_sessions(queue_id)
@@ -1254,7 +1292,7 @@ async def get_queue_llm_sessions(queue_id: str) -> dict:
 
 
 @app.put("/api/queues/{queue_id}/llm-sessions/{llm_name}")
-async def update_queue_llm_session(
+def update_queue_llm_session(
     queue_id: str,
     llm_name: str,
     request: LLMSessionRequest
@@ -1281,7 +1319,7 @@ async def update_queue_llm_session(
 
 
 @app.delete("/api/queues/{queue_id}", response_model=MessageResponse)
-async def delete_queue(queue_id: str) -> MessageResponse:
+def delete_queue(queue_id: str) -> MessageResponse:
     deleted = storage.delete_queue(queue_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1290,7 +1328,7 @@ async def delete_queue(queue_id: str) -> MessageResponse:
 
 
 @app.get("/api/tasks", response_model=TasksResponse)
-async def list_tasks(
+def list_tasks(
     queue_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     limit: int = Query(100, ge=1),
@@ -1326,7 +1364,7 @@ async def list_tasks(
 
 
 @app.post("/api/tasks", response_model=TaskResponse)
-async def create_task(request: TaskCreateRequest) -> TaskResponse:
+def create_task(request: TaskCreateRequest) -> TaskResponse:
     queue = storage.get_queue(request.queue_id)
     if not queue:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1372,7 +1410,7 @@ async def create_task(request: TaskCreateRequest) -> TaskResponse:
 
 
 @app.get("/api/tasks/{task_id}", response_model=TaskResponse)
-async def get_task(task_id: str) -> TaskResponse:
+def get_task(task_id: str) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1380,7 +1418,7 @@ async def get_task(task_id: str) -> TaskResponse:
 
 
 @app.post("/api/tasks/{task_id}/claim", response_model=TaskResponse)
-async def claim_task(task_id: str, request: TaskClaimRequest = Body(default_factory=TaskClaimRequest)) -> TaskResponse:
+def claim_task(task_id: str, request: TaskClaimRequest = Body(default_factory=TaskClaimRequest)) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1401,7 +1439,7 @@ async def claim_task(task_id: str, request: TaskClaimRequest = Body(default_fact
 
 
 @app.post("/api/tasks/{task_id}/complete", response_model=TaskResponse)
-async def complete_task(task_id: str, request: TaskCompleteRequest) -> TaskResponse:
+def complete_task(task_id: str, request: TaskCompleteRequest) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1427,7 +1465,7 @@ async def complete_task(task_id: str, request: TaskCompleteRequest) -> TaskRespo
 
 
 @app.post("/api/tasks/{task_id}/fail", response_model=TaskResponse)
-async def fail_task(task_id: str, request: TaskFailRequest) -> TaskResponse:
+def fail_task(task_id: str, request: TaskFailRequest) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1442,7 +1480,7 @@ async def fail_task(task_id: str, request: TaskFailRequest) -> TaskResponse:
 
 
 @app.post("/api/tasks/{task_id}/reset", response_model=TaskResponse)
-async def reset_task(task_id: str, request: TaskResetRequest = Body(default_factory=TaskResetRequest)) -> TaskResponse:
+def reset_task(task_id: str, request: TaskResetRequest = Body(default_factory=TaskResetRequest)) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1460,7 +1498,7 @@ async def reset_task(task_id: str, request: TaskResetRequest = Body(default_fact
 
 
 @app.get("/api/audit")
-async def list_audit(action_prefix: Optional[str] = Query(None), limit: int = Query(50, ge=1, le=200)):
+def list_audit(action_prefix: Optional[str] = Query(None), limit: int = Query(50, ge=1, le=200)):
     try:
         logs = storage.list_audit_logs(action_prefix=action_prefix, limit=limit)
     except Exception as exc:
@@ -1470,7 +1508,7 @@ async def list_audit(action_prefix: Optional[str] = Query(None), limit: int = Qu
 
 
 @app.post("/api/tasks/{task_id}/requeue", response_model=TaskResponse)
-async def requeue_task(task_id: str) -> TaskResponse:
+def requeue_task(task_id: str) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1487,7 +1525,7 @@ async def requeue_task(task_id: str) -> TaskResponse:
 
 
 @app.post("/api/tasks/{task_id}/rerun", response_model=TaskResponse)
-async def rerun_task(task_id: str) -> TaskResponse:
+def rerun_task(task_id: str) -> TaskResponse:
     try:
         task = storage.rerun_task(task_id)
         return {"task": _serialize_task(task)}
@@ -1501,7 +1539,7 @@ async def rerun_task(task_id: str) -> TaskResponse:
 
 
 @app.post("/api/tasks/{task_id}/retry", response_model=TaskResponse)
-async def retry_task(task_id: str) -> TaskResponse:
+def retry_task(task_id: str) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1530,6 +1568,11 @@ async def update_task(task_id: str, request: Request) -> TaskResponse:
             raise HTTPException(status_code=400, detail="Update body must be a non-empty object")
         if "payload" in body and body["payload"] == "":
             raise HTTPException(status_code=400, detail="Payload cannot be empty")
+        if "status" in body:
+            raise HTTPException(
+                status_code=400,
+                detail="Status updates are not allowed. Use claim/complete/fail/requeue endpoints.",
+            )
         updated_task = storage.update_task(task_id, **body)
         if not updated_task:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -1545,7 +1588,7 @@ async def update_task(task_id: str, request: Request) -> TaskResponse:
 
 
 @app.delete("/api/tasks/{task_id}", response_model=MessageResponse)
-async def delete_task_endpoint(task_id: str) -> MessageResponse:
+def delete_task_endpoint(task_id: str) -> MessageResponse:
     """Delete a task"""
     success = storage.delete_task(task_id)
     if not success:
@@ -1554,7 +1597,7 @@ async def delete_task_endpoint(task_id: str) -> MessageResponse:
 
 
 @app.post("/api/tasks/quick-add")
-async def quick_add_task(request: QuickAddTaskRequest):
+def quick_add_task(request: QuickAddTaskRequest):
     """
     Smart task creation with auto-configuration.
     No JSON payload required from user - system builds it based on prompt/script.
@@ -1648,7 +1691,7 @@ async def quick_add_task(request: QuickAddTaskRequest):
 
 
 @app.get("/api/scripts/index")
-async def build_script_index():
+def build_script_index():
     script_index = ScriptIndex(config_path=str(get_config_path()))
     try:
         script_index.build()
@@ -1660,7 +1703,7 @@ async def build_script_index():
 
 
 @app.get("/api/config")
-async def get_config():
+def get_config():
     """Get complete server configuration (DB-backed with YAML bootstrap)."""
     cfg = _build_config_response(include_cache=True)
     # Keep registry in sync with DB-backed tools/task_classes
@@ -1669,7 +1712,7 @@ async def get_config():
 
 
 @app.put("/api/config/{namespace}/{key}")
-async def update_config(namespace: str, key: str, payload: ConfigUpdateRequest):
+def update_config(namespace: str, key: str, payload: ConfigUpdateRequest):
     """Create or update a config entry."""
     value = payload.value
     _validate_config_value(namespace, key, value)
@@ -1689,7 +1732,7 @@ async def update_config(namespace: str, key: str, payload: ConfigUpdateRequest):
 
 
 @app.delete("/api/config/{namespace}/{key}")
-async def delete_config(namespace: str, key: str):
+def delete_config(namespace: str, key: str):
     """Delete a config entry (reverts to defaults on next read)."""
     defaults = _load_yaml_defaults()
     # Validate supported namespace/key by validating against defaults
@@ -1728,13 +1771,13 @@ async def delete_config(namespace: str, key: str):
 
 
 @app.get("/api/task-classes")
-async def list_task_classes():
+def list_task_classes():
     _build_config_response(include_cache=False)  # ensure seeded
     return {"task_classes": storage.list_task_classes()}
 
 
 @app.post("/api/task-classes", status_code=201)
-async def create_task_class(payload: TaskClassPayload):
+def create_task_class(payload: TaskClassPayload):
     name = (payload.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
@@ -1750,7 +1793,7 @@ async def create_task_class(payload: TaskClassPayload):
 
 
 @app.put("/api/task-classes/{name}")
-async def update_task_class(name: str, payload: TaskClassPayload):
+def update_task_class(name: str, payload: TaskClassPayload):
     target_name = (payload.name or name or "").strip()
     if not target_name:
         raise HTTPException(status_code=400, detail="name is required")
@@ -1766,7 +1809,7 @@ async def update_task_class(name: str, payload: TaskClassPayload):
 
 
 @app.delete("/api/task-classes/{name}")
-async def delete_task_class(name: str):
+def delete_task_class(name: str):
     try:
         storage.delete_task_class(name)
     except SparkQError as exc:
@@ -1780,13 +1823,13 @@ async def delete_task_class(name: str):
 
 
 @app.get("/api/tools")
-async def list_tools():
+def list_tools():
     _build_config_response(include_cache=False)  # ensure seeded
     return {"tools": storage.list_tools_table()}
 
 
 @app.post("/api/tools", status_code=201)
-async def create_tool(payload: ToolPayload):
+def create_tool(payload: ToolPayload):
     name = (payload.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
@@ -1805,7 +1848,7 @@ async def create_tool(payload: ToolPayload):
 
 
 @app.put("/api/tools/{name}")
-async def update_tool(name: str, payload: ToolPayload):
+def update_tool(name: str, payload: ToolPayload):
     target_name = (payload.name or name or "").strip()
     if not target_name:
         raise HTTPException(status_code=400, detail="name is required")
@@ -1822,7 +1865,7 @@ async def update_tool(name: str, payload: ToolPayload):
 
 
 @app.delete("/api/tools/{name}")
-async def delete_tool(name: str):
+def delete_tool(name: str):
     storage.delete_tool_record(name)
     storage.upsert_config_entry("tools", "all", _tools_dict(storage.list_tools_table()), updated_by="api")
     storage.log_audit(actor="api", action="tool.delete", details={"name": name})
@@ -1833,7 +1876,7 @@ async def delete_tool(name: str):
 
 
 @app.get("/api/prompts")
-async def list_prompts(source: str = Query("db", description="db (default) or build for filesystem prompts")):
+def list_prompts(source: str = Query("db", description="db (default) or build for filesystem prompts")):
     normalized_source = (source or "db").lower()
     if normalized_source in {"build", "file", "files"}:
         return {"prompts": _list_build_prompt_files()}
@@ -1847,7 +1890,7 @@ async def list_prompts(source: str = Query("db", description="db (default) or bu
 
 
 @app.get("/api/prompts/{prompt_id}")
-async def get_prompt(prompt_id: str, source: str = Query("db", description="db (default) or build for filesystem prompts")):
+def get_prompt(prompt_id: str, source: str = Query("db", description="db (default) or build for filesystem prompts")):
     normalized_source = (source or "db").lower()
     should_try_file = normalized_source in {"build", "file", "files"} or prompt_id.lower().endswith(".md")
 
@@ -1867,7 +1910,7 @@ async def get_prompt(prompt_id: str, source: str = Query("db", description="db (
 
 
 @app.post("/api/prompts", status_code=201)
-async def create_prompt(request: PromptCreateRequest):
+def create_prompt(request: PromptCreateRequest):
     if not request.command or not request.command.strip():
         raise HTTPException(status_code=400, detail="Command is required")
     if not request.label or not request.label.strip():
@@ -1889,7 +1932,7 @@ async def create_prompt(request: PromptCreateRequest):
 
 
 @app.put("/api/prompts/{prompt_id}")
-async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
+def update_prompt(prompt_id: str, request: PromptUpdateRequest):
     if (
         request.command is None
         and request.label is None
@@ -1927,7 +1970,7 @@ async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
 
 
 @app.delete("/api/prompts/{prompt_id}")
-async def delete_prompt(prompt_id: str):
+def delete_prompt(prompt_id: str):
     try:
         storage.delete_prompt(prompt_id)
     except SparkQError as exc:
