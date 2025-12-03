@@ -123,6 +123,184 @@
     return clean.length > 80 ? `${clean.slice(0, 80)}…` : clean;
   }
 
+  function buildFallbackModal(title, contentBuilder) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal modal-overlay';
+      overlay.style.opacity = '0';
+      overlay.style.zIndex = '9999';
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-content';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.style.transform = 'scale(0.95)';
+      modal.style.maxWidth = '420px';
+      modal.style.minWidth = '280px';
+      modal.tabIndex = -1;
+
+      const header = document.createElement('div');
+      header.className = 'modal-header';
+      const titleEl = document.createElement('h2');
+      titleEl.className = 'modal-title';
+      titleEl.textContent = title || '';
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'modal-close-button';
+      closeBtn.setAttribute('aria-label', 'Close dialog');
+      closeBtn.innerHTML = '&times;';
+      header.append(titleEl, closeBtn);
+
+      const body = document.createElement('div');
+      body.className = 'modal-body';
+
+      const footer = document.createElement('div');
+      footer.className = 'modal-actions';
+
+      const cleanup = (value) => {
+        overlay.classList.remove('visible');
+        modal.style.transform = 'scale(0.95)';
+        setTimeout(() => overlay.remove(), 200);
+        resolve(value);
+      };
+
+      const { contentEl, onSubmit } = contentBuilder({ cleanup });
+      body.appendChild(contentEl);
+
+      overlay.append(modal);
+      modal.append(header, body, footer);
+      document.body.appendChild(overlay);
+
+      requestAnimationFrame(() => {
+        overlay.classList.add('visible');
+        modal.style.transform = 'scale(1)';
+        const focusTarget = modal.querySelector('input, textarea, button');
+        if (focusTarget) {
+          focusTarget.focus({ preventScroll: true });
+          if (focusTarget.select) focusTarget.select();
+        }
+      });
+
+      closeBtn.addEventListener('click', () => cleanup(null));
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) cleanup(null);
+      });
+      modal.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          cleanup(null);
+        }
+      });
+
+      if (typeof onSubmit === 'function') {
+        footer.appendChild(onSubmit({ cleanup }));
+      }
+    });
+  }
+
+  async function safePrompt(title, message, defaultValue = '', options = {}) {
+    const promptFn = Utils?.showPrompt;
+    if (typeof promptFn === 'function') {
+      try {
+        return await promptFn(title, message, defaultValue, options);
+      } catch (err) {
+        console.warn('[Dashboard] showPrompt failed, using fallback modal:', err);
+      }
+    }
+
+    return buildFallbackModal(title || 'Input', ({ cleanup }) => {
+      const contentEl = document.createElement('div');
+      const msg = document.createElement('p');
+      msg.className = 'muted';
+      msg.style.margin = '0 0 12px';
+      msg.textContent = message || '';
+      contentEl.appendChild(msg);
+
+      let inputEl;
+      if (options.textarea) {
+        inputEl = document.createElement('textarea');
+        inputEl.rows = options.rows || 4;
+        inputEl.style.minHeight = '120px';
+      } else {
+        inputEl = document.createElement('input');
+        inputEl.type = options.type || 'text';
+      }
+      inputEl.className = 'form-control';
+      inputEl.value = defaultValue || '';
+      inputEl.placeholder = options.placeholder || '';
+      inputEl.style.width = '100%';
+      inputEl.style.boxSizing = 'border-box';
+      contentEl.appendChild(inputEl);
+
+      const onSubmit = () => {
+        const val = inputEl.value;
+        cleanup(val ?? null);
+      };
+
+      const submitButton = document.createElement('button');
+      submitButton.className = 'button primary';
+      submitButton.textContent = 'OK';
+      submitButton.type = 'button';
+      submitButton.addEventListener('click', onSubmit);
+
+      const cancelButton = document.createElement('button');
+      cancelButton.className = 'button secondary';
+      cancelButton.textContent = 'Cancel';
+      cancelButton.type = 'button';
+      cancelButton.addEventListener('click', () => cleanup(null));
+
+      const buttonsWrapper = document.createElement('div');
+      buttonsWrapper.className = 'modal-actions';
+      buttonsWrapper.append(cancelButton, submitButton);
+
+      return {
+        contentEl,
+        onSubmit: () => buttonsWrapper,
+      };
+    });
+  }
+
+  async function safeConfirm(title, message, options = {}) {
+    const confirmFn = Utils?.showConfirm;
+    if (typeof confirmFn === 'function') {
+      try {
+        return await confirmFn(title, message, options);
+      } catch (err) {
+        console.warn('[Dashboard] showConfirm failed, using fallback modal:', err);
+      }
+    }
+
+    return buildFallbackModal(title || 'Confirm', ({ cleanup }) => {
+      const contentEl = document.createElement('div');
+      const msg = document.createElement('p');
+      msg.className = 'muted';
+      msg.style.margin = '0 0 12px';
+      msg.textContent = message || '';
+      contentEl.appendChild(msg);
+
+      const confirmButton = document.createElement('button');
+      confirmButton.className = 'button primary';
+      confirmButton.textContent = options.confirmLabel || 'OK';
+      confirmButton.type = 'button';
+      confirmButton.addEventListener('click', () => cleanup(true));
+
+      const cancelButton = document.createElement('button');
+      cancelButton.className = 'button secondary';
+      cancelButton.textContent = options.cancelLabel || 'Cancel';
+      cancelButton.type = 'button';
+      cancelButton.addEventListener('click', () => cleanup(false));
+
+      const buttonsWrapper = document.createElement('div');
+      buttonsWrapper.className = 'modal-actions';
+      buttonsWrapper.append(cancelButton, confirmButton);
+
+      return {
+        contentEl,
+        onSubmit: () => buttonsWrapper,
+      };
+    });
+  }
+
   let toolNameCache = null;
 
   function prettifyToolName(name) {
@@ -164,11 +342,11 @@
     return prettifyToolName(toolName);
   }
 
-  function renderTaskRow(task, displayId, readOnly = false) {
-    const statusLabel = (task?.status || 'queued').toString();
-    const statusPill = renderStatusPill(statusLabel);
-    const statusNormalized = statusLabel.toLowerCase();
-    const timestamp = formatTimestamp(task?.created_at);
+    function renderTaskRow(task, displayId, readOnly = false) {
+      const statusLabel = (task?.status || 'queued').toString();
+      const statusPill = renderStatusPill(statusLabel);
+      const statusNormalized = statusLabel.toLowerCase();
+      const timestamp = formatTimestamp(task?.created_at);
     const label = task?.friendly_id || displayId || `Task #${task?.id || '—'}`;
     const preview = taskPreview(task);
     const toolLabel = task?.friendlyTool || getFriendlyToolName(task?.tool_name);
@@ -179,22 +357,22 @@
     const actionsCell = readOnly
       ? '<div class="task-cell actions muted">View only</div>'
       : `<div class="task-cell actions">
-          <button class="task-rerun-btn" data-task-id="${task?.id}" title="Rerun task" aria-label="Rerun task" ${disableModify ? 'disabled' : ''}>⟳</button>
-          <button class="task-edit-btn" data-task-id="${task?.id}" title="Edit task" aria-label="Edit task" ${disableModify ? 'disabled' : ''}>✏️</button>
-          <button class="task-delete-btn" data-task-id="${task?.id}" title="Delete task" aria-label="Delete task" ${deleteDisabledAttr}>✖️</button>
+          <button class="task-rerun-btn" data-action="dashboard-task-rerun" data-task-id="${task?.id}" data-queue-id="${task?.queue_id || ''}" title="Rerun task" aria-label="Rerun task" ${disableModify ? 'disabled' : ''}>⟳</button>
+          <button class="task-edit-btn" data-action="dashboard-task-edit" data-task-id="${task?.id}" data-queue-id="${task?.queue_id || ''}" title="Edit task" aria-label="Edit task" ${disableModify ? 'disabled' : ''}>✏️</button>
+          <button class="task-delete-btn" data-action="dashboard-task-delete" data-task-id="${task?.id}" data-queue-id="${task?.queue_id || ''}" title="Delete task" aria-label="Delete task" ${deleteDisabledAttr}>✖️</button>
         </div>`;
 
-    return `
-      <div class="task-row" data-task-id="${task?.id || ''}" data-status="${statusNormalized}">
-        <div class="task-cell status">${statusPill}</div>
-        <div class="task-cell id">${label}</div>
-        <div class="task-cell tool">${toolLabel || '—'}</div>
-        <div class="task-cell preview" title="${preview}">${preview}</div>
-        <div class="task-cell created">${timestamp}</div>
-        ${actionsCell}
-      </div>
-    `;
-  }
+      return `
+        <div class="task-row" data-task-id="${task?.id || ''}" data-status="${statusNormalized}">
+          <div class="task-cell status">${statusPill}</div>
+          <div class="task-cell id" data-action="dashboard-task-row-open" data-task-id="${task?.id || ''}" data-queue-id="${task?.queue_id || ''}">${label}</div>
+          <div class="task-cell tool" data-action="dashboard-task-row-open" data-task-id="${task?.id || ''}" data-queue-id="${task?.queue_id || ''}">${toolLabel || '—'}</div>
+          <div class="task-cell preview" data-action="dashboard-task-row-open" data-task-id="${task?.id || ''}" data-queue-id="${task?.queue_id || ''}" title="${preview}">${preview}</div>
+          <div class="task-cell created" data-action="dashboard-task-row-open" data-task-id="${task?.id || ''}" data-queue-id="${task?.queue_id || ''}">${timestamp}</div>
+          ${actionsCell}
+        </div>
+      `;
+    }
 
   Pages.Dashboard = {
     currentQueueId: null,
@@ -261,6 +439,7 @@
         }
 
         this.queuesCache = queues;
+        this.sessionsCache = sessions;
         const activeQueues = (queues || []).filter((q) => String(q.status || '').toLowerCase() !== 'archived');
         const archivedQueues = (queues || []).filter((q) => String(q.status || '').toLowerCase() === 'archived');
 
@@ -299,7 +478,7 @@
             <div class="queue-tabs-section">
               <div class="section-title">Queues</div>
               <div id="queue-tabs" class="queue-tabs">
-                <button class="new-queue-btn" id="dashboard-new-queue-btn">+ New Queue</button>
+                <button class="new-queue-btn" id="dashboard-new-queue-btn" data-action="dashboard-new-queue">+ New Queue</button>
               </div>
             </div>
             <div id="queue-content">
@@ -308,8 +487,6 @@
               </div>
             </div>
           `;
-          this.attachSessionSelectorHandlers(actualContainer, sessions);
-          this.attachNewQueueButton(actualContainer);
           return;
         }
 
@@ -357,8 +534,8 @@
             <div class="section-title queue-filter-header">
               <span>Queues</span>
               <div id="queue-filter-buttons" class="queue-filter-buttons">
-                <button id="queue-filter-active" class="button secondary queue-filter-toggle ${this.queueFilter === 'active' ? 'active' : ''}">Active</button>
-                <button id="queue-filter-archived" class="button secondary queue-filter-toggle ${this.queueFilter === 'archived' ? 'active' : ''}">Archived</button>
+                <button id="queue-filter-active" data-action="dashboard-filter-active" class="button secondary queue-filter-toggle ${this.queueFilter === 'active' ? 'active' : ''}">Active</button>
+                <button id="queue-filter-archived" data-action="dashboard-filter-archived" class="button secondary queue-filter-toggle ${this.queueFilter === 'archived' ? 'active' : ''}">Archived</button>
               </div>
             </div>
             <div id="queue-tabs" class="queue-tabs"></div>
@@ -367,8 +544,7 @@
           <div id="queue-content"></div>
         `;
 
-        this.attachSessionSelectorHandlers(actualContainer, sessions);
-        this.attachQueueFilterHandlers(actualContainer);
+        this.sessionsCache = sessions;
 
         const tabsContainer = actualContainer.querySelector('#queue-tabs');
         const contentContainer = actualContainer.querySelector('#queue-content');
@@ -397,20 +573,11 @@
       container.innerHTML = `
         <div class="card" style="padding:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
           <span class="muted" style="font-size:13px;">Archived queues</span>
-          <select id="archived-queue-select" class="form-control" style="min-width:200px;">
+          <select id="archived-queue-select" class="form-control" style="min-width:200px;" data-action="dashboard-select-archived">
             ${options || '<option value=\"\">No archived queues</option>'}
           </select>
         </div>
       `;
-      const selectEl = container.querySelector('#archived-queue-select');
-      if (selectEl) {
-        selectEl.addEventListener('change', () => {
-          this.archivedQueueId = selectEl.value || null;
-          localStorage.setItem('dashboard.archivedQueueId', this.archivedQueueId || '');
-          const contentContainer = document.getElementById('queue-content');
-          this.renderArchivedQueueContent(contentContainer, archivedQueues);
-        });
-      }
     },
 
     renderQueueTabs(container, queues) {
@@ -427,7 +594,7 @@
           const statusClass = tabStatusClass(queue.status);
 
           return `
-            <div class="queue-tab ${isActive ? 'active' : ''}" data-queue-id="${queue.id}">
+            <div class="queue-tab ${isActive ? 'active' : ''}" data-queue-id="${queue.id}" data-action="dashboard-select-queue">
               <div class="tab-header">
                 <span class="status-dot ${dotClass}"></span>
                 <span>${queue.name || queue.id}</span>
@@ -441,48 +608,201 @@
 
       container.innerHTML = `
         ${tabsHtml}
-        <button class="new-queue-btn" id="dashboard-new-queue-btn">+ New Queue</button>
+        <button class="new-queue-btn" id="dashboard-new-queue-btn" data-action="dashboard-new-queue">+ New Queue</button>
       `;
-
-      const tabs = container.querySelectorAll('.queue-tab');
-      tabs.forEach((tab) => {
-        tab.addEventListener('click', () => {
-          const selectedId = tab.getAttribute('data-queue-id');
-          if (!selectedId || selectedId === this.currentQueueId) {
-            return;
-          }
-
-          this.currentQueueId = selectedId;
-          this.renderQueueTabs(container, this.queuesCache);
-
-          // Hide queue filter buttons when viewing a specific queue
-          const filterButtons = document.getElementById('queue-filter-buttons');
-          if (filterButtons) {
-            filterButtons.style.display = 'none';
-          }
-
-          const contentContainer = document.getElementById('queue-content');
-          if (contentContainer) {
-            this.renderQueueContent(contentContainer, selectedId);
-          }
-        });
-      });
-
-      // Attach handler to the new queue button created in this render
-      this.attachNewQueueButton(container);
     },
 
-    attachNewQueueButton(root) {
-      const newQueueBtn = root?.querySelector('#dashboard-new-queue-btn');
-      if (!newQueueBtn) {
+    getQueueFromCache(queueId) {
+      if (!queueId) return null;
+      return (this.queuesCache || []).find((q) => String(q.id) === String(queueId)) || null;
+    },
+
+    handleQueueTabSelect(queueId) {
+      if (!queueId || queueId === this.currentQueueId) {
+        return;
+      }
+      this.currentQueueId = queueId;
+      const pageContainer = document.getElementById('dashboard-page');
+      const tabsContainer = pageContainer?.querySelector('#queue-tabs');
+      const contentContainer = pageContainer?.querySelector('#queue-content');
+
+      if (tabsContainer) {
+        this.renderQueueTabs(tabsContainer, this.queuesCache || []);
+      }
+
+      const filterButtons = document.getElementById('queue-filter-buttons');
+      if (filterButtons) {
+        filterButtons.style.display = 'none';
+      }
+
+      if (contentContainer) {
+        this.renderQueueContent(contentContainer, queueId);
+      }
+    },
+
+    handleFilterChange(nextFilter) {
+      const normalized = nextFilter === 'archived' ? 'archived' : 'active';
+      if (this.queueFilter === normalized) return;
+      this.queueFilter = normalized;
+      localStorage.setItem('dashboard.queueFilter', this.queueFilter);
+      if (normalized === 'archived') {
+        this.currentQueueId = null;
+        const archivedQueues = (this.queuesCache || []).filter((q) => String(q.status || '').toLowerCase() === 'archived');
+        this.archivedQueueId = archivedQueues[0]?.id || null;
+        localStorage.setItem('dashboard.archivedQueueId', this.archivedQueueId || '');
+        this.refreshQueues(this.archivedQueueId);
+        const filterButtons = document.getElementById('queue-filter-buttons');
+        if (filterButtons) {
+          filterButtons.style.display = 'inline-flex';
+        }
         return;
       }
 
-      // Clone to drop any old listeners before wiring the single handler
-      const cleanButton = newQueueBtn.cloneNode(true);
-      newQueueBtn.replaceWith(cleanButton);
+      const filterButtons = document.getElementById('queue-filter-buttons');
+      if (filterButtons) {
+        filterButtons.style.display = 'inline-flex';
+      }
+      this.refreshQueues(this.currentQueueId);
+    },
 
-      cleanButton.addEventListener('click', () => this.handleCreateQueue());
+    handleArchivedSelect(nextId) {
+      const queueId = nextId || null;
+      this.archivedQueueId = queueId;
+      localStorage.setItem('dashboard.archivedQueueId', this.archivedQueueId || '');
+      const archivedQueues = (this.queuesCache || []).filter((q) => String(q.status || '').toLowerCase() === 'archived');
+      const contentContainer = document.getElementById('queue-content');
+      this.renderArchivedQueueContent(contentContainer, archivedQueues);
+    },
+
+    async handleEditQueue(queueId) {
+      Utils.showToast('Opening editor...', 'info');
+      const queue = this.getQueueFromCache(queueId);
+      const queueName = queue?.name || queue?.id || 'Queue';
+      const newName = await safePrompt('Edit Queue', 'Queue name:', queueName);
+      if (!newName || !newName.trim()) {
+        return;
+      }
+
+      const instructions = await safePrompt('Queue Instructions', 'Enter queue instructions (optional):', '', { textarea: true });
+
+      try {
+        const payload = {};
+        if (newName.trim() !== queueName) {
+          payload.name = newName.trim();
+        }
+        if (instructions && instructions.trim()) {
+          payload.instructions = instructions;
+        }
+
+        if (Object.keys(payload).length > 0) {
+          await api('PUT', `/api/queues/${queueId}`, payload, { action: 'update queue' });
+          Utils.showToast('Queue updated', 'success');
+          await this.refreshQueues(queueId);
+        }
+      } catch (err) {
+        console.error('Failed to update queue:', err);
+        Utils.showToast('Failed to update queue', 'error');
+      }
+    },
+
+    async handleArchiveQueue(queueId) {
+      Utils.showToast('Opening confirmation...', 'info');
+      const queue = this.getQueueFromCache(queueId);
+      const queueName = queue?.name || queue?.id || 'Queue';
+      const confirmed = await safeConfirm('Archive Queue', `Archive "${queueName}"?`);
+      if (!confirmed) return;
+
+      try {
+        await api('PUT', `/api/queues/${queueId}/archive`, null, { action: 'archive queue' });
+        Utils.showToast(`Queue "${queueName}" archived`, 'success');
+        await this.refreshQueues();
+      } catch (err) {
+        console.error('Failed to archive queue:', err);
+        Utils.showToast('Failed to archive queue', 'error');
+      }
+    },
+
+    async handleDeleteQueue(queueId) {
+      Utils.showToast('Requesting confirmation...', 'info');
+      const queue = this.getQueueFromCache(queueId);
+      const queueName = queue?.name || queue?.id || 'Queue';
+      const confirmed = await safeConfirm('Delete Queue', `Are you sure you want to delete "${queueName}"? This cannot be undone.`);
+      if (!confirmed) return;
+
+      try {
+        await api('DELETE', `/api/queues/${queueId}`, null, { action: 'delete queue' });
+        Utils.showToast(`Queue "${queueName}" deleted`, 'success');
+        this.currentQueueId = null;
+        await this.refreshQueues();
+      } catch (err) {
+        console.error('Failed to delete queue:', err);
+        Utils.showToast('Failed to delete queue', 'error');
+      }
+    },
+
+    async handleUnarchiveQueue(queueId) {
+      Utils.showToast('Restoring queue...', 'info');
+      try {
+        await api('PUT', `/api/queues/${queueId}/unarchive`, null, { action: 'unarchive queue' });
+        Utils.showToast('Queue unarchived', 'success');
+        this.queueFilter = 'active';
+        localStorage.setItem('dashboard.queueFilter', this.queueFilter);
+        await this.refreshQueues(queueId);
+      } catch (err) {
+        console.error('Failed to unarchive queue:', err);
+        Utils.showToast('Failed to unarchive queue', 'error');
+      }
+    },
+
+    handleSessionSelect(event) {
+      if (!event?.target) return;
+      const sessionId = event.target.value;
+      if (!sessionId) return;
+      this.currentSessionId = sessionId;
+      const container = document.getElementById('dashboard-page');
+      this.render(container);
+    },
+
+    async handleSessionRename() {
+      Utils.showToast('Opening editor...', 'info');
+      const sessionId = this.currentSessionId;
+      if (!sessionId) return;
+      const currentSession = (this.sessionsCache || []).find((s) => s.id === sessionId);
+      if (!currentSession) return;
+
+      const newName = await safePrompt('Rename Session', 'Enter new session name:', currentSession.name || '');
+      if (!newName || !newName.trim()) return;
+
+      try {
+        await api('PUT', `/api/sessions/${sessionId}`, { name: newName.trim() }, { action: 'rename session' });
+        Utils.showToast('Session renamed', 'success');
+        const container = document.getElementById('dashboard-page');
+        this.render(container);
+      } catch (err) {
+        console.error('Failed to rename session:', err);
+        Utils.showToast('Failed to rename session', 'error');
+      }
+    },
+
+    async handleSessionDelete() {
+      Utils.showToast('Requesting confirmation...', 'info');
+      const sessionId = this.currentSessionId;
+      if (!sessionId) return;
+      const currentSession = (this.sessionsCache || []).find((s) => s.id === sessionId);
+      if (!currentSession) return;
+
+      const confirmed = await safeConfirm('Delete Session', `Are you sure you want to delete "${currentSession.name || currentSession.id}"? This cannot be undone.`);
+      if (!confirmed) return;
+
+      try {
+        await api('DELETE', `/api/sessions/${sessionId}`, null, { action: 'delete session' });
+        Utils.showToast('Session deleted', 'success');
+        const container = document.getElementById('dashboard-page');
+        this.render(container);
+      } catch (err) {
+        console.error('Failed to delete session:', err);
+        Utils.showToast('Failed to delete session', 'error');
+      }
     },
 
     attachQueueFilterHandlers(container) {
@@ -537,20 +857,18 @@
         sessions = sessionsResponse?.sessions || [];
       } catch (err) {
         console.error('Failed to load sessions:', err);
+        Utils.showToast('Unable to load sessions', 'error');
         return;
       }
 
       if (!sessions.length) {
         // Auto-create a session when none exist
-        const sessionName = await Utils.showPrompt('Create Session', 'Enter session name:');
-        if (!sessionName || !sessionName.trim()) {
-          return;
-        }
-
+        const defaultSessionName = `Session ${new Date().toISOString().substring(0, 10)}`;
         try {
-          const sessionResponse = await api('POST', '/api/sessions', { name: sessionName.trim() }, { action: 'create session' });
+          const sessionResponse = await api('POST', '/api/sessions', { name: defaultSessionName }, { action: 'create session' });
           const newSession = sessionResponse?.session || sessionResponse;
           sessions = [newSession];
+          Utils.showToast(`Created session "${defaultSessionName}"`, 'info');
         } catch (err) {
           console.error('Failed to create session:', err);
           Utils.showToast('Failed to create session', 'error');
@@ -567,31 +885,54 @@
         return;
       }
 
-      // Prompt user for a friendly queue name instead of auto-creating
-      const defaultName = `Queue ${new Date().toISOString().substring(0, 10).replace(/-/g, '')}`;
-      const queueName = await Utils.showPrompt('Create Queue', 'Enter a queue name:', defaultName);
-      if (!queueName || !queueName.trim()) {
+      // Prompt user for a friendly queue name using in-app modal (avoid browser popups)
+      const defaultName = `Queue ${new Date().toISOString().substring(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-6)}`;
+      let baseName = null;
+      try {
+        baseName = await Utils.showPrompt('New Queue', 'Enter a queue name:', defaultName);
+      } catch (err) {
+        console.warn('[Dashboard] showPrompt failed for queue creation, falling back to window.prompt', err);
+        baseName = typeof window.prompt === 'function' ? window.prompt('Enter a queue name:', defaultName) : defaultName;
+      }
+      if (!baseName || !baseName.trim()) {
         Utils.showToast('Queue creation cancelled', 'info');
         return;
       }
-
+      baseName = baseName.trim();
       this.currentSessionId = sessionId;
 
-      try {
-        const payload = {
-          session_id: sessionId,
-          name: queueName.trim(),
-        };
-        console.log('[Dashboard] Creating queue with:', { sessionId, queueName, payload, sessionsCount: sessions.length });
+      const attemptCreate = async (name) => {
+        const payload = { session_id: sessionId, name: name.trim() };
         const response = await api('POST', '/api/queues', payload, { action: 'create queue' });
         const newQueueId = response?.id || response?.queue_id || response?.queue?.id;
-        Utils.showToast(`Queue "${queueName.trim()}" created`, 'success');
+        Utils.showToast(`Queue "${name.trim()}" created`, 'success');
         this.queueFilter = 'active';
         await this.refreshQueues(newQueueId);
+      };
+
+      try {
+        try {
+          await attemptCreate(baseName);
+        } catch (err) {
+          const message = (err?.message || '').toLowerCase();
+          if (message.includes('unique') || message.includes('exists')) {
+            const suggestion = `${baseName}-${Date.now().toString().slice(-6)}`;
+            const retryName = await Utils.showPrompt('Queue name exists', 'Enter a different queue name:', suggestion);
+            if (!retryName || !retryName.trim()) {
+              Utils.showToast('Queue creation cancelled', 'info');
+              return;
+            }
+            const finalName = retryName.trim();
+            console.warn('[Dashboard] Queue name conflict, retrying with:', finalName);
+            await attemptCreate(finalName);
+          } else {
+            throw err;
+          }
+        }
       } catch (err) {
         console.error('Failed to create queue:', err);
         showError(`Failed to create queue: ${err.message || err}`, err);
-        Utils.showToast('Failed to create queue', 'error');
+        Utils.showToast(`Failed to create queue: ${err.message || err}`, 'error');
       }
     },
 
@@ -608,49 +949,33 @@
       const showUnarchive = isArchived;
 
       container.innerHTML = `
-        <div class="card">
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
-            <div>
-              <h2 style="margin: 0;">${queueName}${isArchived ? ' (Archived)' : ''}</h2>
-              <div class="muted" style="font-size: 12px;">Progress: ${progress}</div>
+          <div class="card">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;">
+              <div>
+                <h2 style="margin: 0;">${queueName}${isArchived ? ' (Archived)' : ''}</h2>
+                <div class="muted" style="font-size: 12px;">Progress: ${progress}</div>
+              </div>
+              ${hideQuickAdd ? '' : `
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button id="dashboard-edit-btn" data-action="dashboard-edit-queue" data-queue-id="${queueId}" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Edit queue">✏️ Edit</button>
+                  <button id="dashboard-archive-btn" data-action="dashboard-archive-queue" data-queue-id="${queueId}" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Archive queue">📦 Archive</button>
+                  <button id="dashboard-delete-btn" data-action="dashboard-delete-queue" data-queue-id="${queueId}" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Delete queue">🗑️ Delete</button>
+                </div>
+              `}
+              ${showUnarchive ? `
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button id="dashboard-unarchive-btn" data-action="dashboard-unarchive-queue" data-queue-id="${queueId}" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Unarchive queue">⬆️ Unarchive</button>
+                </div>
+              ` : ''}
             </div>
-            ${hideQuickAdd ? '' : `
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <button id="dashboard-edit-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Edit queue">✏️ Edit</button>
-                <button id="dashboard-archive-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Archive queue">📦 Archive</button>
-                <button id="dashboard-delete-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Delete queue">🗑️ Delete</button>
-              </div>
-            `}
-            ${showUnarchive ? `
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <button id="dashboard-unarchive-btn" class="button secondary" style="padding: 6px 12px; font-size: 13px; gap: 6px; display: flex; align-items: center;" title="Unarchive queue">⬆️ Unarchive</button>
-              </div>
-            ` : ''}
+            ${hideQuickAdd ? '<div class="muted" style="font-size:12px;">Archived queues are read-only. Actions are disabled.</div>' : '<div id="dashboard-quick-add"></div>'}
           </div>
-          ${hideQuickAdd ? '<div class="muted" style="font-size:12px;">Archived queues are read-only. Actions are disabled.</div>' : '<div id="dashboard-quick-add"></div>'}
-        </div>
 
         <div id="dashboard-tasks" style="margin-top: 16px;"></div>
       `;
 
       if (!hideQuickAdd) {
-        this.attachQueueActionHandlers(container, queueId, queue);
         this.renderQuickAdd(queueId, queueName);
-      }
-      const unarchiveBtn = container.querySelector('#dashboard-unarchive-btn');
-      if (unarchiveBtn && showUnarchive) {
-        unarchiveBtn.addEventListener('click', async () => {
-          try {
-            await api('PUT', `/api/queues/${queueId}/unarchive`, null, { action: 'unarchive queue' });
-            Utils.showToast('Queue unarchived', 'success');
-            this.queueFilter = 'active';
-            localStorage.setItem('dashboard.queueFilter', this.queueFilter);
-            await this.refreshQueues(queueId);
-          } catch (err) {
-            console.error('Failed to unarchive queue:', err);
-            Utils.showToast('Failed to unarchive queue', 'error');
-          }
-        });
       }
 
       const tasksContainer = container.querySelector('#dashboard-tasks');
@@ -737,13 +1062,12 @@
 
       if (!queues.length) {
         this.currentQueueId = null;
-        tabsContainer.innerHTML = `<button class="new-queue-btn" id="dashboard-new-queue-btn">+ New Queue</button>`;
+        tabsContainer.innerHTML = `<button class="new-queue-btn" id="dashboard-new-queue-btn" data-action="dashboard-new-queue">+ New Queue</button>`;
         contentContainer.innerHTML = `
           <div class="card">
             <p class="muted">No queues yet. Create one to get started.</p>
           </div>
         `;
-        this.attachNewQueueButton(pageContainer);
         return;
       }
 
@@ -842,111 +1166,55 @@
           ? pageTasks.map((task) => renderTaskRow(task, task.friendlyLabel, readOnly)).join('')
           : '<p class="muted">No tasks match filters.</p>';
 
-        container.innerHTML = `
-          <div class="card">
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
-              <h3 style="margin: 0;">Tasks</h3>
-              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      container.innerHTML = `
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
+            <h3 style="margin: 0;">Tasks</h3>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                 ${readOnly ? '' : `
                   <div class="filter-dropdown" style="position:relative;">
-                    <button id="task-filter-toggle-${queueId}" class="button secondary" style="padding:6px 10px;font-size:13px;">${filterLabel}</button>
-                    <div id="task-filter-menu-${queueId}" class="task-filter-menu">
+                    <button data-action="dashboard-task-filter-toggle" data-queue-id="${queueId}" class="button secondary" style="padding:6px 10px;font-size:13px;">${filterLabel}</button>
+                    <div class="task-filter-menu" data-queue-id="${queueId}" style="display:none;">
                       ${defaultStatuses.map((status) => {
                         const checked = state.statuses.has(status) ? 'checked' : '';
                         const label = status.charAt(0).toUpperCase() + status.slice(1);
                         const inputId = `task-filter-${queueId}-${status}`;
                         return `<label for="${inputId}" style="display:flex;align-items:center;gap:8px;padding:4px 6px;cursor:pointer;">
-                          <input id="${inputId}" type="checkbox" data-status="${status}" ${checked} />
+                          <input id="${inputId}" type="checkbox" data-action="dashboard-task-filter-checkbox" data-status="${status}" data-queue-id="${queueId}" ${checked} />
                           <span>${label}</span>
                         </label>`;
                       }).join('')}
                       <div style="display:flex;justify-content:space-between;gap:8px;margin-top:8px;">
-                        <button id="task-filter-reset-${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Reset</button>
-                        <button id="task-filter-close-${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Close</button>
+                        <button data-action="dashboard-task-filter-reset" data-queue-id="${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Reset</button>
+                        <button data-action="dashboard-task-filter-close" data-queue-id="${queueId}" class="button secondary" style="padding:4px 8px;font-size:12px;">Close</button>
                       </div>
                     </div>
                   </div>
                 `}
                 <div class="pager" style="display:flex;align-items:center;gap:6px;">
-                  <button id="task-page-prev-${queueId}" class="button secondary" style="padding:6px 8px;font-size:12px;" ${state.page === 0 ? 'disabled' : ''}>Prev</button>
+                  <button data-action="dashboard-task-page-prev" data-queue-id="${queueId}" class="button secondary" style="padding:6px 8px;font-size:12px;" ${state.page === 0 ? 'disabled' : ''}>Prev</button>
                   <span class="muted" style="font-size:12px;">${rangeLabel}</span>
-                  <button id="task-page-next-${queueId}" class="button secondary" style="padding:6px 8px;font-size:12px;" ${startIdx + pageSize >= total ? 'disabled' : ''}>Next</button>
+                  <button data-action="dashboard-task-page-next" data-queue-id="${queueId}" class="button secondary" style="padding:6px 8px;font-size:12px;" ${startIdx + pageSize >= total ? 'disabled' : ''}>Next</button>
                 </div>
                 <span class="muted" style="font-size:12px;">${tasks.length} total</span>
               </div>
             </div>
-            <div class="task-table">
-              <div class="task-row head">
-                <div class="task-cell status">Status</div>
-                <div class="task-cell id">Task</div>
-                <div class="task-cell tool">Tool</div>
-                <div class="task-cell preview">Preview</div>
-                <div class="task-cell created">Created</div>
-                <div class="task-cell actions">Actions</div>
-              </div>
-              ${taskRows}
+          <div class="task-table">
+            <div class="task-row head task-row-header">
+              <div class="task-cell status">Status</div>
+              <div class="task-cell id">Task</div>
+              <div class="task-cell tool">Tool</div>
+              <div class="task-cell preview">Preview</div>
+              <div class="task-cell created">Created</div>
+              <div class="task-cell actions">Actions</div>
             </div>
+            ${taskRows}
           </div>
-        `;
+        </div>
+      `;
 
-        this.attachTaskActionHandlers(container, pageTasks, queueId, { readOnly });
-
-        if (!readOnly) {
-          const toggleBtn = container.querySelector(`#task-filter-toggle-${queueId}`);
-          const menu = container.querySelector(`#task-filter-menu-${queueId}`);
-          const resetBtn = container.querySelector(`#task-filter-reset-${queueId}`);
-          const closeBtn = container.querySelector(`#task-filter-close-${queueId}`);
-
-          const setMenuVisible = (visible) => {
-            if (menu) {
-              menu.style.display = visible ? 'block' : 'none';
-            }
-          };
-
-          toggleBtn?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isOpen = menu && menu.style.display === 'block';
-            setMenuVisible(!isOpen);
-          });
-          closeBtn?.addEventListener('click', () => setMenuVisible(false));
-          resetBtn?.addEventListener('click', () => {
-            state.statuses = new Set(defaultStatuses);
-            state.page = 0;
-            renderTaskTable();
-          });
-          menu?.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-            cb.addEventListener('change', () => {
-              const val = cb.dataset.status;
-              const selected = new Set(state.statuses);
-              if (cb.checked) {
-                selected.add(val);
-              } else {
-                selected.delete(val);
-              }
-              if (!selected.size) {
-                defaultStatuses.forEach((s) => selected.add(s));
-              }
-              state.statuses = selected;
-              state.page = 0;
-              renderTaskTable();
-            });
-          });
-        }
-
-        const prevBtn = container.querySelector(`#task-page-prev-${queueId}`);
-        const nextBtn = container.querySelector(`#task-page-next-${queueId}`);
-        prevBtn?.addEventListener('click', () => {
-          if (state.page > 0) {
-            state.page -= 1;
-            renderTaskTable();
-          }
-        });
-        nextBtn?.addEventListener('click', () => {
-          if (startIdx + pageSize < total) {
-            state.page += 1;
-            renderTaskTable();
-          }
-        });
+        // Cache current page tasks for row-level handlers
+        this.setTaskRenderCache(pageTasks);
       };
 
       renderTaskTable();
@@ -967,7 +1235,7 @@
 
       // Generate HTML for the new task row
       const displayId = newTask.friendly_id || `#${newTask.id}`;
-      const taskRowHtml = renderTaskRow(newTask, displayId, false);
+        const taskRowHtml = renderTaskRow(newTask, displayId, false);
 
       // Find the header row
       const headerRow = taskTable.querySelector('.task-row-header');
@@ -984,164 +1252,161 @@
 
       headerRow.insertAdjacentElement('afterend', newRow);
 
-      // Attach event handlers to the new row
-      this.attachTaskRowHandlers(newRow, newTask);
-
       // Update the total count if it exists
       const totalElement = container.querySelector('.queue-info-total');
       if (totalElement) {
         const currentCount = parseInt(totalElement.textContent) || 0;
         totalElement.textContent = currentCount + 1;
       }
+
+      // Refresh cache so delegated handlers can find the task
+      const allTasks = this._taskRenderCache || [];
+      this.setTaskRenderCache([newTask, ...allTasks]);
     },
 
-    /**
-     * Attach event handlers to a single task row
-     * @param {HTMLElement} row - The task row element
-     * @param {Object} task - The task object
-     */
-    attachTaskRowHandlers(row, task) {
-      // Edit button
-      const editBtn = row.querySelector('.task-edit-btn');
-      if (editBtn) {
-        editBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          await this.showEditTaskDialog(task, task.queue_id);
-        });
-      }
-
-      // Delete button
-      const deleteBtn = row.querySelector('.task-delete-btn');
-      if (deleteBtn) {
-        deleteBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const friendly = task?.friendlyLabel || task.friendly_id || task.id;
-          let confirmed = false;
-          try {
-            confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${friendly}? This cannot be undone.`);
-          } catch (err) {
-            confirmed = window.confirm(`Are you sure you want to delete task ${friendly}? This cannot be undone.`);
-          }
-          if (!confirmed) return;
-
-          try {
-            await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
-            Utils.showToast(`Task ${task.id} deleted`, 'success', 3500);
-            const tasksContainer = document.getElementById('dashboard-tasks');
-            if (tasksContainer) {
-              this.renderTasks(tasksContainer, task.queue_id);
-            }
-          } catch (err) {
-            console.error('Failed to delete task:', err);
-            Utils.showToast('Failed to delete task', 'error');
-          }
-        });
-      }
-
-      // Row click for details
-      row.addEventListener('click', async (e) => {
-        if (e.target.closest('button')) return;
-        await this.showEditTaskDialog(task, task.queue_id);
-      });
+    async attachTaskActionHandlers() {
+      // Deprecated: events handled via delegated data-action
+      return;
     },
 
-    async attachTaskActionHandlers(container, tasks, queueId, { readOnly = false } = {}) {
-      // Row click -> edit
-      container.querySelectorAll('.task-row').forEach(row => {
-        const taskId = row.dataset.taskId;
-        if (!taskId || readOnly) return;
-        const task = tasks.find(t => String(t.id) === String(taskId));
-        if (!task) return;
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', async (e) => {
-          if (e.target.closest('button')) return;
-          await this.showEditTaskDialog(task, queueId);
-        });
-      });
+    setTaskRenderCache(tasks) {
+      this._taskRenderCache = tasks || [];
+    },
 
-      if (readOnly) return;
+    findTaskById(taskId) {
+      if (!taskId) return null;
+      const cache = this._taskRenderCache || [];
+      return cache.find((t) => String(t.id) === String(taskId)) || null;
+    },
 
-      const updateRowStatus = (taskId, nextStatus) => {
-        const row = container.querySelector(`.task-row[data-task-id="${taskId}"]`);
-        if (!row) return;
-        const statusCell = row.querySelector('.task-cell.status');
-        if (statusCell) {
-          statusCell.innerHTML = renderStatusPill(nextStatus);
+    async handleTaskRerun(taskId, queueId) {
+      if (!taskId) return;
+      const tasksContainer = document.getElementById('dashboard-tasks');
+      try {
+        await api('POST', `/api/tasks/${encodeURIComponent(taskId)}/rerun`, null, { action: 'rerun task' });
+        Utils.showToast(`Task ${taskId} requeued`, 'success', 3000);
+        if (tasksContainer) {
+          this.renderTasks(tasksContainer, queueId);
         }
-      };
+      } catch (err) {
+        console.error('Failed to rerun task:', err);
+        Utils.showToast(err?.message || 'Failed to rerun task', 'error');
+        if (tasksContainer) {
+          this.renderTasks(tasksContainer, queueId);
+        }
+      }
+    },
 
-      // Attach rerun handlers
-      container.querySelectorAll('.task-rerun-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          if (btn.disabled) return;
-          const taskId = btn.dataset.taskId;
-          const task = tasks.find(t => String(t.id) === String(taskId));
-          if (!taskId || !task) return;
-          updateRowStatus(taskId, 'queued');
-          try {
-            await api('POST', `/api/tasks/${encodeURIComponent(taskId)}/rerun`, null, { action: 'rerun task' });
-            Utils.showToast(`Task ${taskId} requeued`, 'success', 3000);
-            const tasksContainer = document.getElementById('dashboard-tasks');
-            if (tasksContainer) {
-              this.renderTasks(tasksContainer, queueId);
-            }
-          } catch (err) {
-            console.error('Failed to rerun task:', err);
-            Utils.showToast(err?.message || 'Failed to rerun task', 'error');
-            this.renderTasks(container, queueId);
-          }
-        });
-      });
+    async handleTaskEdit(taskId, queueId) {
+      const task = this.findTaskById(taskId);
+      const targetQueueId = queueId || task?.queue_id || this.currentQueueId;
+      if (!task) return;
+      await this.showEditTaskDialog(task, targetQueueId);
+    },
 
-      // Attach edit button handlers
-      container.querySelectorAll('.task-edit-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const taskId = btn.dataset.taskId;
-          const task = tasks.find(t => String(t.id) === String(taskId));
-          if (task) {
-            await this.showEditTaskDialog(task, queueId);
-          }
-        });
-      });
+    async handleTaskDelete(taskId, queueId) {
+      if (!taskId) return;
+      const task = this.findTaskById(taskId) || { id: taskId, queue_id: queueId };
+      const friendly = task?.friendlyLabel || taskId;
+      const confirmed = await safeConfirm('Delete Task', `Are you sure you want to delete task ${friendly}? This cannot be undone.`);
+      if (!confirmed) return;
 
-      // Attach delete button handlers
-      container.querySelectorAll('.task-delete-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          if (btn.disabled) return;
-          const taskId = btn.dataset.taskId;
-          const task = tasks.find(t => String(t.id) === String(taskId));
-          const friendly = task?.friendlyLabel || taskId;
-          const label = friendly;
-          let confirmed = false;
-          try {
-            confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
-          } catch (err) {
-            confirmed = window.confirm(`Are you sure you want to delete task ${label}? This cannot be undone.`);
-          }
-          if (!confirmed) return;
+      const tasksContainer = document.getElementById('dashboard-tasks');
 
-          const row = btn.closest('.task-row');
-          if (row) {
-            row.remove();
-          }
+      try {
+        await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });
+        Utils.showToast(`Task ${taskId} deleted`, 'success', 3500);
+        if (tasksContainer) {
+          this.renderTasks(tasksContainer, queueId || task.queue_id);
+        }
+      } catch (err) {
+        console.error('Failed to delete task:', err);
+        Utils.showToast('Failed to delete task', 'error');
+        if (tasksContainer) {
+          this.renderTasks(tasksContainer, queueId || task.queue_id);
+        }
+      }
+    },
 
-          try {
-            await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });
-            Utils.showToast(`Task ${taskId} deleted`, 'success', 3500);
-            const tasksContainer = document.getElementById('dashboard-tasks');
-            if (tasksContainer) {
-              this.renderTasks(tasksContainer, queueId);
-            }
-          } catch (err) {
-            console.error('Failed to delete task:', err);
-            Utils.showToast('Failed to delete task', 'error');
-            this.renderTasks(container, queueId);
-          }
-        });
-      });
+    handleTaskRowOpen(taskId, queueId) {
+      if (!taskId) return;
+      const task = this.findTaskById(taskId);
+      const resolvedQueueId = queueId || this.currentQueueId;
+      if (task) {
+        this.showEditTaskDialog(task, resolvedQueueId);
+      }
+    },
+
+    handleTaskFilterToggle(queueId) {
+      const menu = document.querySelector(`.task-filter-menu[data-queue-id="${queueId}"]`);
+      if (!menu) return;
+      const isOpen = menu.style.display === 'block';
+      menu.style.display = isOpen ? 'none' : 'block';
+    },
+
+    handleTaskFilterClose(queueId) {
+      const menu = document.querySelector(`.task-filter-menu[data-queue-id="${queueId}"]`);
+      if (menu) {
+        menu.style.display = 'none';
+      }
+    },
+
+    handleTaskFilterReset(queueId) {
+      const state = this.taskViewState[queueId];
+      if (!state) return;
+      state.statuses = new Set(['queued', 'running', 'succeeded', 'failed', 'timeout', 'cancelled', 'canceled']);
+      state.page = 0;
+      const container = document.getElementById('dashboard-tasks');
+      if (container) {
+        this.renderTasks(container, queueId);
+      }
+    },
+
+    handleTaskFilterCheckbox(queueId, status, checked) {
+      const state = this.taskViewState[queueId];
+      if (!state) return;
+      const selected = new Set(state.statuses);
+      if (checked) {
+        selected.add(status);
+      } else {
+        selected.delete(status);
+      }
+      if (!selected.size) {
+        selected.add('queued');
+        selected.add('running');
+        selected.add('succeeded');
+        selected.add('failed');
+        selected.add('timeout');
+        selected.add('cancelled');
+        selected.add('canceled');
+      }
+      state.statuses = selected;
+      state.page = 0;
+      const container = document.getElementById('dashboard-tasks');
+      if (container) {
+        this.renderTasks(container, queueId);
+      }
+    },
+
+    handleTaskPagePrev(queueId) {
+      const state = this.taskViewState[queueId];
+      if (!state) return;
+      if (state.page > 0) {
+        state.page -= 1;
+        const container = document.getElementById('dashboard-tasks');
+        if (container) {
+          this.renderTasks(container, queueId);
+        }
+      }
+    },
+
+    handleTaskPageNext(queueId) {
+      const state = this.taskViewState[queueId];
+      if (!state) return;
+      const container = document.getElementById('dashboard-tasks');
+      if (container) {
+        this.renderTasks(container, queueId);
+      }
     },
 
     async showEditTaskDialog(task, queueId) {
@@ -1380,12 +1645,7 @@
       if (payload.delete) {
         const friendly = task?.friendlyLabel;
         const label = (task?.friendly_id || task.id) + (friendly ? ` (${friendly})` : '');
-        let confirmed = false;
-        try {
-          confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
-        } catch (err) {
-          confirmed = window.confirm(`Are you sure you want to delete task ${label}? This cannot be undone.`);
-        }
+        const confirmed = await safeConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
         if (!confirmed) return;
         try {
           await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
@@ -1426,11 +1686,11 @@
 
       return `
         <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
-          <select id="session-selector" class="form-control form-select" style="min-width: 200px; font-size: 13px;" title="Select session">
+          <select id="session-selector" data-action="dashboard-session-select" class="form-control form-select" style="min-width: 200px; font-size: 13px;" title="Select session">
             ${sessionOptions}
           </select>
-          <button id="session-rename-btn" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Rename session">✏️</button>
-          <button id="session-delete-btn" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Delete session">🗑️</button>
+          <button id="session-rename-btn" data-action="dashboard-session-rename" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Rename session">✏️</button>
+          <button id="session-delete-btn" data-action="dashboard-session-delete" class="button secondary" style="padding: 4px 8px; font-size: 12px;" title="Delete session">🗑️</button>
         </div>
       `;
     },
@@ -1570,5 +1830,101 @@
       }
     }
   };
+
+  function registerDashboardActions() {
+    const register = (window.Actions && window.Actions.registerAction) || Utils.registerAction || window.registerAction;
+    if (typeof register !== 'function') {
+      console.warn('[Dashboard] Action registry not available; dashboard actions not registered.');
+      return;
+    }
+
+    const dash = Pages.Dashboard;
+
+    register('dashboard-new-queue', () => dash.handleCreateQueue.call(dash));
+    register('dashboard-select-queue', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleQueueTabSelect.call(dash, queueId);
+    });
+    register('dashboard-filter-active', () => Pages.Dashboard.handleFilterChange('active'));
+    register('dashboard-filter-archived', () => Pages.Dashboard.handleFilterChange('archived'));
+    register('dashboard-select-archived', (el, event) => {
+      const val = (event?.target && event.target.value) || el?.value || el?.dataset?.queueId || '';
+      dash.handleArchivedSelect.call(dash, val);
+    });
+    register('dashboard-edit-queue', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleEditQueue.call(dash, queueId);
+    });
+    register('dashboard-archive-queue', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleArchiveQueue.call(dash, queueId);
+    });
+    register('dashboard-delete-queue', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleDeleteQueue.call(dash, queueId);
+    });
+    register('dashboard-unarchive-queue', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleUnarchiveQueue.call(dash, queueId);
+    });
+    register('dashboard-session-select', (_el, event) => {
+      dash.handleSessionSelect.call(dash, event);
+    });
+    register('dashboard-session-rename', () => {
+      dash.handleSessionRename.call(dash);
+    });
+    register('dashboard-session-delete', () => {
+      dash.handleSessionDelete.call(dash);
+    });
+
+    register('dashboard-task-rerun', (el) => {
+      const taskId = el?.dataset?.taskId;
+      const queueId = el?.dataset?.queueId;
+      dash.handleTaskRerun.call(dash, taskId, queueId);
+    });
+    register('dashboard-task-edit', (el) => {
+      const taskId = el?.dataset?.taskId;
+      const queueId = el?.dataset?.queueId;
+      dash.handleTaskEdit.call(dash, taskId, queueId);
+    });
+    register('dashboard-task-delete', (el) => {
+      const taskId = el?.dataset?.taskId;
+      const queueId = el?.dataset?.queueId;
+      dash.handleTaskDelete.call(dash, taskId, queueId);
+    });
+    register('dashboard-task-row-open', (el) => {
+      const taskId = el?.dataset?.taskId;
+      const queueId = el?.dataset?.queueId;
+      dash.handleTaskRowOpen.call(dash, taskId, queueId);
+    });
+    register('dashboard-task-filter-toggle', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleTaskFilterToggle.call(dash, queueId);
+    });
+    register('dashboard-task-filter-close', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleTaskFilterClose.call(dash, queueId);
+    });
+    register('dashboard-task-filter-reset', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleTaskFilterReset.call(dash, queueId);
+    });
+    register('dashboard-task-filter-checkbox', (el) => {
+      const queueId = el?.dataset?.queueId;
+      const status = el?.dataset?.status;
+      const checked = !!el?.checked;
+      dash.handleTaskFilterCheckbox.call(dash, queueId, status, checked);
+    });
+    register('dashboard-task-page-prev', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleTaskPagePrev.call(dash, queueId);
+    });
+    register('dashboard-task-page-next', (el) => {
+      const queueId = el?.dataset?.queueId;
+      dash.handleTaskPageNext.call(dash, queueId);
+    });
+  }
+
+  registerDashboardActions();
 
 })(window.Pages, window.API, window.Utils, window.Components || { QuickAdd: window.QuickAdd });
