@@ -25,6 +25,13 @@
     limit: 50,
     total: 0,
   };
+  // NOTE: tasks page data-action migration is incomplete; avoid syncing dist until migration is finished.
+  const taskSelection = {
+    selectedIds: new Set(),
+  };
+  let containerRef = null;
+  let tasksCache = [];
+  let queuesCache = [];
 
   function statusPillClass(status) {
     const lower = String(status || '').toLowerCase();
@@ -349,6 +356,7 @@
       return;
     }
 
+    containerRef = container;
     container.innerHTML = `
       <div class="card">
         <div class="muted"><span class="loading"></span> Loading tasks…</div>

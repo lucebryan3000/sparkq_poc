@@ -11,6 +11,7 @@
   let scriptIndexLoaded = false;
   let scriptIndexPromise = null;
   let pendingScriptSelection = null;
+  let containerRef = null;
 
   async function loadScriptIndex(force = false) {
     if (scriptIndexLoaded && !force) {
@@ -46,6 +47,7 @@
       return;
     }
 
+    containerRef = container;
     container.innerHTML = `
       <div class="card">
         <div class="muted"><span class="loading"></span> Loading scripts…</div>
@@ -69,6 +71,7 @@
       return;
     }
 
+    scriptIndexCache = scripts;
     const taskClassOptions = Array.from(
       new Set(
         scripts
@@ -83,11 +86,11 @@
         <div class="grid grid-2">
           <div class="input-group">
             <label for="scripts-search">Search</label>
-            <input id="scripts-search" type="text" placeholder="Search by name or description" class="form-control" />
+            <input id="scripts-search" data-action="scripts-search" type="text" placeholder="Search by name or description" class="form-control" />
           </div>
           <div class="input-group">
             <label for="scripts-task-class">Task Class</label>
-            <select id="scripts-task-class" class="form-control form-select">
+            <select id="scripts-task-class" data-action="scripts-task-class" class="form-control form-select">
               <option value="">All task classes</option>
               ${taskClassOptions.map((value) => `<option value="${value}">${value}</option>`).join('')}
             </select>
@@ -98,10 +101,76 @@
       </div>
     `;
 
+    applyFiltersInContainer(container);
+  }
+
+  Pages.Scripts = {
+    async render(container) {
+      await renderScriptsPage(container);
+    }
+  };
+
+  function registerScriptsActions() {
+    const register = (window.Actions && window.Actions.registerAction) || Utils.registerAction || window.registerAction;
+    if (typeof register !== 'function') {
+      console.warn('[Scripts] Action registry not available; scripts actions not registered.');
+      return;
+    }
+
+    register('scripts-open', (el) => {
+      const idx = Number(el?.dataset?.scriptIndex);
+      if (Number.isNaN(idx)) return;
+      const scripts = scriptIndexCache || [];
+      const script = scripts[idx];
+      if (script) {
+        setPendingSelection(script);
+      }
+      if (navigateTo) {
+        navigateTo('dashboard');
+      } else {
+        window.location.href = '/dashboard';
+      }
+    });
+
+    register('scripts-search', () => {
+      if (containerRef) {
+        applyFiltersInContainer(containerRef);
+      }
+    });
+
+    register('scripts-task-class', () => {
+      if (containerRef) {
+        applyFiltersInContainer(containerRef);
+      }
+    });
+  }
+
+  function applyFiltersInContainer(container) {
     const searchInput = container.querySelector('#scripts-search');
     const taskClassSelect = container.querySelector('#scripts-task-class');
     const resultsEl = container.querySelector('#scripts-results');
     const countEl = container.querySelector('#scripts-count');
+    const scripts = scriptIndexCache || [];
+
+    const query = (searchInput?.value || '').trim().toLowerCase();
+    const taskClass = (taskClassSelect?.value || '').trim();
+    const filtered = scripts.filter((script) => {
+      const name = String(script.name || '').toLowerCase();
+      const description = String(script.description || '').toLowerCase();
+      const matchesQuery = !query || name.includes(query) || description.includes(query);
+      const matchesClass = !taskClass || String(script.task_class || '') === taskClass;
+      return matchesQuery && matchesClass;
+    });
+
+    if (countEl) {
+      countEl.textContent = `Found ${filtered.length} scripts`;
+    }
+    renderTableInContainer(container, filtered);
+  }
+
+  function renderTableInContainer(container, list) {
+    const resultsEl = container.querySelector('#scripts-results');
+    if (!resultsEl) return;
 
     function formatScriptField(value) {
       if (!value && value !== 0) {
@@ -113,88 +182,45 @@
       return String(value);
     }
 
-    function renderTable(list) {
-      if (!list.length) {
-        resultsEl.innerHTML = `<p class="muted">No scripts match your filters.</p>`;
-        return;
-      }
-
-      const rows = list
-        .map(
-          (script, index) => `
-            <tr>
-              <td><a href="#enqueue" class="link" data-script-index="${index}">${formatValue(script.name, 'Unnamed script')}</a></td>
-              <td>${formatValue(script.description, '—')}</td>
-              <td>${script.timeout ? `${script.timeout}s` : '—'}</td>
-              <td>${formatValue(script.task_class, '—')}</td>
-              <td>${formatScriptField(script.inputs) || '—'}</td>
-              <td>${formatScriptField(script.outputs) || '—'}</td>
-            </tr>
-          `,
-        )
-        .join('');
-
-      resultsEl.innerHTML = `
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Description</th>
-              <th>Timeout</th>
-              <th>Task Class</th>
-              <th>Inputs</th>
-              <th>Outputs</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows}
-          </tbody>
-        </table>
-      `;
-
-      resultsEl.querySelectorAll('[data-script-index]').forEach((link) => {
-        const idx = Number(link.dataset.scriptIndex);
-        link.addEventListener('click', (event) => {
-          event.preventDefault();
-          const script = list[idx];
-          if (script) {
-            setPendingSelection(script);
-          }
-          // Navigate to dashboard (enqueue page decommissioned, QuickAdd in Streams replaces it)
-          if (navigateTo) {
-            navigateTo('dashboard');
-          } else {
-            window.location.href = '/dashboard';
-          }
-        });
-      });
+    if (!list.length) {
+      resultsEl.innerHTML = `<p class="muted">No scripts match your filters.</p>`;
+      return;
     }
 
-    function applyFilters() {
-      const query = (searchInput?.value || '').trim().toLowerCase();
-      const taskClass = (taskClassSelect?.value || '').trim();
-      const filtered = scripts.filter((script) => {
-        const name = String(script.name || '').toLowerCase();
-        const description = String(script.description || '').toLowerCase();
-        const matchesQuery = !query || name.includes(query) || description.includes(query);
-        const matchesClass = !taskClass || String(script.task_class || '') === taskClass;
-        return matchesQuery && matchesClass;
-      });
+    const rows = list
+      .map(
+        (script, index) => `
+          <tr>
+            <td><a href="#enqueue" class="link" data-action="scripts-open" data-script-index="${index}">${formatValue(script.name, 'Unnamed script')}</a></td>
+            <td>${formatValue(script.description, '—')}</td>
+            <td>${script.timeout ? `${script.timeout}s` : '—'}</td>
+            <td>${formatValue(script.task_class, '—')}</td>
+            <td>${formatScriptField(script.inputs) || '—'}</td>
+            <td>${formatScriptField(script.outputs) || '—'}</td>
+          </tr>
+        `,
+      )
+      .join('');
 
-      countEl.textContent = `Found ${filtered.length} scripts`;
-      renderTable(filtered);
-    }
-
-    searchInput?.addEventListener('input', applyFilters);
-    taskClassSelect?.addEventListener('change', applyFilters);
-
-    applyFilters();
+    resultsEl.innerHTML = `
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Timeout</th>
+            <th>Task Class</th>
+            <th>Inputs</th>
+            <th>Outputs</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    `;
   }
 
-  Pages.Scripts = {
-    async render(container) {
-      await renderScriptsPage(container);
-    }
-  };
+  registerScriptsActions();
 
 })(window.Pages, window.API, window.Utils);

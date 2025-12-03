@@ -199,12 +199,23 @@
   }
 
   async function safePrompt(title, message, defaultValue = '', options = {}) {
+    const MODAL_TIMEOUT = 60000; // 60 second timeout
     const promptFn = Utils?.showPrompt;
     if (typeof promptFn === 'function') {
       try {
-        return await promptFn(title, message, defaultValue, options);
+        return await Promise.race([
+          promptFn(title, message, defaultValue, options),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Modal timeout - no response from user')), MODAL_TIMEOUT)
+          )
+        ]);
       } catch (err) {
-        console.warn('[Dashboard] showPrompt failed, using fallback modal:', err);
+        if (err.message.includes('timeout')) {
+          console.warn('[Dashboard] showPrompt timeout, using fallback modal');
+          Utils.showToast('Modal dialog timed out, switching to fallback input', 'warning');
+        } else {
+          console.warn('[Dashboard] showPrompt failed, using fallback modal:', err);
+        }
       }
     }
 
@@ -261,12 +272,23 @@
   }
 
   async function safeConfirm(title, message, options = {}) {
+    const MODAL_TIMEOUT = 60000; // 60 second timeout
     const confirmFn = Utils?.showConfirm;
     if (typeof confirmFn === 'function') {
       try {
-        return await confirmFn(title, message, options);
+        return await Promise.race([
+          confirmFn(title, message, options),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Modal timeout - no response from user')), MODAL_TIMEOUT)
+          )
+        ]);
       } catch (err) {
-        console.warn('[Dashboard] showConfirm failed, using fallback modal:', err);
+        if (err.message.includes('timeout')) {
+          console.warn('[Dashboard] showConfirm timeout, using fallback modal');
+          Utils.showToast('Confirmation dialog timed out, switching to fallback', 'warning');
+        } else {
+          console.warn('[Dashboard] showConfirm failed, using fallback modal:', err);
+        }
       }
     }
 

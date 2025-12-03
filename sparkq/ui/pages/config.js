@@ -17,6 +17,7 @@
     'agent-roles': loadAgentRolesTab,
     advanced: loadAdvancedTab,
   };
+  let configContainerRef = null;
 
   function toJSONText(value) {
     try {
@@ -100,6 +101,7 @@
       return;
     }
 
+    configContainerRef = container;
     container.innerHTML = `
       <div class="card" style="margin-bottom:12px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
@@ -110,25 +112,25 @@
         </div>
       </div>
       <div class="config-tablist" role="tablist" aria-label="Configuration sections" data-tablist>
-        <button type="button" id="overview-tab" class="tab-btn config-tab" role="tab" aria-selected="true" aria-controls="tab-content" data-tab-target="overview" data-active="true" tabindex="0">
+        <button type="button" id="overview-tab" class="tab-btn config-tab" role="tab" aria-selected="true" aria-controls="tab-content" data-tab-target="overview" data-active="true" data-action="config-tab" tabindex="0">
           Overview
         </button>
-        <button type="button" id="task-execution-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="task-execution" tabindex="-1">
+        <button type="button" id="task-execution-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="task-execution" data-action="config-tab" tabindex="-1">
           Task Execution
         </button>
-        <button type="button" id="automation-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="automation" tabindex="-1">
+        <button type="button" id="automation-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="automation" data-action="config-tab" tabindex="-1">
           Automation
         </button>
-        <button type="button" id="prompts-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="prompts" tabindex="-1">
+        <button type="button" id="prompts-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="prompts" data-action="config-tab" tabindex="-1">
           Quick Prompts
         </button>
-        <button type="button" id="scripts-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="scripts" tabindex="-1">
+        <button type="button" id="scripts-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="scripts" data-action="config-tab" tabindex="-1">
           Scripts
         </button>
-        <button type="button" id="agent-roles-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="agent-roles" tabindex="-1">
+        <button type="button" id="agent-roles-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="agent-roles" data-action="config-tab" tabindex="-1">
           Agent Roles
         </button>
-        <button type="button" id="advanced-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="advanced" tabindex="-1">
+        <button type="button" id="advanced-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="advanced" data-action="config-tab" tabindex="-1">
           Advanced
         </button>
       </div>
@@ -146,54 +148,10 @@
     await setActiveTab(container, startTab, { forceReload: true });
   }
 
-  function attachTabSwitching(container) {
-    const tabList = container.querySelector('[data-tablist]');
-    if (!tabList || tabList.dataset.bound === 'true') {
-      return;
-    }
-
-    tabList.dataset.bound = 'true';
-
-    tabList.addEventListener('click', (event) => {
-      const tab = event.target.closest('.tab-btn');
-      if (!tab || !tabList.contains(tab)) return;
-      const tabKey = tab.dataset.tabTarget;
-      if (!tabKey) return;
-      event.preventDefault();
-      setActiveTab(container, tabKey);
-    });
-
-    tabList.addEventListener('keydown', (event) => {
-      const { key } = event;
-      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) {
-        return;
-      }
-
-      const tabs = getTabButtons(tabList);
-      if (!tabs.length) return;
-
-      let currentIndex = tabs.indexOf(document.activeElement);
-      if (currentIndex === -1) {
-        currentIndex = 0;
-      }
-      let nextIndex = currentIndex;
-
-      if (key === 'ArrowRight') {
-        nextIndex = (currentIndex + 1) % tabs.length;
-      } else if (key === 'ArrowLeft') {
-        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-      } else if (key === 'Home') {
-        nextIndex = 0;
-      } else if (key === 'End') {
-        nextIndex = tabs.length - 1;
-      }
-
-      const targetTab = tabs[nextIndex];
-      if (targetTab) {
-        event.preventDefault();
-        setActiveTab(container, targetTab.dataset.tabTarget, { focusTab: true });
-      }
-    });
+  // Tab switching now handled via delegated actions (config-tab, config-tab-arrow)
+  function attachTabSwitching() {
+    // No-op placeholder retained for legacy call sites; delegated handling is registered below.
+    return;
   }
 
   function getTabButtons(tabList) {
@@ -1963,5 +1921,53 @@
   };
 
   Pages.Settings = Pages.Config;
+
+  function registerConfigActions() {
+    const register = (window.Actions && window.Actions.registerAction) || Utils.registerAction || window.registerAction;
+    if (typeof register !== 'function') {
+      console.warn('[Config] Action registry not available; config actions not registered.');
+      return;
+    }
+
+    register('config-tab', (el) => {
+      const tabKey = el?.dataset?.tabTarget;
+      if (!tabKey) return;
+      setActiveTab(configContainerRef || document.getElementById('settings-page'), tabKey);
+    });
+
+    register('config-tab-keydown', (el, event) => {
+      if (!event) return;
+      const { key } = event;
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) {
+        return;
+      }
+      const tabList = (configContainerRef || document.getElementById('settings-page'))?.querySelector('[data-tablist]');
+      if (!tabList) return;
+      const tabs = getTabButtons(tabList);
+      if (!tabs.length) return;
+
+      let currentIndex = tabs.indexOf(document.activeElement);
+      if (currentIndex === -1) currentIndex = 0;
+      let nextIndex = currentIndex;
+
+      if (key === 'ArrowRight') {
+        nextIndex = (currentIndex + 1) % tabs.length;
+      } else if (key === 'ArrowLeft') {
+        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      } else if (key === 'Home') {
+        nextIndex = 0;
+      } else if (key === 'End') {
+        nextIndex = tabs.length - 1;
+      }
+
+      const targetTab = tabs[nextIndex];
+      if (targetTab) {
+        event.preventDefault();
+        setActiveTab(configContainerRef || document.getElementById('settings-page'), targetTab.dataset.tabTarget, { focusTab: true });
+      }
+    });
+  }
+
+  registerConfigActions();
 
 })(window.Pages, window.API, window.Utils);

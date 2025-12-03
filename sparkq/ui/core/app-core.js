@@ -4,6 +4,7 @@
 if (!window.API) window.API = {};
 if (!window.Utils) window.Utils = {};
 if (!window.Pages) window.Pages = {};
+if (!window.ActionRegistry) window.ActionRegistry = {};
 
 // ===== STATE & GLOBALS =====
 
@@ -85,6 +86,55 @@ async function safeJson(response) {
     parseError.cause = err;
     throw parseError;
   }
+}
+
+// ===== ACTION REGISTRY & DELEGATION =====
+
+const ActionRegistry = window.ActionRegistry;
+
+function registerAction(name, handler) {
+  if (!name || typeof handler !== 'function') {
+    return;
+  }
+  ActionRegistry[name] = handler;
+}
+
+function callAPI(method, path, body = null, actionLabel = null) {
+  const action = actionLabel || path;
+  return api(method, path, body, { action });
+}
+
+function dispatchAction(action, target, event) {
+  const handler = ActionRegistry[action];
+  if (typeof handler === 'function') {
+    try {
+      handler(target, event);
+    } catch (err) {
+      console.error('[SparkQ] Action handler error:', action, err);
+    }
+  } else {
+    console.warn('[SparkQ] No handler registered for action:', action, target);
+  }
+}
+
+function delegatedHandler(event) {
+  const target = event.target.closest('[data-action]');
+  if (!target) return;
+
+  if (event.type === 'click') {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const action = target.dataset.action;
+  if (!action) return;
+
+  dispatchAction(action, target, event);
+}
+
+function setupDelegatedListeners() {
+  document.body.addEventListener('click', delegatedHandler);
+  document.body.addEventListener('change', delegatedHandler);
 }
 
 // ===== UTILITIES =====
@@ -617,18 +667,12 @@ function resolvePageComponent(pageKey) {
 function setupNavigationButtons() {
   const brandBtn = document.getElementById('navbar-brand-btn');
   if (brandBtn) {
-    brandBtn.addEventListener('click', (event) => {
-      event.preventDefault();
-      navigateTo('dashboard');
-    });
+    brandBtn.dataset.action = 'nav-dashboard';
   }
 
   const settingsBtn = document.getElementById('settings-nav-btn');
   if (settingsBtn) {
-    settingsBtn.addEventListener('click', (event) => {
-      event.preventDefault();
-      navigateTo('settings');
-    });
+    settingsBtn.dataset.action = 'nav-settings';
   }
 }
 
@@ -710,6 +754,10 @@ async function router(page = currentPage) {
   updateActiveNav(targetPage);
 }
 
+function registerCoreActions() {
+  registerAction('nav-dashboard', () => navigateTo('dashboard'));
+  registerAction('nav-settings', () => navigateTo('settings'));
+}
 
 async function refreshStatus() {
   try {
@@ -829,6 +877,14 @@ window.Utils = {
   resolveRoute,
   setPendingScriptSelection,
   consumePendingScriptSelection,
+  registerAction,
+  callAPI,
+  ActionRegistry,
+};
+window.Actions = {
+  registerAction,
+  callAPI,
+  ActionRegistry,
 };
 
 // ===== INITIALIZATION =====
@@ -838,6 +894,8 @@ function initApp() {
   initTheme();
   setupKeyboardShortcuts();
   updateThemeButtonIcon();
+  setupDelegatedListeners();
+  registerCoreActions();
   attachThemeButtonListener();
   setupNavigationButtons();
   setupPopstateListener();

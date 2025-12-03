@@ -206,7 +206,7 @@
         <select
           id="llm-tool-select"
           class="form-control form-select"
-          onchange="window.quickAdd.handleToolChange(event)"
+          data-action="quickadd-tool-change"
           style="display: inline-block; min-width: 220px; max-width: 320px; margin-bottom: 10px;">
           ${llmOptions.map(opt => `<option value="${opt.name}" ${opt.name === this.selectedTool ? 'selected' : ''}>${opt.description}</option>`).join('')}
         </select>
@@ -218,7 +218,7 @@
           <select
             id="prompt-file-select"
             class="form-control form-select"
-            onchange="window.quickAdd.handlePromptFileChange(event)"
+            data-action="quickadd-prompt-change"
             style="display: inline-block; min-width: 220px; max-width: 360px; margin-bottom: 10px;">
             <option value="">-- Select --</option>
             ${this.buildPrompts.map(name => `<option value="${name}" ${name === this.selectedPrompt ? 'selected' : ''}>${name}</option>`).join('')}
@@ -231,16 +231,14 @@
           Agent Role
           <a href="http://192.168.1.150:5005/settings?tab=agent-roles"
              title="Manage agent roles"
-             style="display: inline; margin-left: 4px; text-decoration: none; color: inherit; opacity: 0.6; cursor: pointer; font-size: 14px;"
-             onmouseover="this.style.opacity='1'"
-             onmouseout="this.style.opacity='0.6'">
+             style="display: inline; margin-left: 4px; text-decoration: none; color: inherit; opacity: 0.6; cursor: pointer; font-size: 14px;">
             ⓘ
           </a>
         </label>
         <select
           id="agent-role-select"
           class="form-control form-select"
-          onchange="window.quickAdd.handleAgentRoleChange(event)"
+          data-action="quickadd-agent-change"
           style="display: inline-block; min-width: 220px; max-width: 360px; margin-bottom: 10px;">
           <option value="">-- None --</option>
           ${this.agentRoles.map(role => `<option value="${role.key}" ${role.key === (this.selectedAgentRole || '') ? 'selected' : ''}>${role.label}</option>`).join('')}
@@ -253,19 +251,23 @@
           <div class="mode-toggle" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; gap: 8px;">
               <button
+                id="quickadd-mode-llm"
                 class="pill-toggle ${this.mode === 'llm' ? 'active' : ''}"
-                onclick="window.quickAdd.setMode('llm')">
+                data-action="quickadd-set-mode"
+                data-mode="llm">
                 💬 Prompt
               </button>
               <button
+                id="quickadd-mode-script"
                 class="pill-toggle ${this.mode === 'script' ? 'active' : ''}"
-                onclick="window.quickAdd.setMode('script')">
+                data-action="quickadd-set-mode"
+                data-mode="script">
                 📄 Script
               </button>
             </div>
             <button
               class="button secondary"
-              onclick="window.quickAdd.showInstructions()"
+              data-action="quickadd-show-instructions"
               title="Edit queue instructions"
               style="padding: 8px 16px; font-size: 14px; white-space: nowrap;">
               📋 Queue Instructions
@@ -289,6 +291,7 @@
               <button
                 id="tools-btn"
                 class="tools-btn"
+                data-action="quickadd-toggle-tools"
                 title="Add integrations"
                 style="position: absolute; right: 12px; top: 12px; width: 32px; height: 32px; font-size: 18px;">
                 +
@@ -296,7 +299,7 @@
             </div>
             <div class="quick-add-hint">
               <span>Press Enter to add | Shift+Enter for new line</span>
-              <span id="codex-session-wrapper" style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Click to copy full session ID">
+              <span id="codex-session-wrapper" data-action="quickadd-copy-session" style="display: flex; align-items: center; gap: 4px; cursor: pointer;" title="Click to copy full session ID">
                 <span>Codex Session ID:</span>
                 <span id="codex-session-display" style="font-family: monospace; color: var(--subtle);"></span>
               </span>
@@ -343,7 +346,7 @@
               style="width: 100%; margin-bottom: 8px;"
             />
             <button
-              onclick="window.quickAdd.addScriptTask()"
+              data-action="quickadd-add-script-task"
               class="button primary"
               style="padding: 10px 16px;">
               Add Task
@@ -371,52 +374,6 @@
       if (promptField) {
         promptField.addEventListener('keydown', (e) => this.handlePromptKeydown(e));
         promptField.addEventListener('input', (e) => this.handlePromptInput(e));
-      }
-
-      // Attach mode button listeners
-      const llmBtn = document.querySelector('button[onclick*="setMode(\'llm\')"]');
-      const scriptBtn = document.querySelector('button[onclick*="setMode(\'script\')"]');
-
-      if (llmBtn) {
-        llmBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          this.setMode('llm');
-        });
-      }
-
-      if (scriptBtn) {
-        scriptBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          this.setMode('script');
-        });
-      }
-
-      const toolsBtn = document.getElementById('tools-btn');
-      if (toolsBtn) {
-        toolsBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.toggleToolsPopup();
-        });
-      }
-
-      const scriptAddBtn = document.querySelector('button[onclick*="addScriptTask()"]');
-      if (scriptAddBtn) {
-        scriptAddBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          this.addScriptTask();
-        });
-      }
-
-      const codexSessionWrapper = document.getElementById('codex-session-wrapper');
-      if (codexSessionWrapper) {
-        codexSessionWrapper.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          this.copyCodexSessionId();
-        });
       }
 
       if (!this.documentClickHandler) {
@@ -810,7 +767,7 @@
         const isSelected = index === this.selectedIndex;
         const classes = `prompt-item prompt-popup-item${isSelected ? ' active' : ''}`;
         return `
-          <div class="${classes}" data-index="${index}" onclick="window.quickAdd.selectPromptByIndex(${index})">
+          <div class="${classes}" data-index="${index}" data-action="quickadd-select-prompt">
             <div class="prompt-icon" style="font-size: 16px; margin-top: 2px;">📝</div>
             <div class="prompt-details" style="flex: 1;">
               <div class="prompt-command" style="font-family: SFMono-Regular, Menlo, monospace; font-size: 13px;">>${prompt.command || ''}</div>
@@ -875,6 +832,79 @@
       }
     }
   }
+
+  function getQuickAddInstance() {
+    const qa = window.quickAdd;
+    return qa instanceof QuickAdd ? qa : null;
+  }
+
+  function registerQuickAddActions() {
+    const register = window.Actions?.registerAction || window.Utils?.registerAction || window.registerAction;
+    if (typeof register !== 'function') {
+      console.warn('[QuickAdd] Action registry not available; delegated handlers not registered.');
+      return;
+    }
+
+    register('quickadd-set-mode', (el) => {
+      const qa = getQuickAddInstance();
+      if (!qa) return;
+      const mode = el?.dataset?.mode || 'llm';
+      qa.setMode(mode);
+    });
+
+    register('quickadd-show-instructions', () => {
+      const qa = getQuickAddInstance();
+      if (!qa) return;
+      qa.showInstructions();
+    });
+
+    register('quickadd-tool-change', (_el, event) => {
+      const qa = getQuickAddInstance();
+      if (!qa || !event) return;
+      qa.handleToolChange(event);
+    });
+
+    register('quickadd-prompt-change', (_el, event) => {
+      const qa = getQuickAddInstance();
+      if (!qa || !event) return;
+      qa.handlePromptFileChange(event);
+    });
+
+    register('quickadd-agent-change', (_el, event) => {
+      const qa = getQuickAddInstance();
+      if (!qa || !event) return;
+      qa.handleAgentRoleChange(event);
+    });
+
+    register('quickadd-toggle-tools', () => {
+      const qa = getQuickAddInstance();
+      if (!qa) return;
+      qa.toggleToolsPopup();
+    });
+
+    register('quickadd-add-script-task', () => {
+      const qa = getQuickAddInstance();
+      if (!qa) return;
+      qa.addScriptTask();
+    });
+
+    register('quickadd-copy-session', () => {
+      const qa = getQuickAddInstance();
+      if (!qa) return;
+      qa.copyCodexSessionId();
+    });
+
+    register('quickadd-select-prompt', (el) => {
+      const qa = getQuickAddInstance();
+      if (!qa) return;
+      const idx = Number(el?.dataset?.index);
+      if (!Number.isNaN(idx)) {
+        qa.selectPromptByIndex(idx);
+      }
+    });
+  }
+
+  registerQuickAddActions();
 
   // Export to window
   window.QuickAdd = QuickAdd;
