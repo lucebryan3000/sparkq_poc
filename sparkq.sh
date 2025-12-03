@@ -36,8 +36,11 @@ Database & Config:
   setup                  Interactive setup (create sparkq.yml + database)
   teardown               Clean removal of all SparkQueue artifacts (database, config, logs)
   reload                 Reload configuration and script index
-  backup-list            List all database backups (last 3 versions kept automatically)
-  backup-restore <N>     Restore database from backup (N=1 is most recent)
+  backup-list            List all backups with details (last 7 versions kept)
+  backup-show <N>        Show backup manifest/contents (N=1 is most recent)
+  backup-restore <N>     Restore database + config from backup
+  backup-restore <N> --db-only     Restore only database (skip sparkq.yml)
+  backup-restore <N> --config-only Restore only sparkq.yml (skip database)
 
 UI:
   sync-ui                Sync UI source files from components/pages/core/utils to dist/
@@ -216,6 +219,11 @@ fi
 if [[ "${1:-}" == "backup-list" ]]; then
   shift
   exec "$SCRIPT_DIR/sparkq/scripts/restore_database.sh" list "$@"
+fi
+
+if [[ "${1:-}" == "backup-show" ]]; then
+  shift
+  exec "$SCRIPT_DIR/sparkq/scripts/restore_database.sh" show "$@"
 fi
 
 if [[ "${1:-}" == "backup-restore" ]]; then
