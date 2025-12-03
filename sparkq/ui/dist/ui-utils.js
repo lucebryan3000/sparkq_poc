@@ -259,6 +259,8 @@
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
 
+      let canCloseFromClick = false;
+
       handleKeydown = (e) => {
         if (e.key === 'Escape') {
           finish(null);
@@ -272,10 +274,14 @@
         overlay.classList.add('visible');
         modal.style.transform = 'scale(1)';
         modal.focus({ preventScroll: true });
+        // Allow clicks to close modal after animation frame to prevent immediate closing
+        setTimeout(() => {
+          canCloseFromClick = true;
+        }, 50);
       });
 
       overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
+        if (e.target === overlay && canCloseFromClick) {
           finish(null);
         }
       });
