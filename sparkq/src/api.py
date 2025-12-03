@@ -811,6 +811,43 @@ def validate_config(payload: ConfigUpdateRequest):
     return {"status": "ok"}
 
 
+@app.post("/api/purge")
+def purge_tasks():
+    """Run purge operation to delete old completed/failed tasks."""
+    # Get purge config
+    cfg = storage.get_config("purge", "config")
+    older_than_days = 3  # default
+
+    if cfg and isinstance(cfg, dict):
+        older_than_days = int(cfg.get("older_than_days", 3))
+
+    try:
+        count = storage.purge_old_tasks(older_than_days=older_than_days)
+        return {"status": "ok", "message": f"Purged {count} old tasks"}
+    except Exception as exc:
+        logger.exception("Purge failed")
+        raise HTTPException(status_code=500, detail=f"Purge failed: {str(exc)}") from exc
+
+
+@app.post("/api/reload")
+def reload_config():
+    """Reload configuration from file."""
+    try:
+        # Reload configuration
+        cfg = load_config()
+
+        # Reload registries (tools, task classes)
+        reload_registry({
+            "tools": cfg.get("tools", {}),
+            "task_classes": cfg.get("task_classes", {})
+        })
+
+        return {"status": "ok", "message": "Configuration reloaded"}
+    except Exception as exc:
+        logger.exception("Config reload failed")
+        raise HTTPException(status_code=500, detail=f"Config reload failed: {str(exc)}") from exc
+
+
 class PromptCreateRequest(BaseModel):
     command: str
     label: str
