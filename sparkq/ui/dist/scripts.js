@@ -160,10 +160,11 @@
           if (script) {
             setPendingSelection(script);
           }
+          // Navigate to dashboard (enqueue page decommissioned, QuickAdd in Streams replaces it)
           if (navigateTo) {
-            navigateTo('settings', { tab: 'enqueue' });
+            navigateTo('dashboard');
           } else {
-            window.location.href = '/settings?tab=enqueue';
+            window.location.href = '/dashboard';
           }
         });
       });

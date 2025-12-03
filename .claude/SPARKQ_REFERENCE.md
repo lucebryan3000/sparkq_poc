@@ -25,7 +25,6 @@ sparkq/
 │       ├── sessions.js     # Sessions list/CRUD
 │       ├── streams.js      # Streams list/CRUD + QuickAdd integration
 │       ├── tasks.js        # Tasks list/detail
-│       ├── enqueue.js      # Manual enqueue form
 │       ├── config.js       # Config page
 │       └── scripts.js      # Scripts index
 └── sparkq.db               # SQLite database

@@ -15,7 +15,6 @@ cp "${ROOT_DIR}/components/quick-add.js" "${ROOT_DIR}/dist/quick-add.js"
 # Pages
 cp "${ROOT_DIR}/pages/config.js" "${ROOT_DIR}/dist/config.js"
 cp "${ROOT_DIR}/pages/dashboard.js" "${ROOT_DIR}/dist/dashboard.js"
-cp "${ROOT_DIR}/pages/enqueue.js" "${ROOT_DIR}/dist/enqueue.js"
 cp "${ROOT_DIR}/pages/queues.js" "${ROOT_DIR}/dist/queues.js"
 cp "${ROOT_DIR}/pages/scripts.js" "${ROOT_DIR}/dist/scripts.js"
 cp "${ROOT_DIR}/pages/tasks.js" "${ROOT_DIR}/dist/tasks.js"

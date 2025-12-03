@@ -34,7 +34,6 @@ const ROUTES = {
 const LEGACY_ROUTES = {
   '/': { page: 'dashboard' },
   '/sparkqueue': { page: 'dashboard' },
-  '/enqueue': { page: 'settings', tab: 'enqueue' },
   '/scripts': { page: 'settings', tab: 'scripts' },
   '/config': { page: 'settings' },
 };
@@ -562,30 +561,6 @@ function injectStaleStyles() {
   document.head.appendChild(style);
 }
 
-function injectEnqueueStyles() {
-  if (document.getElementById('enqueue-styles')) {
-    return;
-  }
-
-  const style = document.createElement('style');
-  style.id = 'enqueue-styles';
-  style.textContent = `
-    .autocomplete-wrapper { position: relative; }
-    .autocomplete-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); max-height: 240px; overflow-y: auto; z-index: 8; display: none; }
-    .autocomplete-item { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s ease; }
-    .autocomplete-item:last-child { border-bottom: none; }
-    .autocomplete-item:hover { background: var(--muted); }
-    .autocomplete-item-title { display: block; font-weight: 700; }
-    .autocomplete-item-desc { display: block; color: var(--subtle); font-size: 13px; margin-top: 4px; }
-    .script-meta { margin-top: 12px; padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255, 255, 255, 0.02); }
-    .script-meta h4 { margin: 0 0 6px 0; }
-    .script-meta .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 8px; }
-    .script-helper { color: var(--subtle); font-size: 13px; margin-top: 4px; }
-  `;
-
-  document.head.appendChild(style);
-}
-
 // Theme toggle utilities (Phase 10)
 function initTheme() {
   const stored = localStorage.getItem('theme');
@@ -846,7 +821,6 @@ window.Utils = {
   clearFieldError,
   getFieldErrorElement,
   injectStaleStyles,
-  injectEnqueueStyles,
   initTheme,
   applyTheme,
   toggleTheme,

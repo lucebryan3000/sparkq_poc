@@ -116,7 +116,6 @@ sparkq/ui/
 │   ├── sessions.js              (~80 lines)
 │   ├── streams.js               (~120 lines)
 │   ├── tasks.js                 (~420 lines)
-│   ├── enqueue.js               (~370 lines)
 │   ├── config.js                (~114 lines)
 │   └── scripts.js               (~145 lines)
 ├── index.html                   (8 script tags)
