@@ -834,9 +834,24 @@
       return;
     }
 
+    // Extract unique categories (Phase 27)
+    const categories = Array.from(new Set(prompts.map(p => p.category).filter(Boolean))).sort();
+
     const promptListHtml = prompts.length
       ? prompts.map(p => renderPromptItem(p)).join('')
       : '<p class="muted empty-state">No prompts yet. Click "New Prompt" to create one.</p>';
+
+    const categoryFilterHtml = categories.length > 0
+      ? `
+        <div style="margin-bottom: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <label for="category-filter" style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">Filter by category:</label>
+          <select id="category-filter" class="form-input" style="flex: 0 0 auto; padding: 6px 12px; font-size: 13px;">
+            <option value="">All Categories</option>
+            ${categories.map(cat => `<option value="${formatValue(cat, '')}">${formatValue(cat, '')}</option>`).join('')}
+          </select>
+        </div>
+      `
+      : '';
 
     tabContent.innerHTML = `
       <div class="card">
@@ -846,6 +861,7 @@
             + New Prompt
           </button>
         </div>
+        ${categoryFilterHtml}
         <div id="prompt-list" class="prompt-list">
           ${promptListHtml}
         </div>
@@ -1321,6 +1337,10 @@
       ? 'background: rgba(46, 204, 113, 0.15); color: var(--success, #198754);'
       : 'background: var(--muted); color: var(--subtle);';
 
+    const categoryBadge = prompt.category
+      ? `<span class="prompt-category-badge" data-category="${formatValue(prompt.category, '')}" style="padding:4px 10px; border-radius:999px; font-size:11px; font-weight:600; background:rgba(100,150,200,0.15); color:var(--info, #0066cc); margin-right:8px;">${formatValue(prompt.category, '')}</span>`
+      : '';
+
     return `
       <div class="prompt-item">
         <div class="prompt-item-main">
@@ -1332,6 +1352,7 @@
           </div>
         </div>
         <div class="prompt-actions">
+          ${categoryBadge}
           <span style="padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; ${badgeStyle}">${badgeLabel}</span>
           <button type="button" class="button secondary prompt-toggle-btn" data-prompt-id="${prompt.id}" data-active="${active ? 'true' : 'false'}" style="padding:6px 12px;">${toggleLabel}</button>
           <button type="button" class="edit-prompt-btn button secondary" data-prompt-id="${prompt.id}">
@@ -1571,6 +1592,7 @@
       const editBtns = document.querySelectorAll('.edit-prompt-btn');
       const deleteBtns = document.querySelectorAll('.delete-prompt-btn');
       const toggleBtns = document.querySelectorAll('.prompt-toggle-btn');
+      const categoryFilter = document.getElementById('category-filter');
 
       editBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1602,6 +1624,22 @@
           }
         });
       });
+
+      // Add category filter listener (Phase 27)
+      if (categoryFilter) {
+        categoryFilter.addEventListener('change', () => {
+          const selectedCategory = categoryFilter.value;
+          const promptItems = document.querySelectorAll('.prompt-item');
+
+          promptItems.forEach(item => {
+            const categoryBadge = item.querySelector('.prompt-category-badge');
+            const itemCategory = categoryBadge ? categoryBadge.getAttribute('data-category') : '';
+
+            // Show item if no filter selected or category matches
+            item.style.display = selectedCategory === '' || itemCategory === selectedCategory ? '' : 'none';
+          });
+        });
+      }
     },
 
     async savePurge() {
