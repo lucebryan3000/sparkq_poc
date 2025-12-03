@@ -280,13 +280,13 @@
         }, 60);
       });
 
-      overlay.addEventListener('click', (e) => {
+      overlay.addEventListener("click", (e) => {
         if (e.target === overlay && allowOverlayClose) {
           finish(null);
         }
       });
 
-      document.addEventListener('keydown', handleKeydown);
+      document.addEventListener("keydown", handleKeydown);
     });
   }
 

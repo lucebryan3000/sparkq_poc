@@ -125,14 +125,109 @@
 
   // Use the shared modal utilities with a native fallback
   async function promptValue(title, message, defaultValue = '', options = {}) {
-    if (typeof Utils?.showPrompt === 'function') {
+    if (typeof Utils?.showPrompt === 'function' && !Utils.showPrompt.__fallback) {
       try {
         return await Utils.showPrompt(title, message, defaultValue, options);
       } catch (err) {
-        console.warn('[Dashboard] showPrompt failed, falling back to window.prompt', err);
+        console.warn('[Dashboard] showPrompt failed, falling back to inline modal', err);
       }
     }
-    return typeof window.prompt === 'function' ? window.prompt(message || '', defaultValue) : defaultValue;
+    // Inline minimal modal prompt
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal modal-overlay';
+      overlay.style.opacity = '0';
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-content';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.style.transform = 'scale(0.95)';
+      modal.tabIndex = -1;
+
+      const header = document.createElement('div');
+      header.className = 'modal-header';
+      const titleEl = document.createElement('h2');
+      titleEl.className = 'modal-title';
+      titleEl.textContent = title || 'Input';
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'modal-close-button';
+      closeBtn.setAttribute('aria-label', 'Close dialog');
+      closeBtn.innerHTML = '&times;';
+      header.append(titleEl, closeBtn);
+
+      const body = document.createElement('div');
+      body.className = 'modal-body';
+      const msg = document.createElement('p');
+      msg.className = 'muted';
+      msg.style.margin = '0 0 12px';
+      msg.textContent = message || '';
+      const input = document.createElement(options.textarea ? 'textarea' : 'input');
+      if (!options.textarea) {
+        input.type = options.type || 'text';
+      }
+      input.className = 'form-control';
+      input.value = defaultValue || '';
+      input.placeholder = options.placeholder || '';
+      input.style.width = '100%';
+      input.style.boxSizing = 'border-box';
+      body.append(msg, input);
+
+      const footer = document.createElement('div');
+      footer.className = 'modal-footer';
+      const actions = document.createElement('div');
+      actions.className = 'modal-actions';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'button secondary';
+      cancelBtn.textContent = 'Cancel';
+      const okBtn = document.createElement('button');
+      okBtn.className = 'button primary';
+      okBtn.textContent = 'OK';
+      actions.append(cancelBtn, okBtn);
+      footer.appendChild(actions);
+
+      modal.append(header, body, footer);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      let allowOverlayClose = false;
+      const cleanup = (val) => {
+        overlay.classList.remove('visible');
+        modal.style.transform = 'scale(0.95)';
+        setTimeout(() => overlay.remove(), 200);
+        resolve(val);
+      };
+
+      closeBtn.addEventListener('click', () => cleanup(null));
+      cancelBtn.addEventListener('click', () => cleanup(null));
+      okBtn.addEventListener('click', () => cleanup(input.value));
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay && allowOverlayClose) {
+          cleanup(null);
+        }
+      });
+      modal.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          cleanup(null);
+        }
+        if (e.key === 'Enter' && e.target !== input && !options.textarea) {
+          e.preventDefault();
+          cleanup(input.value);
+        }
+      });
+
+      requestAnimationFrame(() => {
+        overlay.classList.add('visible');
+        modal.style.transform = 'scale(1)';
+        input.focus();
+        input.select();
+        setTimeout(() => {
+          allowOverlayClose = true;
+        }, 60);
+      });
+    });
   }
 
   async function confirmValue(title, message, options = {}) {
