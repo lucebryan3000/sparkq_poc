@@ -545,8 +545,10 @@ a {
   border-color: var(--border-strong);
 }
 
-/* Disable card-level hover lift specifically on queues page tasks cards */
-.queues-page .card:hover {
+/* Disable card-level hover lift on pages with task/data tables */
+.queues-page .card:hover,
+.tasks-page .card:hover,
+.sessions-page .card:hover {
   box-shadow: var(--shadow);
   border-color: var(--border);
 }
@@ -704,6 +706,11 @@ a {
 
 .table tr:nth-child(even) {
   background: var(--table-row-alt);
+}
+
+.table tbody tr:hover {
+  background: var(--table-hover);
+  transition: background 0.15s ease;
 }
 
 .button {

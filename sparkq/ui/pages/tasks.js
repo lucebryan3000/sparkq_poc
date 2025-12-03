@@ -630,6 +630,7 @@
 
     container.querySelectorAll('.task-action-btn--edit').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
+        e.preventDefault();
         e.stopPropagation();
         if (btn.disabled) return;
         const taskId = btn.dataset.taskId;
@@ -641,6 +642,7 @@
 
     container.querySelectorAll('.task-action-btn--delete').forEach((btn) => {
       btn.addEventListener('click', async (e) => {
+        e.preventDefault();
         e.stopPropagation();
         if (btn.disabled) return;
         const taskId = btn.dataset.taskId;
@@ -653,10 +655,6 @@
           confirmed = window.confirm(`Delete task ${label}? This cannot be undone.`);
         }
         if (!confirmed) return;
-        const row = btn.closest('.task-row');
-        if (row) {
-          row.remove();
-        }
         try {
           await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });
           showSuccess(`Task ${label} deleted`);
