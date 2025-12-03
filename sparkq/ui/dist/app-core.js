@@ -6,6 +6,25 @@ if (!window.Utils) window.Utils = {};
 if (!window.Pages) window.Pages = {};
 if (!window.ActionRegistry) window.ActionRegistry = {};
 
+// Provide simple prompt/confirm fallbacks in case ui-utils has not populated them yet
+if (typeof window.Utils.showPrompt !== 'function') {
+  window.Utils.showPrompt = async (title, message, defaultValue = '', options = {}) => {
+    const result = typeof window.prompt === 'function' ? window.prompt(message || title || '', defaultValue) : defaultValue;
+    return result ?? null;
+  };
+}
+if (typeof window.Utils.showConfirm !== 'function') {
+  window.Utils.showConfirm = async (_title, message, options = {}) => {
+    const label = options && options.confirmLabel ? `${options.confirmLabel}: ${message || ''}` : (message || '');
+    return typeof window.confirm === 'function' ? window.confirm(label) : false;
+  };
+}
+if (typeof window.Utils.showToast !== 'function') {
+  window.Utils.showToast = (msg, type = 'info') => {
+    console[type === 'error' ? 'error' : 'log'](`[toast:${type}] ${msg}`);
+  };
+}
+
 // ===== STATE & GLOBALS =====
 
 const API_BASE = `${window.location.protocol}//${window.location.host}`;
@@ -783,7 +802,7 @@ function setupKeyboardShortcuts() {
       return;
     }
 
-    // Escape: Close modals
+    // Escape: Close modals (safety net)
     if (e.key === 'Escape') {
       document.querySelectorAll('.modal').forEach((modal) => {
         if (modal && modal.parentNode) {
@@ -842,8 +861,8 @@ async function syncBuildIdFromServer() {
 
 // ===== EXPORTS =====
 
-window.API = { api };
-window.Utils = {
+window.API = Object.assign(window.API || {}, { api });
+window.Utils = Object.assign(window.Utils || {}, {
   normalizeStatus,
   formatStatusLabel,
   pickStat,
@@ -880,12 +899,12 @@ window.Utils = {
   registerAction,
   callAPI,
   ActionRegistry,
-};
-window.Actions = {
+});
+window.Actions = Object.assign(window.Actions || {}, {
   registerAction,
   callAPI,
   ActionRegistry,
-};
+});
 
 // ===== INITIALIZATION =====
 

@@ -183,7 +183,9 @@
       let resolved = false;
       let primaryButton = null;
       let handleKeydown = null;
+      let allowOverlayClose = false;
 
+      let allowOverlayClose = false;
       const finish = (value = null) => {
         if (resolved) return;
         resolved = true;
@@ -230,8 +232,6 @@
       modal.appendChild(contentEl);
 
       if (buttons.length > 0) {
-        const footerEl = document.createElement('div');
-        footerEl.className = 'modal-footer';
         const buttonsEl = document.createElement('div');
         buttonsEl.className = 'modal-actions';
         buttons.forEach(btn => {
@@ -252,14 +252,11 @@
           });
           buttonsEl.appendChild(button);
         });
-        footerEl.appendChild(buttonsEl);
-        modal.appendChild(footerEl);
+        modal.appendChild(buttonsEl);
       }
 
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
-
-      let canCloseFromClick = false;
 
       handleKeydown = (e) => {
         if (e.key === 'Escape') {
@@ -274,14 +271,14 @@
         overlay.classList.add('visible');
         modal.style.transform = 'scale(1)';
         modal.focus({ preventScroll: true });
-        // Allow clicks to close modal after animation frame to prevent immediate closing
+        // enable overlay close shortly after open to avoid the initial click re-closing it
         setTimeout(() => {
-          canCloseFromClick = true;
-        }, 50);
+          allowOverlayClose = true;
+        }, 60);
       });
 
       overlay.addEventListener('click', (e) => {
-        if (e.target === overlay && canCloseFromClick) {
+        if (e.target === overlay && allowOverlayClose) {
           finish(null);
         }
       });

@@ -123,207 +123,30 @@
     return clean.length > 80 ? `${clean.slice(0, 80)}…` : clean;
   }
 
-  function buildFallbackModal(title, contentBuilder) {
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.className = 'modal modal-overlay';
-      overlay.style.opacity = '0';
-      overlay.style.zIndex = '9999';
-
-      const modal = document.createElement('div');
-      modal.className = 'modal-content';
-      modal.setAttribute('role', 'dialog');
-      modal.setAttribute('aria-modal', 'true');
-      modal.style.transform = 'scale(0.95)';
-      modal.style.maxWidth = '420px';
-      modal.style.minWidth = '280px';
-      modal.tabIndex = -1;
-
-      const header = document.createElement('div');
-      header.className = 'modal-header';
-      const titleEl = document.createElement('h2');
-      titleEl.className = 'modal-title';
-      titleEl.textContent = title || '';
-      const closeBtn = document.createElement('button');
-      closeBtn.type = 'button';
-      closeBtn.className = 'modal-close-button';
-      closeBtn.setAttribute('aria-label', 'Close dialog');
-      closeBtn.innerHTML = '&times;';
-      header.append(titleEl, closeBtn);
-
-      const body = document.createElement('div');
-      body.className = 'modal-body';
-
-      const footer = document.createElement('div');
-      footer.className = 'modal-actions';
-
-      const cleanup = (value) => {
-        overlay.classList.remove('visible');
-        modal.style.transform = 'scale(0.95)';
-        setTimeout(() => overlay.remove(), 200);
-        resolve(value);
-      };
-
-      const { contentEl, onSubmit } = contentBuilder({ cleanup });
-      body.appendChild(contentEl);
-
-      overlay.append(modal);
-      modal.append(header, body, footer);
-      document.body.appendChild(overlay);
-
-      requestAnimationFrame(() => {
-        overlay.classList.add('visible');
-        modal.style.transform = 'scale(1)';
-        const focusTarget = modal.querySelector('input, textarea, button');
-        if (focusTarget) {
-          focusTarget.focus({ preventScroll: true });
-          if (focusTarget.select) focusTarget.select();
-        }
-      });
-
-      closeBtn.addEventListener('click', () => cleanup(null));
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) cleanup(null);
-      });
-      modal.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          cleanup(null);
-        }
-      });
-
-      if (typeof onSubmit === 'function') {
-        footer.appendChild(onSubmit({ cleanup }));
-      }
-    });
-  }
-
-  async function safePrompt(title, message, defaultValue = '', options = {}) {
-    const MODAL_TIMEOUT = 60000; // 60 second timeout
-    const promptFn = Utils?.showPrompt;
-    if (typeof promptFn === 'function') {
+  // Use the shared modal utilities with a native fallback
+  async function promptValue(title, message, defaultValue = '', options = {}) {
+    if (typeof Utils?.showPrompt === 'function') {
       try {
-        return await Promise.race([
-          promptFn(title, message, defaultValue, options),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Modal timeout - no response from user')), MODAL_TIMEOUT)
-          )
-        ]);
+        return await Utils.showPrompt(title, message, defaultValue, options);
       } catch (err) {
-        if (err.message.includes('timeout')) {
-          console.warn('[Dashboard] showPrompt timeout, using fallback modal');
-          Utils.showToast('Modal dialog timed out, switching to fallback input', 'warning');
-        } else {
-          console.warn('[Dashboard] showPrompt failed, using fallback modal:', err);
-        }
+        console.warn('[Dashboard] showPrompt failed, falling back to window.prompt', err);
       }
     }
-
-    return buildFallbackModal(title || 'Input', ({ cleanup }) => {
-      const contentEl = document.createElement('div');
-      const msg = document.createElement('p');
-      msg.className = 'muted';
-      msg.style.margin = '0 0 12px';
-      msg.textContent = message || '';
-      contentEl.appendChild(msg);
-
-      let inputEl;
-      if (options.textarea) {
-        inputEl = document.createElement('textarea');
-        inputEl.rows = options.rows || 4;
-        inputEl.style.minHeight = '120px';
-      } else {
-        inputEl = document.createElement('input');
-        inputEl.type = options.type || 'text';
-      }
-      inputEl.className = 'form-control';
-      inputEl.value = defaultValue || '';
-      inputEl.placeholder = options.placeholder || '';
-      inputEl.style.width = '100%';
-      inputEl.style.boxSizing = 'border-box';
-      contentEl.appendChild(inputEl);
-
-      const onSubmit = () => {
-        const val = inputEl.value;
-        cleanup(val ?? null);
-      };
-
-      const submitButton = document.createElement('button');
-      submitButton.className = 'button primary';
-      submitButton.textContent = 'OK';
-      submitButton.type = 'button';
-      submitButton.addEventListener('click', onSubmit);
-
-      const cancelButton = document.createElement('button');
-      cancelButton.className = 'button secondary';
-      cancelButton.textContent = 'Cancel';
-      cancelButton.type = 'button';
-      cancelButton.addEventListener('click', () => cleanup(null));
-
-      const buttonsWrapper = document.createElement('div');
-      buttonsWrapper.className = 'modal-actions';
-      buttonsWrapper.append(cancelButton, submitButton);
-
-      return {
-        contentEl,
-        onSubmit: () => buttonsWrapper,
-      };
-    });
+    return typeof window.prompt === 'function' ? window.prompt(message || '', defaultValue) : defaultValue;
   }
 
-  async function safeConfirm(title, message, options = {}) {
-    const MODAL_TIMEOUT = 60000; // 60 second timeout
-    const confirmFn = Utils?.showConfirm;
-    if (typeof confirmFn === 'function') {
+  async function confirmValue(title, message, options = {}) {
+    if (typeof Utils?.showConfirm === 'function') {
       try {
-        return await Promise.race([
-          confirmFn(title, message, options),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Modal timeout - no response from user')), MODAL_TIMEOUT)
-          )
-        ]);
+        return await Utils.showConfirm(title, message, options);
       } catch (err) {
-        if (err.message.includes('timeout')) {
-          console.warn('[Dashboard] showConfirm timeout, using fallback modal');
-          Utils.showToast('Confirmation dialog timed out, switching to fallback', 'warning');
-        } else {
-          console.warn('[Dashboard] showConfirm failed, using fallback modal:', err);
-        }
+        console.warn('[Dashboard] showConfirm failed, falling back to window.confirm', err);
       }
     }
-
-    return buildFallbackModal(title || 'Confirm', ({ cleanup }) => {
-      const contentEl = document.createElement('div');
-      const msg = document.createElement('p');
-      msg.className = 'muted';
-      msg.style.margin = '0 0 12px';
-      msg.textContent = message || '';
-      contentEl.appendChild(msg);
-
-      const confirmButton = document.createElement('button');
-      confirmButton.className = 'button primary';
-      confirmButton.textContent = options.confirmLabel || 'OK';
-      confirmButton.type = 'button';
-      confirmButton.addEventListener('click', () => cleanup(true));
-
-      const cancelButton = document.createElement('button');
-      cancelButton.className = 'button secondary';
-      cancelButton.textContent = options.cancelLabel || 'Cancel';
-      cancelButton.type = 'button';
-      cancelButton.addEventListener('click', () => cleanup(false));
-
-      const buttonsWrapper = document.createElement('div');
-      buttonsWrapper.className = 'modal-actions';
-      buttonsWrapper.append(cancelButton, confirmButton);
-
-      return {
-        contentEl,
-        onSubmit: () => buttonsWrapper,
-      };
-    });
+    return typeof window.confirm === 'function' ? window.confirm(message || '') : false;
   }
 
-  let toolNameCache = null;
+let toolNameCache = null;
 
   function prettifyToolName(name) {
     if (!name) return '—';
@@ -497,7 +320,7 @@
               ${sessionSelector}
             </div>
 
-            <div class="queue-tabs-section">
+            <div class="queue-tabs-section" style="margin-top:20px;">
               <div class="section-title">Queues</div>
               <div id="queue-tabs" class="queue-tabs">
                 <button class="new-queue-btn" id="dashboard-new-queue-btn" data-action="dashboard-new-queue">+ New Queue</button>
@@ -547,12 +370,12 @@
 
         actualContainer.innerHTML = `
           ${headingBlock}
-          <div class="session-tabs-section">
+          <div class="session-tabs-section" style="margin-top:20px;">
             <div class="section-title">Sessions</div>
             ${sessionSelector}
           </div>
 
-          <div class="queue-tabs-section">
+          <div class="queue-tabs-section" style="margin-top:20px;">
             <div class="section-title queue-filter-header">
               <span>Queues</span>
               <div id="queue-filter-buttons" class="queue-filter-buttons">
@@ -607,7 +430,9 @@
         return;
       }
 
-      const tabsHtml = queues
+      const activeQueues = (queues || []).filter((q) => String(q.status || '').toLowerCase() !== 'archived');
+
+      const tabsHtml = activeQueues
         .map((queue) => {
           const isActive = queue.id === this.currentQueueId;
           const progress = formatProgress(queue.stats);
@@ -649,7 +474,8 @@
       const contentContainer = pageContainer?.querySelector('#queue-content');
 
       if (tabsContainer) {
-        this.renderQueueTabs(tabsContainer, this.queuesCache || []);
+        const activeQueues = (this.queuesCache || []).filter((q) => String(q.status || '').toLowerCase() !== 'archived');
+        this.renderQueueTabs(tabsContainer, activeQueues);
       }
 
       const filterButtons = document.getElementById('queue-filter-buttons');
@@ -697,15 +523,16 @@
     },
 
     async handleEditQueue(queueId) {
-      Utils.showToast('Opening editor...', 'info');
-      const queue = this.getQueueFromCache(queueId);
+      const resolvedId = queueId || this.currentQueueId;
+      if (!resolvedId) return;
+      const queue = this.getQueueFromCache(resolvedId);
       const queueName = queue?.name || queue?.id || 'Queue';
-      const newName = await safePrompt('Edit Queue', 'Queue name:', queueName);
+      const newName = await promptValue('Edit Queue', 'Queue name:', queueName);
       if (!newName || !newName.trim()) {
         return;
       }
 
-      const instructions = await safePrompt('Queue Instructions', 'Enter queue instructions (optional):', '', { textarea: true });
+      const instructions = await promptValue('Queue Instructions', 'Enter queue instructions (optional):', '', { textarea: true });
 
       try {
         const payload = {};
@@ -717,9 +544,9 @@
         }
 
         if (Object.keys(payload).length > 0) {
-          await api('PUT', `/api/queues/${queueId}`, payload, { action: 'update queue' });
+          await api('PUT', `/api/queues/${resolvedId}`, payload, { action: 'update queue' });
           Utils.showToast('Queue updated', 'success');
-          await this.refreshQueues(queueId);
+          await this.refreshQueues(resolvedId);
         }
       } catch (err) {
         console.error('Failed to update queue:', err);
@@ -728,14 +555,15 @@
     },
 
     async handleArchiveQueue(queueId) {
-      Utils.showToast('Opening confirmation...', 'info');
-      const queue = this.getQueueFromCache(queueId);
+      const resolvedId = queueId || this.currentQueueId;
+      if (!resolvedId) return;
+      const queue = this.getQueueFromCache(resolvedId);
       const queueName = queue?.name || queue?.id || 'Queue';
-      const confirmed = await safeConfirm('Archive Queue', `Archive "${queueName}"?`);
+      const confirmed = await confirmValue('Archive Queue', `Archive "${queueName}"?`);
       if (!confirmed) return;
 
       try {
-        await api('PUT', `/api/queues/${queueId}/archive`, null, { action: 'archive queue' });
+        await api('PUT', `/api/queues/${resolvedId}/archive`, null, { action: 'archive queue' });
         Utils.showToast(`Queue "${queueName}" archived`, 'success');
         await this.refreshQueues();
       } catch (err) {
@@ -745,14 +573,15 @@
     },
 
     async handleDeleteQueue(queueId) {
-      Utils.showToast('Requesting confirmation...', 'info');
-      const queue = this.getQueueFromCache(queueId);
+      const resolvedId = queueId || this.currentQueueId;
+      if (!resolvedId) return;
+      const queue = this.getQueueFromCache(resolvedId);
       const queueName = queue?.name || queue?.id || 'Queue';
-      const confirmed = await safeConfirm('Delete Queue', `Are you sure you want to delete "${queueName}"? This cannot be undone.`);
+      const confirmed = await confirmValue('Delete Queue', `Are you sure you want to delete "${queueName}"? This cannot be undone.`);
       if (!confirmed) return;
 
       try {
-        await api('DELETE', `/api/queues/${queueId}`, null, { action: 'delete queue' });
+        await api('DELETE', `/api/queues/${resolvedId}`, null, { action: 'delete queue' });
         Utils.showToast(`Queue "${queueName}" deleted`, 'success');
         this.currentQueueId = null;
         await this.refreshQueues();
@@ -763,13 +592,14 @@
     },
 
     async handleUnarchiveQueue(queueId) {
-      Utils.showToast('Restoring queue...', 'info');
+      const resolvedId = queueId || this.currentQueueId;
+      if (!resolvedId) return;
       try {
-        await api('PUT', `/api/queues/${queueId}/unarchive`, null, { action: 'unarchive queue' });
+        await api('PUT', `/api/queues/${resolvedId}/unarchive`, null, { action: 'unarchive queue' });
         Utils.showToast('Queue unarchived', 'success');
         this.queueFilter = 'active';
         localStorage.setItem('dashboard.queueFilter', this.queueFilter);
-        await this.refreshQueues(queueId);
+        await this.refreshQueues(resolvedId);
       } catch (err) {
         console.error('Failed to unarchive queue:', err);
         Utils.showToast('Failed to unarchive queue', 'error');
@@ -778,7 +608,7 @@
 
     handleSessionSelect(event) {
       if (!event?.target) return;
-      const sessionId = event.target.value;
+      const sessionId = event.target.value || this.currentSessionId;
       if (!sessionId) return;
       this.currentSessionId = sessionId;
       const container = document.getElementById('dashboard-page');
@@ -786,13 +616,12 @@
     },
 
     async handleSessionRename() {
-      Utils.showToast('Opening editor...', 'info');
       const sessionId = this.currentSessionId;
       if (!sessionId) return;
       const currentSession = (this.sessionsCache || []).find((s) => s.id === sessionId);
       if (!currentSession) return;
 
-      const newName = await safePrompt('Rename Session', 'Enter new session name:', currentSession.name || '');
+      const newName = await promptValue('Rename Session', 'Enter new session name:', currentSession.name || '');
       if (!newName || !newName.trim()) return;
 
       try {
@@ -807,13 +636,12 @@
     },
 
     async handleSessionDelete() {
-      Utils.showToast('Requesting confirmation...', 'info');
       const sessionId = this.currentSessionId;
       if (!sessionId) return;
       const currentSession = (this.sessionsCache || []).find((s) => s.id === sessionId);
       if (!currentSession) return;
 
-      const confirmed = await safeConfirm('Delete Session', `Are you sure you want to delete "${currentSession.name || currentSession.id}"? This cannot be undone.`);
+      const confirmed = await confirmValue('Delete Session', `Are you sure you want to delete "${currentSession.name || currentSession.id}"? This cannot be undone.`);
       if (!confirmed) return;
 
       try {
@@ -907,15 +735,9 @@
         return;
       }
 
-      // Prompt user for a friendly queue name using in-app modal (avoid browser popups)
+      // Prompt user for a friendly queue name using the shared modal
       const defaultName = `Queue ${new Date().toISOString().substring(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-6)}`;
-      let baseName = null;
-      try {
-        baseName = await Utils.showPrompt('New Queue', 'Enter a queue name:', defaultName);
-      } catch (err) {
-        console.warn('[Dashboard] showPrompt failed for queue creation, falling back to window.prompt', err);
-        baseName = typeof window.prompt === 'function' ? window.prompt('Enter a queue name:', defaultName) : defaultName;
-      }
+      let baseName = await promptValue('New Queue', 'Enter a queue name:', defaultName);
       if (!baseName || !baseName.trim()) {
         Utils.showToast('Queue creation cancelled', 'info');
         return;
@@ -939,7 +761,7 @@
           const message = (err?.message || '').toLowerCase();
           if (message.includes('unique') || message.includes('exists')) {
             const suggestion = `${baseName}-${Date.now().toString().slice(-6)}`;
-            const retryName = await Utils.showPrompt('Queue name exists', 'Enter a different queue name:', suggestion);
+            const retryName = await promptValue('Queue name exists', 'Enter a different queue name:', suggestion);
             if (!retryName || !retryName.trim()) {
               Utils.showToast('Queue creation cancelled', 'info');
               return;
@@ -1330,7 +1152,7 @@
       if (!taskId) return;
       const task = this.findTaskById(taskId) || { id: taskId, queue_id: queueId };
       const friendly = task?.friendlyLabel || taskId;
-      const confirmed = await safeConfirm('Delete Task', `Are you sure you want to delete task ${friendly}? This cannot be undone.`);
+      const confirmed = await confirmValue('Delete Task', `Are you sure you want to delete task ${friendly}? This cannot be undone.`);
       if (!confirmed) return;
 
       const tasksContainer = document.getElementById('dashboard-tasks');
@@ -1620,15 +1442,15 @@
 
       const result = await new Promise((resolve) => {
         let onKeyDown;
-        const finish = (value) => {
-          overlay.classList.remove('visible');
-          modal.style.transform = 'scale(0.95)';
-          setTimeout(() => overlay.remove(), 200);
-          if (onKeyDown) {
-            document.removeEventListener('keydown', onKeyDown);
-          }
-          resolve(value);
-        };
+      const finish = (value) => {
+        overlay.classList.remove('visible');
+        modal.style.transform = 'scale(0.95)';
+        setTimeout(() => overlay.remove(), 200);
+        if (onKeyDown) {
+          document.removeEventListener('keydown', onKeyDown);
+        }
+        resolve(value);
+      };
 
         onKeyDown = (e) => {
           if (e.key === 'Escape') {
@@ -1641,11 +1463,7 @@
         };
         document.addEventListener('keydown', onKeyDown);
 
-        overlay.addEventListener('click', (event) => {
-          if (event.target === overlay) {
-            finish(null);
-          }
-        });
+        // Disable overlay click-to-close to avoid accidental dismissal
 
         const handleSave = () => {
           const payload = getPayload();
@@ -1667,7 +1485,7 @@
       if (payload.delete) {
         const friendly = task?.friendlyLabel;
         const label = (task?.friendly_id || task.id) + (friendly ? ` (${friendly})` : '');
-        const confirmed = await safeConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
+        const confirmed = await confirmValue('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
         if (!confirmed) return;
         try {
           await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
@@ -1890,7 +1708,9 @@
       dash.handleUnarchiveQueue.call(dash, queueId);
     });
     register('dashboard-session-select', (_el, event) => {
-      dash.handleSessionSelect.call(dash, event);
+      if (event && event.type === 'change') {
+        dash.handleSessionSelect.call(dash, event);
+      }
     });
     register('dashboard-session-rename', () => {
       dash.handleSessionRename.call(dash);

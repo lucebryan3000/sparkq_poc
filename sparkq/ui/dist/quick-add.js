@@ -378,6 +378,10 @@
 
       if (!this.documentClickHandler) {
         this.documentClickHandler = (e) => {
+          // Ignore clicks inside modals to avoid unintended popup closing while dialogs are open
+          if (e.target.closest('.modal')) {
+            return;
+          }
           if (!e.target.closest('.prompt-input-wrapper') && !e.target.closest('#tools-popup') && !e.target.closest('#text-expander-popup')) {
             this.closeToolsPopup();
             this.hidePopup();
