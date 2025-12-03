@@ -929,21 +929,32 @@ a {
   color: var(--text);
 }
 
-.toast {
+/* Toast Container - stacks toasts vertically */
+.toast-container {
   position: fixed;
   bottom: 20px;
   right: 20px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.toast {
   padding: 12px 20px;
   border-radius: 10px;
   box-shadow: var(--shadow-lg);
   opacity: 0;
   transform: translateY(20px);
   transition: all 0.3s ease;
-  z-index: 10000;
   font-size: 14px;
   color: var(--button-primary-text);
   background: var(--accent);
   border: 1px solid var(--border);
+  pointer-events: auto;
+  max-width: 360px;
+  word-wrap: break-word;
 }
 
 .toast-show {

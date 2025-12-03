@@ -119,13 +119,28 @@
 
   // === Toast Notifications ===
 
-  const MAX_TOASTS = 2;
+  const MAX_TOASTS = 4;
   let activeToasts = [];
+  let toastContainer = null;
+
+  function getToastContainer() {
+    if (toastContainer && document.body.contains(toastContainer)) {
+      return toastContainer;
+    }
+    toastContainer = document.createElement('div');
+    toastContainer.className = 'toast-container';
+    toastContainer.setAttribute('aria-live', 'polite');
+    toastContainer.setAttribute('aria-label', 'Notifications');
+    document.body.appendChild(toastContainer);
+    return toastContainer;
+  }
 
   function showToast(message, type = 'success', durationMs = 2000) {
     const duration = Number(durationMs);
     const timeoutMs = Number.isFinite(duration) && duration > 0 ? duration : 2000;
-    // If we already have 2 toasts, remove the oldest one
+    const container = getToastContainer();
+
+    // If we already have max toasts, remove the oldest one
     if (activeToasts.length >= MAX_TOASTS) {
       const oldestToast = activeToasts.shift();
       oldestToast.style.opacity = '0';
@@ -136,6 +151,7 @@
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
+    toast.setAttribute('role', 'status');
 
     const removeToast = (el) => {
       if (!el) return;
@@ -146,7 +162,7 @@
       }, 300);
     };
 
-    document.body.appendChild(toast);
+    container.appendChild(toast);
     activeToasts.push(toast);
 
     requestAnimationFrame(() => {
