@@ -856,52 +856,152 @@
       </div>
 
       <!-- Modal for Create/Edit Prompt -->
-      <div id="prompt-modal" class="modal modal-overlay" style="display: none;" aria-hidden="true">
-        <div class="modal-content" data-dialog role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="prompt-dialog-description" tabindex="-1" style="transform: scale(0.95);">
-          <div class="modal-header">
-            <h2 id="modal-title" class="modal-title">New Prompt</h2>
-            <button type="button" id="close-modal-btn" aria-label="Close prompt dialog" class="modal-close-button">×</button>
+      <div id="prompt-modal" class="modal-backdrop" style="display: none;" aria-hidden="true">
+        <div class="prompt-modal" data-dialog role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="prompt-dialog-description" tabindex="-1">
+          <div class="modal-header-enhanced">
+            <div class="modal-header-content">
+              <div class="modal-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 3l2 7h7l-5.5 4 2 7L12 17l-5.5 4 2-7L3 10h7z"/>
+                </svg>
+              </div>
+              <div class="modal-header-text">
+                <h2 id="modal-title" class="modal-title-enhanced">New Quick Prompt</h2>
+                <p class="modal-subtitle">Create a reusable template with custom command trigger</p>
+              </div>
+            </div>
+            <button type="button" id="close-modal-btn" aria-label="Close prompt dialog" class="modal-close-enhanced">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
           </div>
-          <div class="modal-body">
-            <form id="prompt-form">
-              <input type="hidden" id="prompt-id" value="">
-              <p id="prompt-dialog-description" class="muted" style="margin: 0 0 12px;">Create or edit a reusable quick prompt template.</p>
 
-              <div class="form-group">
-                <label for="prompt-command">Command</label>
-                <input type="text" id="prompt-command" required placeholder="e.g., code-review" class="form-control">
-                <p class="small-helper">Lowercase letters, numbers, and hyphens only. Used with '>' trigger.</p>
+          <form id="prompt-form" class="modal-form">
+            <input type="hidden" id="prompt-id" value="">
+            <p id="prompt-dialog-description" class="sr-only">Create or edit a reusable quick prompt template with command trigger.</p>
+
+            <!-- Section: Identification -->
+            <div class="form-section">
+              <div class="section-header">
+                <h3 class="section-title">Identification</h3>
+                <span class="section-badge">Required</span>
               </div>
 
-              <div class="form-group">
-                <label for="prompt-label">Label</label>
-                <input type="text" id="prompt-label" required placeholder="e.g., Code Review" class="form-control">
-                <p class="small-helper">Display name shown in autocomplete popup.</p>
+              <div class="input-group">
+                <div class="input-wrapper">
+                  <input type="text" id="prompt-command" required placeholder=" " class="form-input">
+                  <label for="prompt-command" class="floating-label">
+                    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M9 5l7 7-7 7"/>
+                    </svg>
+                    Command
+                  </label>
+                </div>
+                <p class="helper-text">
+                  <svg class="helper-icon" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                    <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                  </svg>
+                  Lowercase, numbers, hyphens only. Trigger with '>command'
+                </p>
               </div>
 
-              <div class="form-group">
-                <label for="prompt-description">Description (optional)</label>
-                <input type="text" id="prompt-description" placeholder="Brief description..." class="form-control">
+              <div class="input-group">
+                <div class="input-wrapper">
+                  <input type="text" id="prompt-label" required placeholder=" " class="form-input">
+                  <label for="prompt-label" class="floating-label">
+                    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M4 7h16M4 12h16M4 17h10"/>
+                    </svg>
+                    Label
+                  </label>
+                </div>
+                <p class="helper-text">
+                  <svg class="helper-icon" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                    <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                  </svg>
+                  Display name in autocomplete menu
+                </p>
+              </div>
+            </div>
+
+            <!-- Section: Details -->
+            <div class="form-section">
+              <div class="section-header">
+                <h3 class="section-title">Details</h3>
+                <span class="section-badge optional">Optional</span>
               </div>
 
-              <div class="form-group">
-                <label for="prompt-template">Template Text</label>
-                <textarea id="prompt-template" required placeholder="Enter the template text that will be inserted..." rows="8" class="form-control" style="font-family: 'Courier New', monospace; resize: vertical;"></textarea>
-                <p class="small-helper">The text that will replace the command when selected.</p>
+              <div class="input-group">
+                <div class="input-wrapper">
+                  <input type="text" id="prompt-description" placeholder=" " class="form-input">
+                  <label for="prompt-description" class="floating-label">
+                    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    Description
+                  </label>
+                </div>
+                <p class="helper-text">
+                  <svg class="helper-icon" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                    <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                  </svg>
+                  Brief explanation of prompt purpose
+                </p>
+              </div>
+            </div>
+
+            <!-- Section: Template -->
+            <div class="form-section">
+              <div class="section-header">
+                <h3 class="section-title">Template</h3>
+                <span class="section-badge">Required</span>
               </div>
 
-              <div class="modal-actions">
-                <button type="button" id="cancel-modal-btn" class="button secondary">
-                  Cancel
-                </button>
-                <button type="submit" class="button primary">
-                  Save Prompt
-                </button>
+              <div class="input-group">
+                <div class="input-wrapper textarea-wrapper">
+                  <textarea id="prompt-template" required placeholder=" " rows="8" class="form-input form-textarea"></textarea>
+                  <label for="prompt-template" class="floating-label">
+                    <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+                    </svg>
+                    Template Text
+                  </label>
+                </div>
+                <p class="helper-text">
+                  <svg class="helper-icon" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                    <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                  </svg>
+                  Text inserted when prompt is triggered
+                </p>
               </div>
-            </form>
-          </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="modal-actions-enhanced">
+              <button type="button" id="cancel-modal-btn" class="button-enhanced secondary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+                Cancel
+              </button>
+              <button type="submit" class="button-enhanced primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                  <path d="M17 21v-8H7v8M7 3v5h8"/>
+                </svg>
+                Save Prompt
+              </button>
+            </div>
+          </form>
         </div>
       </div>
+
     `;
 
     setupPromptModalAccessibility(tabContent);
@@ -1103,7 +1203,6 @@
           { label: 'Cancel', value: null },
           { label: 'Save', primary: true, value: 'save' },
         ]);
-
         if (result !== 'save') {
           return;
         }

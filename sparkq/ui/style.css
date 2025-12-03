@@ -1059,6 +1059,536 @@ a {
   gap: 10px;
 }
 
+
+/* ========================================
+   ENHANCED PROMPT MODAL STYLES
+   ======================================== */
+
+/* Modal Backdrop */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-scrim);
+  backdrop-filter: blur(3px);
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), pointer-events 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modal-backdrop[style*="display: none"] {
+  display: none !important;
+  pointer-events: none;
+}
+
+.modal-backdrop.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Prompt Modal Container */
+.prompt-modal {
+  background: var(--surface);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xl);
+  width: min(580px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  color: var(--text);
+  transform: scale(0.95) translateY(20px);
+  opacity: 0;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modal-backdrop.visible .prompt-modal {
+  transform: scale(1) translateY(0);
+  opacity: 1;
+}
+
+/* Modal Header Enhanced */
+.modal-header-enhanced {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 24px 20px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, 
+    var(--surface) 0%, 
+    var(--highlight-overlay) 100%
+  );
+}
+
+.modal-header-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex: 1;
+}
+
+.modal-icon {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  background: var(--accent-primary-soft);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-primary);
+  animation: sparkleRotate 8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.modal-icon svg {
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 2px 4px rgba(74, 158, 255, 0.3));
+}
+
+@keyframes sparkleRotate {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(5deg) scale(1.05); }
+  50% { transform: rotate(0deg) scale(1); }
+  75% { transform: rotate(-5deg) scale(1.05); }
+}
+
+.modal-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-title-enhanced {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.modal-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.modal-close-enhanced {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.modal-close-enhanced svg {
+  width: 18px;
+  height: 18px;
+}
+
+.modal-close-enhanced:hover {
+  background: var(--highlight-overlay);
+  border-color: var(--border);
+  color: var(--text);
+  transform: rotate(90deg);
+}
+
+.modal-close-enhanced:active {
+  transform: rotate(90deg) scale(0.95);
+}
+
+/* Modal Form */
+.modal-form {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Form Sections */
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.section-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--accent-primary-soft);
+  color: var(--accent-primary);
+  border: 1px solid rgba(74, 158, 255, 0.2);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.section-badge.optional {
+  background: var(--highlight-overlay);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+/* Input Groups */
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.input-wrapper.textarea-wrapper {
+  min-height: 200px;
+}
+
+/* Form Inputs */
+.form-input {
+  width: 100%;
+  padding: 14px 16px 14px 44px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.form-input::placeholder {
+  color: transparent;
+}
+
+.form-input:focus {
+  background: var(--surface);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--glow-accent);
+}
+
+/* Floating label behavior - show label above when input has focus or value */
+.form-input:focus ~ .floating-label,
+.form-input:not(:placeholder-shown) ~ .floating-label {
+  top: -10px;
+  left: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  background: linear-gradient(
+    90deg,
+    var(--surface) 0%,
+    var(--surface) 100%
+  );
+  padding: 0 4px;
+  z-index: 10;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Keep accent color when not focused but has value */
+.form-input:not(:focus):not(:placeholder-shown) ~ .floating-label {
+  color: var(--accent-primary);
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 140px;
+  font-family: 'Courier New', Consolas, monospace;
+  line-height: 1.6;
+  padding: 14px 16px;
+}
+
+/* Floating Labels */
+.floating-label {
+  position: absolute;
+  top: 14px;
+  left: 44px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  pointer-events: none;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 1;
+}
+
+.input-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  transition: color 0.2s ease;
+}
+
+.form-input:focus ~ .floating-label .input-icon {
+  color: var(--accent-primary);
+}
+
+/* Helper Text */
+.helper-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.helper-icon {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+/* Enhanced Modal Actions */
+.modal-actions-enhanced {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 16px 0 0 0;
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+}
+
+/* Enhanced Buttons */
+.button-enhanced {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: inherit;
+  white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+}
+
+.button-enhanced::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  transition: transform 0.5s ease;
+}
+
+.button-enhanced:hover::before {
+  transform: translateX(100%);
+}
+
+.button-enhanced svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
+  position: relative;
+  z-index: 1;
+}
+
+.button-enhanced-text {
+  position: relative;
+  z-index: 1;
+}
+
+.button-enhanced.primary {
+  background: linear-gradient(
+    135deg,
+    var(--accent-primary) 0%,
+    var(--accent-primary-strong) 100%
+  );
+  color: var(--text-on-accent);
+  border-color: var(--accent-primary-strong);
+  box-shadow: 0 2px 8px rgba(74, 158, 255, 0.25);
+}
+
+.button-enhanced.primary:hover {
+  box-shadow: 0 6px 16px rgba(74, 158, 255, 0.4);
+  transform: translateY(-2px);
+}
+
+.button-enhanced.primary:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(74, 158, 255, 0.2);
+}
+
+.button-enhanced.primary:hover svg {
+  transform: scale(1.15);
+}
+
+.button-enhanced.secondary {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.button-enhanced.secondary:hover {
+  background: var(--highlight-overlay);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: translateY(-1px);
+}
+
+.button-enhanced.secondary:hover svg {
+  transform: scale(1.1);
+}
+
+.button-enhanced.secondary:active {
+  background: var(--highlight-overlay-hover);
+  transform: translateY(0);
+}
+
+.button-enhanced:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Screen Reader Only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Responsive Design */
+@media (max-width: 640px) {
+  .prompt-modal {
+    width: 100%;
+    max-height: 95vh;
+    border-radius: 16px 16px 0 0;
+    margin-top: auto;
+  }
+
+  .modal-header-enhanced {
+    padding: 20px;
+  }
+
+  .modal-form {
+    padding: 20px;
+  }
+
+  .modal-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .modal-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .modal-title-enhanced {
+    font-size: 18px;
+  }
+
+  .modal-subtitle {
+    font-size: 12px;
+  }
+
+  .modal-actions-enhanced {
+    flex-direction: column-reverse;
+  }
+
+  .button-enhanced {
+    width: 100%;
+  }
+}
+
+/* Reduce Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop,
+  .prompt-modal,
+  .form-input,
+  .floating-label,
+  .button-enhanced,
+  .modal-close-enhanced {
+    transition: none;
+  }
+
+  .modal-icon {
+    animation: none;
+  }
+
+  .modal-close-enhanced:hover {
+    transform: none;
+  }
+
+  .button-enhanced.primary:hover {
+    transform: none;
+  }
+}
+
+/* Focus Visible (Keyboard Navigation) */
+.form-input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.button-enhanced:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.modal-close-enhanced:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 /* Output panels for stdout/stderr */
 .output-section {
   margin-top: 12px;

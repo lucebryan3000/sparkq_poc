@@ -5,6 +5,11 @@ project:
 server:
   host: 0.0.0.0
   port: 5005
+  # Optional CORS settings (uncomment and set if serving non-local origins)
+  # cors_origins:
+  #   - https://your-app.example.com
+  #   - https://admin.example.com
+  # cors_allow_credentials: false
 
 database:
   path: sparkq/data/sparkq.db
