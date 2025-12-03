@@ -298,7 +298,8 @@
     const purgeBtnQa = tabContent.querySelector('#qa-purge-tasks');
     if (purgeBtnQa) {
       purgeBtnQa.addEventListener('click', async () => {
-        if (confirm('Run purge now? This will delete old completed/failed tasks according to purge settings.')) {
+        const confirmed = await Utils.showConfirm('Confirm Purge', 'Run purge now? This will delete old completed/failed tasks according to purge settings.');
+        if (confirmed) {
           try {
             await api('POST', '/api/purge', null, { action: 'purge tasks' });
             Utils.showToast('Purge completed successfully', 'success', 3000);
@@ -1519,7 +1520,8 @@
     },
 
     async deletePrompt(promptId) {
-      if (!confirm('Are you sure you want to delete this prompt?')) {
+      const confirmed = await Utils.showConfirm('Delete Prompt', 'Are you sure you want to delete this prompt?');
+      if (!confirmed) {
         return;
       }
 

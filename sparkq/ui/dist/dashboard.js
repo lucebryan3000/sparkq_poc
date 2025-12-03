@@ -878,7 +878,6 @@ let toolNameCache = null;
       } catch (err) {
         console.error('Failed to create queue:', err);
         showError(`Failed to create queue: ${err.message || err}`, err);
-        Utils.showToast(`Failed to create queue: ${err.message || err}`, 'error');
       }
     },
 

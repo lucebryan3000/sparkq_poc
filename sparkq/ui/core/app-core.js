@@ -6,8 +6,19 @@ if (!window.Utils) window.Utils = {};
 if (!window.Pages) window.Pages = {};
 if (!window.ActionRegistry) window.ActionRegistry = {};
 
-// Provide guarded fallbacks only if ui-utils hasn't populated them yet (avoid overwriting real implementations)
-// Fallbacks use browser native dialogs; mark them with __fallback so callers can detect and use inline modals if needed
+/**
+ * FALLBACK IMPLEMENTATIONS
+ * ========================
+ * These fallbacks exist to handle script load-order edge cases where app-core.js
+ * loads before ui-utils.js. They use native browser dialogs (prompt/confirm/console)
+ * which provide basic functionality but lack the styled modal experience.
+ *
+ * The `__fallback` marker allows consuming code to detect when the fallback is active
+ * and optionally render inline modals instead (see dashboard.js promptValue/confirmValue).
+ *
+ * In normal operation, ui-utils.js loads and overwrites these with proper implementations.
+ * If you see native browser dialogs appearing, check that ui-utils.js is loading correctly.
+ */
 if (typeof window.Utils.showPrompt !== 'function') {
   window.Utils.showPrompt = async (title, message, defaultValue = '', _options = {}) => {
     const result = typeof window.prompt === 'function' ? window.prompt(message || title || '', defaultValue) : defaultValue;
@@ -383,6 +394,30 @@ function setStatusIndicator(state, health = {}) {
   statusEl.title = detail ? `${label} — ${detail}` : label;
 }
 
+/**
+ * NOTIFICATION SYSTEM DESIGN
+ * ==========================
+ * SparkQ uses TWO intentional notification systems:
+ *
+ * 1. ALERTS (showAlert/showError/showSuccess) - Top-right, dismissible
+ *    - Use for: Critical errors, validation failures, important state issues
+ *    - Behavior: Requires user dismissal or auto-dismisses after duration
+ *    - Position: Top-right corner, stacks vertically
+ *    - When to use: User needs to acknowledge the message
+ *
+ * 2. TOASTS (Utils.showToast in ui-utils.js) - Bottom-right, auto-dismiss
+ *    - Use for: Action feedback (success/failure of operations)
+ *    - Behavior: Auto-dismisses after short duration (2-4 seconds)
+ *    - Position: Bottom-right corner, stacks vertically upward
+ *    - When to use: Transient feedback that doesn't block workflow
+ *
+ * GUIDELINES:
+ * - Form validation errors → showError() (user must fix)
+ * - API errors blocking workflow → showError() (critical failure)
+ * - "Item saved successfully" → showToast('...', 'success')
+ * - "Failed to update" (recoverable) → showToast('...', 'error')
+ * - Never use both for the same error (no duplicate notifications)
+ */
 function showAlert(message, type = 'info', duration = 5000) {
   if (!message) {
     return null;
@@ -910,9 +945,41 @@ window.Actions = Object.assign(window.Actions || {}, {
   ActionRegistry,
 });
 
+// ===== GLOBAL ERROR HANDLER =====
+// Catches uncaught errors and unhandled promise rejections to provide user feedback
+// instead of silently failing. Errors are logged and displayed via showError().
+
+function setupGlobalErrorHandler() {
+  // Handle synchronous errors
+  window.onerror = function(message, source, lineno, colno, error) {
+    const errorMsg = error?.message || message || 'Unknown error';
+    const location = source ? ` (${source}:${lineno}:${colno})` : '';
+    console.error('[SparkQ] Uncaught error:', errorMsg, location, error);
+
+    // Only show user-facing error for non-script errors (avoid noise from extensions, etc.)
+    if (source && source.includes(window.location.origin)) {
+      showError(`Unexpected error: ${errorMsg}`);
+    }
+
+    return false; // Allow default browser handling too
+  };
+
+  // Handle unhandled promise rejections
+  window.addEventListener('unhandledrejection', function(event) {
+    const reason = event.reason;
+    const errorMsg = reason?.message || reason || 'Unhandled promise rejection';
+    console.error('[SparkQ] Unhandled rejection:', errorMsg, reason);
+
+    // Show user feedback for promise rejections (these are usually app errors)
+    showError(`Async error: ${errorMsg}`);
+  });
+}
+
 // ===== INITIALIZATION =====
 
 function initApp() {
+  // Set up global error handling first
+  setupGlobalErrorHandler();
   cachePages();
   initTheme();
   setupKeyboardShortcuts();

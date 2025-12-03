@@ -1,6 +1,27 @@
 (function(window) {
   'use strict';
 
+  /**
+   * UI UTILITIES MODULE
+   * ===================
+   * Shared utilities for the SparkQ UI. All functions are exported to window.Utils.
+   *
+   * MODULE ALIASING PATTERN:
+   * Page modules may alias frequently-used functions at the top:
+   *   const showToast = Utils.showToast;
+   *   const formatTimestamp = Utils.formatTimestamp;
+   *
+   * For new code, prefer direct calls (Utils.functionName()) for clarity,
+   * unless the function is used many times in the file.
+   *
+   * TOAST NOTIFICATIONS (showToast):
+   * - Bottom-right corner, auto-dismiss (2-4 seconds)
+   * - Use for transient action feedback: "Saved!", "Copied!", "Failed to update"
+   * - Types: 'success' (default), 'error', 'info', 'warning'
+   * - See app-core.js for ALERT notifications (showError/showAlert) which are
+   *   top-right and require dismissal for critical errors.
+   */
+
   // === Timestamp Formatting ===
 
   function formatTimestamp(isoString) {
@@ -22,14 +43,13 @@
       if (diffHours < 24) return `${diffHours}h ago`;
       if (diffDays < 7) return `${diffDays}d ago`;
 
-      // Absolute for older times
+      // Absolute for older times - uses browser's local timezone
       const options = {
         month: 'short',
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
-        hour12: true,
-        timeZone: 'America/Chicago'
+        hour12: true
       };
       return date.toLocaleString('en-US', options);
     } catch (e) {
@@ -119,13 +139,28 @@
 
   // === Toast Notifications ===
 
-  const MAX_TOASTS = 2;
+  const MAX_TOASTS = 4;
   let activeToasts = [];
+  let toastContainer = null;
+
+  function getToastContainer() {
+    if (toastContainer && document.body.contains(toastContainer)) {
+      return toastContainer;
+    }
+    toastContainer = document.createElement('div');
+    toastContainer.className = 'toast-container';
+    toastContainer.setAttribute('aria-live', 'polite');
+    toastContainer.setAttribute('aria-label', 'Notifications');
+    document.body.appendChild(toastContainer);
+    return toastContainer;
+  }
 
   function showToast(message, type = 'success', durationMs = 2000) {
     const duration = Number(durationMs);
     const timeoutMs = Number.isFinite(duration) && duration > 0 ? duration : 2000;
-    // If we already have 2 toasts, remove the oldest one
+    const container = getToastContainer();
+
+    // If we already have max toasts, remove the oldest one
     if (activeToasts.length >= MAX_TOASTS) {
       const oldestToast = activeToasts.shift();
       oldestToast.style.opacity = '0';
@@ -136,6 +171,7 @@
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
+    toast.setAttribute('role', 'status');
 
     const removeToast = (el) => {
       if (!el) return;
@@ -146,11 +182,7 @@
       }, 300);
     };
 
-    if (activeToasts.length >= MAX_TOASTS) {
-      removeToast(activeToasts.shift());
-    }
-
-    document.body.appendChild(toast);
+    container.appendChild(toast);
     activeToasts.push(toast);
 
     requestAnimationFrame(() => {
@@ -161,6 +193,45 @@
   }
 
   // === Modal Dialog System ===
+
+  /**
+   * Creates a focus trap within a container element.
+   * Tab/Shift+Tab will cycle through focusable elements without leaving the container.
+   * @param {HTMLElement} container - The element to trap focus within
+   * @returns {Function} Cleanup function to remove the trap
+   */
+  function createFocusTrap(container) {
+    const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+    function handleKeydown(e) {
+      if (e.key !== 'Tab') return;
+
+      const focusableElements = Array.from(container.querySelectorAll(focusableSelector))
+        .filter(el => !el.disabled && el.offsetParent !== null);
+
+      if (focusableElements.length === 0) return;
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey) {
+        // Shift+Tab: if on first element, wrap to last
+        if (document.activeElement === firstElement || document.activeElement === container) {
+          e.preventDefault();
+          lastElement.focus();
+        }
+      } else {
+        // Tab: if on last element, wrap to first
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement.focus();
+        }
+      }
+    }
+
+    container.addEventListener('keydown', handleKeydown);
+    return () => container.removeEventListener('keydown', handleKeydown);
+  }
 
   function createModalOverlay() {
     const overlay = document.createElement('div');
@@ -180,20 +251,37 @@
       modal.style.transform = 'scale(0.95)';
       modal.tabIndex = -1;
 
+      // Generate unique ID for aria-labelledby
+      const titleId = `modal-title-${Date.now()}`;
+
       let resolved = false;
       let primaryButton = null;
       let handleKeydown = null;
       let allowOverlayClose = false;
+      let removeFocusTrap = null;
+      const previouslyFocused = document.activeElement;
 
       const finish = (value = null) => {
         if (resolved) return;
         resolved = true;
         overlay.classList.remove('visible');
         modal.style.transform = 'scale(0.95)';
+
+        // Clean up focus trap
+        if (removeFocusTrap) {
+          removeFocusTrap();
+        }
+
         setTimeout(() => overlay.remove(), 250);
         if (handleKeydown) {
           document.removeEventListener('keydown', handleKeydown);
         }
+
+        // Return focus to previously focused element
+        if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+          previouslyFocused.focus();
+        }
+
         resolve(value);
       };
 
@@ -203,7 +291,9 @@
 
         const titleEl = document.createElement('h2');
         titleEl.className = 'modal-title';
+        titleEl.id = titleId;
         titleEl.textContent = title;
+        modal.setAttribute('aria-labelledby', titleId);
 
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
@@ -260,6 +350,9 @@
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
 
+      // Set up focus trap for accessibility
+      removeFocusTrap = createFocusTrap(modal);
+
       handleKeydown = (e) => {
         if (e.key === 'Escape') {
           finish(null);
@@ -272,8 +365,16 @@
       requestAnimationFrame(() => {
         overlay.classList.add('visible');
         modal.style.transform = 'scale(1)';
-        modal.focus({ preventScroll: true });
-        // enable overlay close shortly after open to avoid the initial click re-closing it
+
+        // Focus the first focusable element, or the modal itself
+        const firstFocusable = modal.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        if (firstFocusable) {
+          firstFocusable.focus({ preventScroll: true });
+        } else {
+          modal.focus({ preventScroll: true });
+        }
+
+        // Enable overlay close shortly after open to avoid the initial click re-closing it
         setTimeout(() => {
           allowOverlayClose = true;
         }, 60);
