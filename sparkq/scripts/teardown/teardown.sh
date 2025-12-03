@@ -21,17 +21,19 @@ else
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Go up from sparkq/scripts/teardown → sparkq/scripts → sparkq → repo root
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+SPARKQ_DIR="$PROJECT_ROOT/sparkq"
 
-DATA_DIR="$SCRIPT_DIR/data"
-LOG_DIR="$SCRIPT_DIR/logs"
+DATA_DIR="$SPARKQ_DIR/data"
+LOG_DIR="$SPARKQ_DIR/logs"
 CONFIG_FILE="$PROJECT_ROOT/sparkq.yml"
 LOCK_FILE="$PROJECT_ROOT/sparkq.lock"
 VENV_DIR="$PROJECT_ROOT/.venv"
-BACKUP_ROOT="$SCRIPT_DIR/backup"
+BACKUP_ROOT="$SPARKQ_DIR/backup"
 BACKUP_TS="$(date +"%Y%m%d-%H%M%S")"
 BACKUP_DIR="$BACKUP_ROOT/$BACKUP_TS"
-SETUP_HELPER="$SCRIPT_DIR/setup/setup.sh"
+SETUP_HELPER="$SPARKQ_DIR/scripts/setup/setup.sh"
 
 show_help() {
   cat << EOF

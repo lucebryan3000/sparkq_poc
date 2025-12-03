@@ -1,0 +1,47 @@
+# SparkQ .gitignore Template
+# Copy to project root .gitignore or merge with existing
+
+# Environments
+.env
+.venv/
+sparkq/venv/
+.envrc                             # direnv (if used)
+
+# Python cache and build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+/dist/       # Top-level build artifacts only
+build/
+
+# Logs and runtime output
+_build/sparkqueue/logs/
+sparkq/logs/
+sparkq/tests/logs/
+sparkq.lock                        # Server lockfile (contains PID)
+sparkq.yml                         # Runtime config (generated from sparkq.yml.example)
+
+# Node.js - track package-lock for reproducible installs (private repo)
+node_modules/
+
+# Explicitly track these DB files (override global *.db ignore rules)
+!sparkq.db
+!sparkq/sparkq.db
+!sparkq/data/sparkq.db
+
+# Codex generated artifacts (keep README/prompt docs tracked)
+.codex/cache/
+.codex/temp/
+.codex/generated/
+.codex/generated-*/
+.codex/*.tmp
+.codex/*.log
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
