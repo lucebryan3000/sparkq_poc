@@ -6,9 +6,9 @@ if (!window.Utils) window.Utils = {};
 if (!window.Pages) window.Pages = {};
 if (!window.ActionRegistry) window.ActionRegistry = {};
 
-// Provide simple prompt/confirm fallbacks in case ui-utils has not populated them yet
+// Provide simple prompt/confirm/toast fallbacks in case ui-utils has not populated them yet
 if (typeof window.Utils.showPrompt !== 'function') {
-  window.Utils.showPrompt = async (title, message, defaultValue = '', options = {}) => {
+  window.Utils.showPrompt = async (title, message, defaultValue = '', _options = {}) => {
     const result = typeof window.prompt === 'function' ? window.prompt(message || title || '', defaultValue) : defaultValue;
     return result ?? null;
   };
