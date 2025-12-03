@@ -1027,8 +1027,9 @@
             </div>
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
               <span style="padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; ${badgeStyle}">${badgeLabel}</span>
-              <button class="button secondary role-toggle-btn" data-role-key="${escapeHtml(role.key)}" data-active="${active ? 'true' : 'false'}" style="padding:6px 12px;">${toggleLabel}</button>
-              <button class="button role-edit-btn" data-role-key="${escapeHtml(role.key)}" style="padding:6px 12px;">Edit</button>
+              <button type="button" class="button secondary role-toggle-btn" data-role-key="${escapeHtml(role.key)}" data-active="${active ? 'true' : 'false'}" style="padding:6px 12px;">${toggleLabel}</button>
+              <button type="button" class="button role-edit-btn" data-role-key="${escapeHtml(role.key)}" style="padding:6px 12px;">Edit</button>
+              <button type="button" class="button danger role-delete-btn" data-role-key="${escapeHtml(role.key)}" style="padding:6px 12px;">🗑️ Delete</button>
             </div>
           </div>
           <p class="muted" style="margin-top:10px; white-space:pre-line;">${escapeHtml(role.description)}</p>
@@ -1042,11 +1043,12 @@
 
     tabContent.innerHTML = `
       <div class="card">
-        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
           <div>
             <h2 class="card-title" style="margin-bottom:4px;">Agent Roles</h2>
             <p class="muted" style="margin:0;">Toggle availability or adjust labels/descriptions. Changes affect new queue defaults and task creation; existing tasks keep their stored prompts.</p>
           </div>
+          <button type="button" id="add-agent-role-btn" class="button primary" style="padding:8px 14px; white-space:nowrap;">+ Add Role</button>
         </div>
         <div id="agent-role-list">
           ${listHtml}
@@ -1072,7 +1074,9 @@
     });
 
     listEl.querySelectorAll('.role-edit-btn').forEach((btn) => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         const roleKey = btn.getAttribute('data-role-key');
         const role = roles.find((r) => r.key === roleKey);
         if (!role) return;
@@ -1134,6 +1138,101 @@
         }
       });
     });
+
+    // Add delete button handlers
+    listEl.querySelectorAll('.role-delete-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const roleKey = btn.getAttribute('data-role-key');
+        const confirmed = await Utils.showConfirm('Delete Role', `Are you sure you want to delete role "${roleKey}"? This cannot be undone.`);
+        if (!confirmed) return;
+
+        try {
+          await api('DELETE', `/api/agent-roles/${encodeURIComponent(roleKey)}`, null, { action: 'delete agent role' });
+          Utils.showToast('Role deleted', 'success', 2500);
+          await loadAgentRolesTab(container);
+        } catch (err) {
+          showError(`Failed to delete role: ${err.message || err}`, err);
+        }
+      });
+    });
+
+    // Add role creation button handler
+    const addBtn = tabContent.querySelector('#add-agent-role-btn');
+    if (addBtn) {
+      addBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const content = document.createElement('div');
+        content.innerHTML = `
+          <div style="display:flex; flex-direction:column; gap:12px; min-width:320px; max-width:640px;">
+            <div>
+              <label class="muted" style="display:block; margin-bottom:6px;">Role Key (identifier, lowercase)</label>
+              <input id="new-role-key" class="form-control" type="text" placeholder="e.g., custom_agent" style="width:100%;" />
+            </div>
+            <div>
+              <label class="muted" style="display:block; margin-bottom:6px;">Label</label>
+              <input id="new-role-label" class="form-control" type="text" placeholder="e.g., Custom Agent" style="width:100%;" />
+            </div>
+            <div>
+              <label class="muted" style="display:block; margin-bottom:6px;">Description (used as prompt prefix)</label>
+              <textarea id="new-role-description" class="form-control" rows="6" placeholder="Describe this agent role..." style="width:100%; font-family:ui-monospace, monospace;"></textarea>
+            </div>
+            <label style="display:flex; align-items:center; gap:8px; font-weight:600;">
+              <input id="new-role-active" type="checkbox" checked />
+              Active
+            </label>
+          </div>
+        `;
+
+        const result = await Utils.showModal('Add New Agent Role', content, [
+          { label: 'Cancel', value: null },
+          { label: 'Create', primary: true, value: 'create' },
+        ]);
+
+        if (result !== 'create') {
+          return;
+        }
+
+        const keyInput = content.querySelector('#new-role-key');
+        const labelInput = content.querySelector('#new-role-label');
+        const descInput = content.querySelector('#new-role-description');
+        const activeInput = content.querySelector('#new-role-active');
+
+        const newKey = (keyInput?.value || '').trim();
+        const newLabel = (labelInput?.value || '').trim();
+        const newDescription = (descInput?.value || '').trim();
+        const newActive = Boolean(activeInput?.checked);
+
+        if (!newKey) {
+          showError('Role key cannot be empty.');
+          return;
+        }
+        if (!newLabel) {
+          showError('Label cannot be empty.');
+          return;
+        }
+        if (!newDescription) {
+          showError('Description cannot be empty.');
+          return;
+        }
+
+        try {
+          await api('POST', '/api/agent-roles', {
+            key: newKey,
+            label: newLabel,
+            description: newDescription,
+            active: newActive,
+          }, { action: 'create agent role' });
+          Utils.showToast('Role created', 'success', 2500);
+          await loadAgentRolesTab(container);
+        } catch (err) {
+          showError(`Failed to create role: ${err.message || err}`, err);
+        }
+      });
+    }
   }
 
   function renderPromptItem(prompt) {
