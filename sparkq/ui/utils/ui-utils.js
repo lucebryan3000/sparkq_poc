@@ -230,6 +230,8 @@
       modal.appendChild(contentEl);
 
       if (buttons.length > 0) {
+        const footerEl = document.createElement('div');
+        footerEl.className = 'modal-footer';
         const buttonsEl = document.createElement('div');
         buttonsEl.className = 'modal-actions';
         buttons.forEach(btn => {
@@ -250,7 +252,8 @@
           });
           buttonsEl.appendChild(button);
         });
-        modal.appendChild(buttonsEl);
+        footerEl.appendChild(buttonsEl);
+        modal.appendChild(footerEl);
       }
 
       overlay.appendChild(modal);
