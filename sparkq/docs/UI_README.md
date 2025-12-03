@@ -164,7 +164,7 @@ Then add to `index.html`:
 - **Memory usage**: < 50MB total
 - **No build step**: Instant development refresh
 
-## Development Workflow
+## Development Workflow (Auto-Sync Ready)
 
 ### Making Changes
 
@@ -179,6 +179,22 @@ Then add to `index.html`:
    ./sparkq.sh sync-ui
    ```
    This copies all source files to `dist/` where the server loads them from.
+
+### Using watch:ui for Auto-Sync
+- Requires Node.js (>=18) and npm in your shell.
+- Run the watcher in **Terminal 1** to mirror source files into `dist/` automatically (replaces step 2 while it is running).
+- Watches `sparkq/ui/{core,pages,components,utils}/**/*.js` and calls `sparkq/ui/scripts/sync-dist.sh` whenever they change.
+- Edit files in **Terminal 2**; every save triggers `sparkq/ui/scripts/sync-dist.sh`, so you only need to refresh the browser.
+- If you stop the watcher or can't run it, fall back to step 2 (`./sparkq.sh sync-ui`).
+
+```bash
+# Terminal 1: keep this running to auto-sync source -> dist
+npm run watch:ui
+
+# Terminal 2: edit and save files (auto-sync on save)
+vim sparkq/ui/pages/tasks.js
+# After save, refresh the browser to see changes
+```
 
 3. **Refresh browser**
    - Browser reads from `/ui/dist/` files
