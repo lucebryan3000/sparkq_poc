@@ -7,22 +7,26 @@ if (!window.Pages) window.Pages = {};
 if (!window.ActionRegistry) window.ActionRegistry = {};
 
 // Provide guarded fallbacks only if ui-utils hasn't populated them yet (avoid overwriting real implementations)
+// Fallbacks use browser native dialogs; mark them with __fallback so callers can detect and use inline modals if needed
 if (typeof window.Utils.showPrompt !== 'function') {
   window.Utils.showPrompt = async (title, message, defaultValue = '', _options = {}) => {
     const result = typeof window.prompt === 'function' ? window.prompt(message || title || '', defaultValue) : defaultValue;
     return result ?? null;
   };
+  window.Utils.showPrompt.__fallback = true;
 }
 if (typeof window.Utils.showConfirm !== 'function') {
   window.Utils.showConfirm = async (_title, message, options = {}) => {
     const label = options && options.confirmLabel ? `${options.confirmLabel}: ${message || ''}` : (message || '');
     return typeof window.confirm === 'function' ? window.confirm(label) : false;
   };
+  window.Utils.showConfirm.__fallback = true;
 }
 if (typeof window.Utils.showToast !== 'function') {
   window.Utils.showToast = (msg, type = 'info') => {
     console[type === 'error' ? 'error' : 'log'](`[toast:${type}] ${msg}`);
   };
+  window.Utils.showToast.__fallback = true;
 }
 
 // ===== STATE & GLOBALS =====

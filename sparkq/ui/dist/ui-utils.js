@@ -185,7 +185,6 @@
       let handleKeydown = null;
       let allowOverlayClose = false;
 
-      let allowOverlayClose = false;
       const finish = (value = null) => {
         if (resolved) return;
         resolved = true;
