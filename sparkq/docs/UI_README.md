@@ -168,34 +168,85 @@ Then add to `index.html`:
 
 ### Making Changes
 
-1. **Edit the relevant file**
+1. **Edit the source files** (in core/, pages/, components/, utils/)
    - Single page feature? → Edit `pages/{page}.js`
    - Shared feature? → Edit `core/app-core.js`
+   - Reusable component? → Edit `components/{component}.js`
+   - Utilities? → Edit `utils/ui-utils.js`
 
-2. **Browser auto-reload or manual refresh**
-   - No build step needed
-   - Changes take effect immediately
+2. **Sync files to dist/** (required for server to serve them)
+   ```bash
+   ./sparkq.sh sync-ui
+   ```
+   This copies all source files to `dist/` where the server loads them from.
 
-3. **Test in DevTools**
+3. **Refresh browser**
+   - Browser reads from `/ui/dist/` files
+   - Changes appear after sync and refresh
+
+4. **Test in DevTools**
    - Check console for errors
    - Verify page renders correctly
 
-4. **Commit when working**
+5. **Commit when working**
+   - Commit both source **and** dist files
    - Keep commits focused on one change
-   - Reference the page module in commit message
 
 ### Example: Add a feature to Tasks page
 ```bash
-# 1. Edit the file
+# 1. Edit the source file
 vim sparkq/ui/pages/tasks.js
 
-# 2. Refresh browser
-# Changes appear immediately
+# 2. Sync source files to dist/
+./sparkq.sh sync-ui
 
-# 3. Test and commit
-git add sparkq/ui/pages/tasks.js
+# 3. Refresh browser (Ctrl+Shift+R for hard refresh)
+# Changes appear in browser
+
+# 4. Test and commit
+git add sparkq/ui/pages/tasks.js sparkq/ui/dist/tasks.js
 git commit -m "feat: Add bulk complete action to tasks"
 ```
+
+### Build/Sync Workflow Details
+
+**Important**: The server serves files from `sparkq/ui/dist/`, NOT from source directories.
+
+**File Structure**:
+```
+sparkq/ui/
+├── core/              ← Source files
+│   └── app-core.js
+├── components/        ← Source files
+│   └── quick-add.js
+├── pages/             ← Source files
+│   ├── dashboard.js
+│   ├── config.js
+│   └── ...
+├── utils/             ← Source files
+│   └── ui-utils.js
+└── dist/              ← Compiled/deployed files (generated)
+    ├── app-core.js    ← Copy of core/app-core.js
+    ├── quick-add.js   ← Copy of components/quick-add.js
+    ├── dashboard.js   ← Copy of pages/dashboard.js
+    └── ...
+```
+
+**When to sync**:
+- After editing any source file (core/, components/, pages/, utils/)
+- Before committing to git
+- Before testing in browser
+- Before running tests
+
+**Sync command**:
+```bash
+./sparkq.sh sync-ui
+```
+
+**What it does**:
+- Copies all source files to `dist/`
+- Preserves file organization (core → dist, pages → dist, etc.)
+- Uses `sparkq/ui/scripts/sync-dist.sh` internally
 
 ## Troubleshooting
 

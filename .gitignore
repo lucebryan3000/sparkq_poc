@@ -11,7 +11,7 @@ __pycache__/
 *.pyd
 .pytest_cache/
 *.egg-info/
-dist/
+/dist/       # Top-level build artifacts only
 build/
 
 # Logs and runtime output

@@ -36,6 +36,7 @@ from .env import get_app_env, is_dev_env
 logger = logging.getLogger(__name__)
 CONFIG_PATH = get_config_path()
 _config_boot = load_config(CONFIG_PATH)
+_server_cfg = _config_boot.get("server", {}) if isinstance(_config_boot, dict) else {}
 storage = Storage(get_database_path(_config_boot))
 SERVER_BUILD_ID = "b713"
 APP_ENV = get_app_env()
@@ -46,6 +47,26 @@ _DEV_NO_CACHE_HEADERS = {
     "Expires": "0",
 }
 _config_cache: Dict[str, Any] = {"data": None, "expires_at": 0.0}
+
+def _cors_settings() -> Dict[str, Any]:
+    """
+    Derive CORS settings from env/config with safe defaults.
+
+    Defaults to localhost origins with credentials disabled to avoid open CORS.
+    """
+    env_origins = os.environ.get("SPARKQ_CORS_ALLOW_ORIGINS")
+    if env_origins:
+        origins = [origin.strip() for origin in env_origins.split(",") if origin.strip()]
+    else:
+        origins = _server_cfg.get("cors_origins") or ["http://localhost:5005", "http://127.0.0.1:5005"]
+
+    allow_credentials = bool(
+        str(os.environ.get("SPARKQ_CORS_ALLOW_CREDENTIALS") or "").lower() in {"1", "true", "yes"}
+        or _server_cfg.get("cors_allow_credentials") is True
+    )
+    return {"origins": origins, "allow_credentials": allow_credentials}
+
+_cors_cfg = _cors_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -58,8 +79,8 @@ app = FastAPI(title="SparkQ API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_cfg["origins"],
+    allow_credentials=_cors_cfg["allow_credentials"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -921,19 +942,8 @@ async def list_build_prompts():
 async def stats():
     """Get dashboard statistics."""
     try:
-        sessions = storage.list_sessions()
-        queues = storage.list_queues()
-        tasks = storage.list_tasks()
-
-        queued_count = sum(1 for t in tasks if t.get("status") == "queued")
-        running_count = sum(1 for t in tasks if t.get("status") == "running")
-
-        return {
-            "sessions": len(sessions),
-            "queues": len(queues),
-            "queued_tasks": queued_count,
-            "running_tasks": running_count,
-        }
+        summary = storage.get_stats_summary()
+        return summary
     except Exception as exc:
         logger.exception("Failed to compute stats: %s", exc)
         return {
@@ -1069,6 +1079,14 @@ async def list_queues(
             "progress": f"{done}/{total}" if total > 0 else "0/0"
         }
 
+        # Parse llm_sessions JSON string to dict
+        if queue.get("llm_sessions"):
+            try:
+                if isinstance(queue["llm_sessions"], str):
+                    queue["llm_sessions"] = json.loads(queue["llm_sessions"])
+            except (json.JSONDecodeError, TypeError):
+                queue["llm_sessions"] = {}
+
         # Determine status (preserve archived/ended)
         if existing_status == "archived":
             queue["status"] = "archived"
@@ -1114,6 +1132,13 @@ async def get_queue(queue_id: str) -> QueueResponse:
     queue = storage.get_queue(queue_id)
     if not queue:
         raise HTTPException(status_code=404, detail="Queue not found")
+    # Parse llm_sessions JSON string to dict
+    if queue.get("llm_sessions"):
+        try:
+            if isinstance(queue["llm_sessions"], str):
+                queue["llm_sessions"] = json.loads(queue["llm_sessions"])
+        except (json.JSONDecodeError, TypeError):
+            queue["llm_sessions"] = {}
     return {"queue": queue}
 
 
@@ -1223,8 +1248,9 @@ async def get_queue_llm_sessions(queue_id: str) -> dict:
             "queue_id": queue_id,
             "llm_sessions": sessions or {}
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to load LLM sessions for queue %s", queue_id)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.put("/api/queues/{queue_id}/llm-sessions/{llm_name}")
@@ -1249,8 +1275,9 @@ async def update_queue_llm_session(
         }
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Failed to update LLM session for queue %s and llm %s", queue_id, llm_name)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete("/api/queues/{queue_id}", response_model=MessageResponse)
@@ -1437,7 +1464,8 @@ async def list_audit(action_prefix: Optional[str] = Query(None), limit: int = Qu
     try:
         logs = storage.list_audit_logs(action_prefix=action_prefix, limit=limit)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Failed to list audit logs")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
     return {"logs": logs}
 
 
@@ -1468,7 +1496,8 @@ async def rerun_task(task_id: str) -> TaskResponse:
     except ConflictError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Failed to rerun task %s", task_id)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @app.post("/api/tasks/{task_id}/retry", response_model=TaskResponse)
@@ -1505,10 +1534,14 @@ async def update_task(task_id: str, request: Request) -> TaskResponse:
         if not updated_task:
             raise HTTPException(status_code=404, detail="Task not found")
         return {"task": _serialize_task(updated_task)}
+    except json.JSONDecodeError:
+        logger.exception("Invalid JSON payload while updating task %s", task_id)
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
     except Exception as err:
         if isinstance(err, HTTPException):
             raise
-        raise HTTPException(status_code=400, detail=str(err))
+        logger.exception("Failed to update task %s", task_id)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete("/api/tasks/{task_id}", response_model=MessageResponse)

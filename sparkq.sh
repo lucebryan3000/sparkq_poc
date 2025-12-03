@@ -37,6 +37,9 @@ Database & Config:
   teardown               Clean removal of all SparkQueue artifacts (database, config, logs)
   reload                 Reload configuration and script index
 
+UI:
+  sync-ui                Sync UI source files from components/pages/core/utils to dist/
+
 Session & Queue:
   session create <name>  Create a named session
   session list           List all sessions
@@ -186,6 +189,12 @@ fi
 if [[ "${1:-}" == "teardown" ]]; then
   shift
   exec "$SCRIPT_DIR/sparkq/scripts/teardown/teardown.sh" "$@"
+fi
+
+# Handle UI sync separately (doesn't need venv)
+if [[ "${1:-}" == "sync-ui" ]]; then
+  shift
+  exec "$SCRIPT_DIR/sparkq/ui/scripts/sync-dist.sh" "$@"
 fi
 
 # Full test suite helper
