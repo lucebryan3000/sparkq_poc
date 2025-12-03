@@ -522,6 +522,37 @@ class Storage:
             )
             return cursor.rowcount > 0
 
+    def update_session_fields(self, session_id: str, name: Optional[str] = None, description: Optional[str] = None) -> SessionRow:
+        """Update mutable session fields."""
+        if name is None and description is None:
+            raise ValidationError("No fields provided to update session")
+
+        updates: Dict[str, Any] = {}
+        if name is not None:
+            cleaned = name.strip()
+            if not cleaned:
+                raise ValidationError("Session name cannot be empty")
+            updates["name"] = cleaned
+        if description is not None:
+            updates["description"] = description
+
+        updates["updated_at"] = now_iso()
+        set_clause = ", ".join([f"{col} = ?" for col in updates.keys()])
+        params = list(updates.values()) + [session_id]
+
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE sessions SET {set_clause} WHERE id = ?",
+                params,
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError("Session not found")
+
+        updated = self.get_session(session_id)
+        if not updated:
+            raise NotFoundError("Session not found")
+        return updated
+
     def delete_session(self, session_id: str) -> bool:
         with self.connection() as conn:
             # Get all queues for this session to cascade delete their tasks
@@ -644,6 +675,58 @@ class Storage:
                 (now, queue_id)
             )
             return cursor.rowcount > 0
+
+    def update_queue_fields(
+        self,
+        queue_id: str,
+        name: Optional[str] = None,
+        instructions: Optional[str] = None,
+        default_agent_role_key: Optional[str] = None,
+        model_profile: Optional[str] = None,
+        set_default_agent_role: bool = False,
+        set_model_profile: bool = False,
+    ) -> QueueRow:
+        """Update queue metadata without inlining SQL in callers."""
+        if (
+            name is None
+            and instructions is None
+            and not set_default_agent_role
+            and not set_model_profile
+        ):
+            raise ValidationError("No fields provided to update queue")
+
+        updates: Dict[str, Any] = {}
+        if name is not None:
+            cleaned = name.strip()
+            if not cleaned:
+                raise ValidationError("Queue name cannot be empty")
+            updates["name"] = cleaned
+
+        if instructions is not None:
+            updates["instructions"] = instructions
+
+        if set_default_agent_role:
+            updates["default_agent_role_key"] = default_agent_role_key
+
+        if set_model_profile:
+            updates["model_profile"] = model_profile
+
+        updates["updated_at"] = now_iso()
+        set_clause = ", ".join([f"{col} = ?" for col in updates.keys()])
+        params = list(updates.values()) + [queue_id]
+
+        with self.connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE queues SET {set_clause} WHERE id = ?",
+                params,
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError("Queue not found")
+
+        updated = self.get_queue(queue_id)
+        if not updated:
+            raise NotFoundError("Queue not found")
+        return updated
 
     def archive_queue(self, queue_id: str) -> bool:
         now = now_iso()

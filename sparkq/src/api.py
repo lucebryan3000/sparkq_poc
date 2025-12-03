@@ -5,15 +5,16 @@ import os
 import sqlite3
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .constants import (
     CONFIG_CACHE_TTL_SECONDS,
@@ -64,7 +65,10 @@ app.add_middleware(
 )
 
 @app.middleware("http")
-async def add_no_cache_headers(request: Request, call_next):
+async def add_no_cache_headers(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     """Add no-cache headers to static files to prevent browser caching during development."""
     response = await call_next(request)
 
@@ -121,7 +125,7 @@ def _read_build_prompt_file(filename: str) -> str:
 
 
 @app.get("/")
-async def root():
+async def root() -> Response:
     """Redirect root to UI dashboard."""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/ui/")
@@ -130,7 +134,7 @@ static_dir = get_ui_dir()
 app.mount("/ui", StaticFiles(directory=static_dir, html=True, check_dir=False), name="ui")
 
 
-def _serve_ui_index():
+def _serve_ui_index() -> FileResponse:
     index_path = Path(static_dir) / "index.html"
     if not index_path.is_file():
         raise HTTPException(status_code=404, detail="UI not built")
@@ -152,7 +156,7 @@ def _cache_buster_value() -> str:
 
 
 @app.get("/ui-cache-buster.js")
-async def ui_cache_buster():
+async def ui_cache_buster() -> Response:
     """Expose environment and cache-buster details to the UI."""
     env = APP_ENV
     cache_buster = _cache_buster_value()
@@ -638,6 +642,139 @@ class ToolPayload(BaseModel):
     task_class: str
 
 
+class TaskPayload(BaseModel):
+    prompt: Optional[str] = None
+    raw_prompt: Optional[str] = None
+    prompt_path: Optional[str] = None
+    script_path: Optional[str] = None
+    args: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    queue_instructions: Optional[str] = None
+    agent_role_key: Optional[str] = None
+    agent_role_label: Optional[str] = None
+    agent_role_description: Optional[str] = None
+    mode: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TaskOut(BaseModel):
+    id: str
+    queue_id: str
+    tool_name: str
+    task_class: str
+    payload: Optional[str] = None
+    payload_data: Optional[TaskPayload] = None
+    agent_role_key: Optional[str] = None
+    worker_id: Optional[str] = None
+    metadata: Optional[Any] = None
+    status: str
+    timeout: int
+    attempts: int
+    result: Optional[str] = None
+    result_summary: Optional[str] = None
+    error: Optional[str] = None
+    error_message: Optional[str] = None
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    claimed_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    failed_at: Optional[datetime] = None
+    stale_warned_at: Optional[datetime] = None
+    friendly_id: Optional[str] = None
+    prompt_preview: Optional[str] = None
+    raw_prompt: Optional[str] = None
+    prompt: Optional[str] = None
+    agent_role_label: Optional[str] = None
+    agent_role_description: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TaskResponse(BaseModel):
+    task: TaskOut
+
+
+class TasksResponse(BaseModel):
+    tasks: List[TaskOut]
+    truncated: bool
+    limit_applied: int
+    max_limit: Optional[int] = None
+
+
+class SessionOut(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    description: Optional[str] = None
+    status: str
+    started_at: datetime
+    ended_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(extra="allow")
+
+
+class SessionResponse(BaseModel):
+    session: SessionOut
+
+
+class SessionsResponse(BaseModel):
+    sessions: List[SessionOut]
+
+
+class SessionMessageResponse(BaseModel):
+    message: str
+    session: SessionOut
+
+
+class QueueStats(BaseModel):
+    total: int
+    done: int
+    running: int
+    queued: int
+    progress: str
+
+
+class QueueOut(BaseModel):
+    id: str
+    session_id: str
+    name: str
+    instructions: Optional[str] = None
+    codex_session_id: Optional[str] = None
+    default_agent_role_key: Optional[str] = None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    model_profile: Optional[str] = None
+    stats: Optional[QueueStats] = None
+    llm_sessions: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class QueueResponse(BaseModel):
+    queue: QueueOut
+
+
+class QueuesResponse(BaseModel):
+    queues: List[QueueOut]
+
+
+class QueueMessageResponse(BaseModel):
+    message: str
+    queue: QueueOut
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
 @app.post("/api/config/validate")
 async def validate_config(payload: ConfigUpdateRequest):
     """Dry-run validation for config payload (expects {value}) without persisting."""
@@ -709,7 +846,8 @@ def _serialize_task(task: Dict[str, Any], queue_names: Optional[Dict[str, str]] 
         serialized["result_summary"] = serialized.get("result")
     if "error_message" not in serialized and "error" in serialized:
         serialized["error_message"] = serialized.get("error")
-    payload_obj = None
+    payload_obj: Optional[Dict[str, Any]] = None
+    payload_data: Optional[TaskPayload] = None
     payload = serialized.get("payload")
     if isinstance(payload, str):
         try:
@@ -733,6 +871,13 @@ def _serialize_task(task: Dict[str, Any], queue_names: Optional[Dict[str, str]] 
             serialized.setdefault("agent_role_label", payload_obj.get("agent_role_label"))
         if payload_obj.get("agent_role_description"):
             serialized.setdefault("agent_role_description", payload_obj.get("agent_role_description"))
+        try:
+            payload_data = TaskPayload.model_validate(payload_obj)
+        except Exception:
+            payload_data = None
+
+    if payload_data:
+        serialized["payload_data"] = payload_data.model_dump()
 
     return serialized
 
@@ -799,8 +944,8 @@ async def stats():
         }
 
 
-@app.get("/api/sessions")
-async def list_sessions(limit: int = 100, offset: int = 0):
+@app.get("/api/sessions", response_model=SessionsResponse)
+async def list_sessions(limit: int = 100, offset: int = 0) -> SessionsResponse:
     if limit < 0 or offset < 0:
         raise HTTPException(
             status_code=400, detail="Invalid pagination parameters: limit and offset must be non-negative"
@@ -811,8 +956,8 @@ async def list_sessions(limit: int = 100, offset: int = 0):
     return {"sessions": paginated_sessions}
 
 
-@app.post("/api/sessions")
-async def create_session(request: SessionCreateRequest):
+@app.post("/api/sessions", response_model=SessionResponse)
+async def create_session(request: SessionCreateRequest) -> SessionResponse:
     if not request.name or not request.name.strip():
         raise HTTPException(status_code=400, detail="Session name is required")
 
@@ -820,54 +965,35 @@ async def create_session(request: SessionCreateRequest):
     return {"session": session}
 
 
-@app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str):
+@app.get("/api/sessions/{session_id}", response_model=SessionResponse)
+async def get_session(session_id: str) -> SessionResponse:
     session = storage.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"session": session}
 
 
-@app.put("/api/sessions/{session_id}")
-async def update_session(session_id: str, request: SessionUpdateRequest):
+@app.put("/api/sessions/{session_id}", response_model=SessionResponse)
+async def update_session(session_id: str, request: SessionUpdateRequest) -> SessionResponse:
     if request.name is None and request.description is None:
         raise HTTPException(status_code=400, detail="No fields provided to update session")
 
-    existing = storage.get_session(session_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    updates = []
-    params = []
-
-    if request.name is not None:
-        if not request.name.strip():
-            raise HTTPException(status_code=400, detail="Session name cannot be empty")
-        updates.append("name = ?")
-        params.append(request.name.strip())
-
-    if request.description is not None:
-        updates.append("description = ?")
-        params.append(request.description)
-
-    updates.append("updated_at = ?")
-    params.append(now_iso())
-    params.append(session_id)
-
-    with storage.connection() as conn:
-        cursor = conn.execute(
-            f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?",
-            tuple(params),
+    try:
+        updated_session = storage.update_session_fields(
+            session_id=session_id,
+            name=request.name,
+            description=request.description,
         )
-        if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Session not found")
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    updated_session = storage.get_session(session_id)
     return {"session": updated_session}
 
 
-@app.put("/api/sessions/{session_id}/end")
-async def end_session(session_id: str):
+@app.put("/api/sessions/{session_id}/end", response_model=SessionMessageResponse)
+async def end_session(session_id: str) -> SessionMessageResponse:
     ended = storage.end_session(session_id)
     if not ended:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -876,8 +1002,8 @@ async def end_session(session_id: str):
     return {"message": "Session ended", "session": session}
 
 
-@app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str):
+@app.delete("/api/sessions/{session_id}", response_model=MessageResponse)
+async def delete_session(session_id: str) -> MessageResponse:
     deleted = storage.delete_session(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -913,12 +1039,12 @@ async def update_agent_role(role_key: str, payload: AgentRoleUpdateRequest):
     return {"role": updated}
 
 
-@app.get("/api/queues")
+@app.get("/api/queues", response_model=QueuesResponse)
 async def list_queues(
     session_id: Optional[str] = None,
     limit: int = Query(100, ge=0),
     offset: int = Query(0, ge=0),
-):
+) -> QueuesResponse:
     queues = storage.list_queues(session_id=session_id)
 
     queue_ids = [q["id"] for q in queues]
@@ -959,8 +1085,8 @@ async def list_queues(
     return {"queues": paginated_queues}
 
 
-@app.post("/api/queues", status_code=201)
-async def create_queue(request: QueueCreateRequest):
+@app.post("/api/queues", status_code=201, response_model=QueueResponse)
+async def create_queue(request: QueueCreateRequest) -> QueueResponse:
     if not request.name or not request.name.strip():
         raise HTTPException(status_code=400, detail="Queue name is required")
 
@@ -983,16 +1109,16 @@ async def create_queue(request: QueueCreateRequest):
     return {"queue": queue}
 
 
-@app.get("/api/queues/{queue_id}")
-async def get_queue(queue_id: str):
+@app.get("/api/queues/{queue_id}", response_model=QueueResponse)
+async def get_queue(queue_id: str) -> QueueResponse:
     queue = storage.get_queue(queue_id)
     if not queue:
         raise HTTPException(status_code=404, detail="Queue not found")
     return {"queue": queue}
 
 
-@app.put("/api/queues/{queue_id}")
-async def update_queue(queue_id: str, request: QueueUpdateRequest):
+@app.put("/api/queues/{queue_id}", response_model=QueueResponse)
+async def update_queue(queue_id: str, request: QueueUpdateRequest) -> QueueResponse:
     fields_set = request.model_fields_set or set()
     role_provided = "default_agent_role_key" in fields_set
     model_profile_provided = "model_profile" in fields_set
@@ -1004,19 +1130,7 @@ async def update_queue(queue_id: str, request: QueueUpdateRequest):
     if not existing:
         raise HTTPException(status_code=404, detail="Queue not found")
 
-    updates = []
-    params = []
-
-    if request.name is not None:
-        if not request.name.strip():
-            raise HTTPException(status_code=400, detail="Queue name cannot be empty")
-        updates.append("name = ?")
-        params.append(request.name.strip())
-
-    if request.instructions is not None:
-        updates.append("instructions = ?")
-        params.append(request.instructions)
-
+    params_key: Optional[str] = None
     if role_provided:
         normalized_key = _normalize_agent_role_key(request.default_agent_role_key)
         if normalized_key:
@@ -1024,8 +1138,6 @@ async def update_queue(queue_id: str, request: QueueUpdateRequest):
             params_key = role["key"]
         else:
             params_key = None
-        updates.append("default_agent_role_key = ?")
-        params.append(params_key)
 
     if model_profile_provided:
         # Validate model_profile value
@@ -1035,30 +1147,32 @@ async def update_queue(queue_id: str, request: QueueUpdateRequest):
                 status_code=400,
                 detail=f"Invalid model_profile. Must be one of: {', '.join(valid_profiles)}"
             )
-        updates.append("model_profile = ?")
-        params.append(request.model_profile or "auto")
-
-    updates.append("updated_at = ?")
-    params.append(now_iso())
-    params.append(queue_id)
+        model_profile_value = request.model_profile or "auto"
+    else:
+        model_profile_value = None
 
     try:
-        with storage.connection() as conn:
-            cursor = conn.execute(
-                f"UPDATE queues SET {', '.join(updates)} WHERE id = ?",
-                tuple(params),
-            )
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="Queue not found")
+        updated_queue = storage.update_queue_fields(
+            queue_id=queue_id,
+            name=request.name,
+            instructions=request.instructions,
+            default_agent_role_key=params_key if role_provided else None,
+            model_profile=model_profile_value,
+            set_default_agent_role=role_provided,
+            set_model_profile=model_profile_provided,
+        )
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="Queue not found")
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail="Queue name must be unique") from exc
 
-    updated_queue = storage.get_queue(queue_id)
     return {"queue": updated_queue}
 
 
-@app.put("/api/queues/{queue_id}/end")
-async def end_queue(queue_id: str):
+@app.put("/api/queues/{queue_id}/end", response_model=QueueMessageResponse)
+async def end_queue(queue_id: str) -> QueueMessageResponse:
     ended = storage.end_queue(queue_id)
     if not ended:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1067,8 +1181,8 @@ async def end_queue(queue_id: str):
     return {"message": "Queue ended", "queue": queue}
 
 
-@app.put("/api/queues/{queue_id}/archive")
-async def archive_queue(queue_id: str):
+@app.put("/api/queues/{queue_id}/archive", response_model=QueueMessageResponse)
+async def archive_queue(queue_id: str) -> QueueMessageResponse:
     archived = storage.archive_queue(queue_id)
     if not archived:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1077,8 +1191,8 @@ async def archive_queue(queue_id: str):
     return {"message": "Queue archived", "queue": queue}
 
 
-@app.put("/api/queues/{queue_id}/unarchive")
-async def unarchive_queue(queue_id: str):
+@app.put("/api/queues/{queue_id}/unarchive", response_model=QueueMessageResponse)
+async def unarchive_queue(queue_id: str) -> QueueMessageResponse:
     success = storage.unarchive_queue(queue_id)
     if not success:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1139,8 +1253,8 @@ async def update_queue_llm_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/api/queues/{queue_id}")
-async def delete_queue(queue_id: str):
+@app.delete("/api/queues/{queue_id}", response_model=MessageResponse)
+async def delete_queue(queue_id: str) -> MessageResponse:
     deleted = storage.delete_queue(queue_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1148,13 +1262,13 @@ async def delete_queue(queue_id: str):
     return {"message": "Queue deleted"}
 
 
-@app.get("/api/tasks")
+@app.get("/api/tasks", response_model=TasksResponse)
 async def list_tasks(
     queue_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     limit: int = Query(100, ge=1),
     offset: int = Query(0, ge=0),
-):
+) -> TasksResponse:
     if status and status not in TASK_STATUS_VALUES:
         allowed_statuses = ", ".join(sorted(TASK_STATUS_VALUES))
         raise HTTPException(status_code=400, detail=f"Invalid status filter. Allowed values: {allowed_statuses}")
@@ -1184,8 +1298,8 @@ async def list_tasks(
     return response
 
 
-@app.post("/api/tasks")
-async def create_task(request: TaskCreateRequest):
+@app.post("/api/tasks", response_model=TaskResponse)
+async def create_task(request: TaskCreateRequest) -> TaskResponse:
     queue = storage.get_queue(request.queue_id)
     if not queue:
         raise HTTPException(status_code=404, detail="Queue not found")
@@ -1230,16 +1344,16 @@ async def create_task(request: TaskCreateRequest):
     return {"task": _serialize_task(task)}
 
 
-@app.get("/api/tasks/{task_id}")
-async def get_task(task_id: str):
+@app.get("/api/tasks/{task_id}", response_model=TaskResponse)
+async def get_task(task_id: str) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return {"task": _serialize_task(task)}
 
 
-@app.post("/api/tasks/{task_id}/claim")
-async def claim_task(task_id: str, request: TaskClaimRequest = Body(default_factory=TaskClaimRequest)):
+@app.post("/api/tasks/{task_id}/claim", response_model=TaskResponse)
+async def claim_task(task_id: str, request: TaskClaimRequest = Body(default_factory=TaskClaimRequest)) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1259,8 +1373,8 @@ async def claim_task(task_id: str, request: TaskClaimRequest = Body(default_fact
     return {"task": _serialize_task(updated_task)}
 
 
-@app.post("/api/tasks/{task_id}/complete")
-async def complete_task(task_id: str, request: TaskCompleteRequest):
+@app.post("/api/tasks/{task_id}/complete", response_model=TaskResponse)
+async def complete_task(task_id: str, request: TaskCompleteRequest) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1285,8 +1399,8 @@ async def complete_task(task_id: str, request: TaskCompleteRequest):
     return {"task": _serialize_task(updated_task)}
 
 
-@app.post("/api/tasks/{task_id}/fail")
-async def fail_task(task_id: str, request: TaskFailRequest):
+@app.post("/api/tasks/{task_id}/fail", response_model=TaskResponse)
+async def fail_task(task_id: str, request: TaskFailRequest) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1300,8 +1414,8 @@ async def fail_task(task_id: str, request: TaskFailRequest):
     return {"task": _serialize_task(updated_task)}
 
 
-@app.post("/api/tasks/{task_id}/reset")
-async def reset_task(task_id: str, request: TaskResetRequest = Body(default_factory=TaskResetRequest)):
+@app.post("/api/tasks/{task_id}/reset", response_model=TaskResponse)
+async def reset_task(task_id: str, request: TaskResetRequest = Body(default_factory=TaskResetRequest)) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1327,8 +1441,8 @@ async def list_audit(action_prefix: Optional[str] = Query(None), limit: int = Qu
     return {"logs": logs}
 
 
-@app.post("/api/tasks/{task_id}/requeue")
-async def requeue_task(task_id: str):
+@app.post("/api/tasks/{task_id}/requeue", response_model=TaskResponse)
+async def requeue_task(task_id: str) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1344,8 +1458,8 @@ async def requeue_task(task_id: str):
     return {"task": _serialize_task(new_task)}
 
 
-@app.post("/api/tasks/{task_id}/rerun")
-async def rerun_task(task_id: str):
+@app.post("/api/tasks/{task_id}/rerun", response_model=TaskResponse)
+async def rerun_task(task_id: str) -> TaskResponse:
     try:
         task = storage.rerun_task(task_id)
         return {"task": _serialize_task(task)}
@@ -1357,8 +1471,8 @@ async def rerun_task(task_id: str):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.post("/api/tasks/{task_id}/retry")
-async def retry_task(task_id: str):
+@app.post("/api/tasks/{task_id}/retry", response_model=TaskResponse)
+async def retry_task(task_id: str) -> TaskResponse:
     task = storage.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -1378,8 +1492,8 @@ async def retry_task(task_id: str):
     return {"task": _serialize_task(new_task)}
 
 
-@app.put("/api/tasks/{task_id}")
-async def update_task(task_id: str, request: Request):
+@app.put("/api/tasks/{task_id}", response_model=TaskResponse)
+async def update_task(task_id: str, request: Request) -> TaskResponse:
     """Update a task with new values"""
     try:
         body = await request.json()
@@ -1397,13 +1511,13 @@ async def update_task(task_id: str, request: Request):
         raise HTTPException(status_code=400, detail=str(err))
 
 
-@app.delete("/api/tasks/{task_id}")
-async def delete_task_endpoint(task_id: str):
+@app.delete("/api/tasks/{task_id}", response_model=MessageResponse)
+async def delete_task_endpoint(task_id: str) -> MessageResponse:
     """Delete a task"""
     success = storage.delete_task(task_id)
     if not success:
         raise HTTPException(status_code=404, detail="Task not found")
-    return {"deleted": True}
+    return {"message": "Task deleted"}
 
 
 @app.post("/api/tasks/quick-add")

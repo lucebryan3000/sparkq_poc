@@ -1984,9 +1984,12 @@ a {
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s ease;
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
 }
 
-.task-action-btn:hover {
+.task-action-btn:hover:not([disabled]) {
   border-color: var(--accent);
   background: var(--mode-btn-hover);
 }
@@ -1999,6 +2002,7 @@ a {
 .task-action-btn[disabled] {
   opacity: 0.5;
   cursor: not-allowed;
+  pointer-events: none;
 }
 
 .task-action-btn--delete {

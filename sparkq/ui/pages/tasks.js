@@ -483,9 +483,9 @@
         const actionsCell = isArchivedQueue
           ? '<span class="muted" style="font-size:12px;">Read only</span>'
           : `<div class="task-actions">
-              <button class="task-action-btn task-action-btn--rerun" data-task-id="${task.id}" title="Rerun task" aria-label="Rerun task" ${disabledAttr}>⟳</button>
-              <button class="task-action-btn task-action-btn--edit" data-task-id="${task.id}" title="Edit task" aria-label="Edit task" ${disabledAttr}>✏️</button>
-              <button class="task-action-btn task-action-btn--delete" data-task-id="${task.id}" title="Delete task" aria-label="Delete task" ${deleteDisabledAttr}>✖️</button>
+              <button type="button" class="task-action-btn task-action-btn--rerun" data-task-id="${task.id}" title="Rerun task" aria-label="Rerun task" ${disabledAttr}>⟳</button>
+              <button type="button" class="task-action-btn task-action-btn--edit" data-task-id="${task.id}" title="Edit task" aria-label="Edit task" ${disabledAttr}>✏️</button>
+              <button type="button" class="task-action-btn task-action-btn--delete" data-task-id="${task.id}" title="Delete task" aria-label="Delete task" ${deleteDisabledAttr}>✖️</button>
             </div>`;
 
         return `
