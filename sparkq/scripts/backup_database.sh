@@ -2,22 +2,29 @@
 set -euo pipefail
 
 # SparkQ Comprehensive Backup Script
-# Creates backup bundles with database + configuration exports
+# Creates backup bundles focused on CONFIGURATION preservation
 # Retention: Last 7 versions (configurable via SPARKQ_BACKUP_KEEP)
+#
+# Priority: Configuration > Setup Templates > Database
+# - Configuration settings are critical and hard to recreate
+# - Prompts/sessions/tasks are seeded defaults or transient work data
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DB_PATH="${PROJECT_ROOT}/sparkq/data/sparkq.db"
 CONFIG_PATH="${PROJECT_ROOT}/sparkq.yml"
+ENV_PATH="${PROJECT_ROOT}/.env"
+SETUP_DIR="${PROJECT_ROOT}/sparkq/scripts/setup"
 BACKUP_DIR="${PROJECT_ROOT}/sparkq/data/backups"
 
-# Retention: default 7 versions
+# Retention: default 7 versions (1 week at daily restarts)
 BACKUP_KEEP="${SPARKQ_BACKUP_KEEP:-7}"
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Create backup directory if it doesn't exist
@@ -36,6 +43,7 @@ BUNDLE_DIR="${BACKUP_DIR}/sparkq_${TIMESTAMP}"
 if ! command -v sqlite3 &> /dev/null; then
   echo -e "${YELLOW}Warning: sqlite3 not found, falling back to simple file copy${NC}"
   cp "$DB_PATH" "${BACKUP_DIR}/sparkq_${TIMESTAMP}.db"
+  [[ -f "$CONFIG_PATH" ]] && cp "$CONFIG_PATH" "${BACKUP_DIR}/sparkq_${TIMESTAMP}.yml"
   exit 0
 fi
 
@@ -48,105 +56,177 @@ fi
 
 # Create backup bundle directory
 mkdir -p "$BUNDLE_DIR"
+mkdir -p "$BUNDLE_DIR/setup_templates"
 
-# 1. Copy the database file
+# ============================================================
+# SECTION 1: CONFIGURATION FILES (HIGH PRIORITY)
+# ============================================================
+
+# 1a. Copy sparkq.yml (main configuration)
+if [[ -f "$CONFIG_PATH" ]]; then
+  cp "$CONFIG_PATH" "$BUNDLE_DIR/sparkq.yml"
+fi
+
+# 1b. Copy .env (environment variables - may contain API keys, secrets)
+if [[ -f "$ENV_PATH" ]]; then
+  cp "$ENV_PATH" "$BUNDLE_DIR/.env"
+fi
+
+# ============================================================
+# SECTION 2: SETUP TEMPLATES (for clean reinstall)
+# ============================================================
+
+# Copy setup template files used during ./sparkq.sh setup
+[[ -f "$SETUP_DIR/sparkq.yml.example" ]] && cp "$SETUP_DIR/sparkq.yml.example" "$BUNDLE_DIR/setup_templates/"
+[[ -f "$SETUP_DIR/.env.example" ]] && cp "$SETUP_DIR/.env.example" "$BUNDLE_DIR/setup_templates/"
+[[ -f "$SETUP_DIR/requirements.txt.example" ]] && cp "$SETUP_DIR/requirements.txt.example" "$BUNDLE_DIR/setup_templates/"
+
+# ============================================================
+# SECTION 3: DATABASE
+# ============================================================
+
+# Copy the database file
 cp "$DB_PATH" "$BUNDLE_DIR/sparkq.db"
 
 # Also copy WAL files if they exist (for consistent state)
 [[ -f "${DB_PATH}-wal" ]] && cp "${DB_PATH}-wal" "$BUNDLE_DIR/sparkq.db-wal" || true
 [[ -f "${DB_PATH}-shm" ]] && cp "${DB_PATH}-shm" "$BUNDLE_DIR/sparkq.db-shm" || true
 
-# 2. Copy sparkq.yml configuration if it exists
-if [[ -f "$CONFIG_PATH" ]]; then
-  cp "$CONFIG_PATH" "$BUNDLE_DIR/sparkq.yml"
-fi
+# ============================================================
+# SECTION 4: CONFIGURATION TABLE EXPORTS (JSON - easy to inspect)
+# These are the CRITICAL configuration items
+# ============================================================
 
-# 3. Export configuration tables to JSON for easy inspection/recovery
-# Export config table
+# Export config table (runtime configuration - CRITICAL)
 sqlite3 "$DB_PATH" <<'SQL' > "$BUNDLE_DIR/config_export.json" 2>/dev/null || echo "[]" > "$BUNDLE_DIR/config_export.json"
 .mode json
 SELECT namespace, key, value, updated_at, updated_by FROM config ORDER BY namespace, key;
 SQL
 
-# Export prompts table
-sqlite3 "$DB_PATH" <<'SQL' > "$BUNDLE_DIR/prompts_export.json" 2>/dev/null || echo "[]" > "$BUNDLE_DIR/prompts_export.json"
-.mode json
-SELECT id, command, label, template_text, description, category, active, created_at, updated_at FROM prompts ORDER BY command;
-SQL
-
-# Export agent_roles table
-sqlite3 "$DB_PATH" <<'SQL' > "$BUNDLE_DIR/agent_roles_export.json" 2>/dev/null || echo "[]" > "$BUNDLE_DIR/agent_roles_export.json"
-.mode json
-SELECT id, key, label, description, active, created_at, updated_at FROM agent_roles ORDER BY key;
-SQL
-
-# Export tools table
+# Export tools table (tool definitions - CRITICAL)
 sqlite3 "$DB_PATH" <<'SQL' > "$BUNDLE_DIR/tools_export.json" 2>/dev/null || echo "[]" > "$BUNDLE_DIR/tools_export.json"
 .mode json
 SELECT name, description, task_class, created_at, updated_at FROM tools ORDER BY name;
 SQL
 
-# Export task_classes table
+# Export task_classes table (timeout configurations - CRITICAL)
 sqlite3 "$DB_PATH" <<'SQL' > "$BUNDLE_DIR/task_classes_export.json" 2>/dev/null || echo "[]" > "$BUNDLE_DIR/task_classes_export.json"
 .mode json
 SELECT name, timeout, description, created_at, updated_at FROM task_classes ORDER BY name;
 SQL
 
-# Export projects table (for reference)
+# Export projects table (project metadata)
 sqlite3 "$DB_PATH" <<'SQL' > "$BUNDLE_DIR/projects_export.json" 2>/dev/null || echo "[]" > "$BUNDLE_DIR/projects_export.json"
 .mode json
 SELECT id, name, repo_path, prd_path, created_at, updated_at FROM projects ORDER BY name;
 SQL
 
-# 4. Get counts for manifest
+# Export agent_roles table (role definitions - useful but can be reseeded)
+sqlite3 "$DB_PATH" <<'SQL' > "$BUNDLE_DIR/agent_roles_export.json" 2>/dev/null || echo "[]" > "$BUNDLE_DIR/agent_roles_export.json"
+.mode json
+SELECT id, key, label, description, active, created_at, updated_at FROM agent_roles ORDER BY key;
+SQL
+
+# ============================================================
+# SECTION 5: REFERENCE EXPORTS (lower priority - can be rebuilt)
+# These are seeded from defaults or transient work data
+# ============================================================
+
+# Export prompts table (text expanders - seeded from defaults, but may have customizations)
+sqlite3 "$DB_PATH" <<'SQL' > "$BUNDLE_DIR/prompts_export.json" 2>/dev/null || echo "[]" > "$BUNDLE_DIR/prompts_export.json"
+.mode json
+SELECT id, command, label, template_text, description, category, active, created_at, updated_at FROM prompts ORDER BY command;
+SQL
+
+# ============================================================
+# SECTION 6: MANIFEST WITH METADATA
+# ============================================================
+
+# Get counts for manifest
 CONFIG_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM config;" 2>/dev/null || echo "0")
-PROMPTS_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prompts;" 2>/dev/null || echo "0")
-AGENT_ROLES_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM agent_roles;" 2>/dev/null || echo "0")
 TOOLS_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tools;" 2>/dev/null || echo "0")
 TASK_CLASSES_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM task_classes;" 2>/dev/null || echo "0")
+AGENT_ROLES_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM agent_roles;" 2>/dev/null || echo "0")
+PROMPTS_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM prompts;" 2>/dev/null || echo "0")
 SESSIONS_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sessions;" 2>/dev/null || echo "0")
 QUEUES_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM queues;" 2>/dev/null || echo "0")
 TASKS_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks;" 2>/dev/null || echo "0")
 
-# 5. Create manifest.json with backup metadata
+# File existence checks for manifest
+HAS_ENV=$([ -f "$ENV_PATH" ] && echo "true" || echo "false")
+HAS_CONFIG=$([ -f "$CONFIG_PATH" ] && echo "true" || echo "false")
+HAS_YML_EXAMPLE=$([ -f "$SETUP_DIR/sparkq.yml.example" ] && echo "true" || echo "false")
+HAS_ENV_EXAMPLE=$([ -f "$SETUP_DIR/.env.example" ] && echo "true" || echo "false")
+HAS_REQ_EXAMPLE=$([ -f "$SETUP_DIR/requirements.txt.example" ] && echo "true" || echo "false")
+
 DB_SIZE=$(du -h "$DB_PATH" 2>/dev/null | cut -f1 || echo "unknown")
+
 cat > "$BUNDLE_DIR/manifest.json" << EOF
 {
-  "backup_version": "2.0",
+  "backup_version": "2.1",
   "created_at": "$(date -Iseconds)",
   "timestamp": "${TIMESTAMP}",
   "integrity_check": "${INTEGRITY_CHECK}",
+  "focus": "configuration",
   "database": {
     "path": "${DB_PATH}",
     "size": "${DB_SIZE}"
   },
-  "config_file": $([ -f "$CONFIG_PATH" ] && echo "true" || echo "false"),
+  "configuration_files": {
+    "sparkq_yml": ${HAS_CONFIG},
+    "env_file": ${HAS_ENV}
+  },
+  "setup_templates": {
+    "sparkq_yml_example": ${HAS_YML_EXAMPLE},
+    "env_example": ${HAS_ENV_EXAMPLE},
+    "requirements_example": ${HAS_REQ_EXAMPLE}
+  },
   "counts": {
     "config_entries": ${CONFIG_COUNT},
-    "prompts": ${PROMPTS_COUNT},
-    "agent_roles": ${AGENT_ROLES_COUNT},
     "tools": ${TOOLS_COUNT},
     "task_classes": ${TASK_CLASSES_COUNT},
+    "agent_roles": ${AGENT_ROLES_COUNT},
+    "prompts": ${PROMPTS_COUNT},
     "sessions": ${SESSIONS_COUNT},
     "queues": ${QUEUES_COUNT},
     "tasks": ${TASKS_COUNT}
   },
-  "files": [
-    "sparkq.db",
-    "sparkq.yml",
-    "config_export.json",
-    "prompts_export.json",
-    "agent_roles_export.json",
-    "tools_export.json",
-    "task_classes_export.json",
-    "projects_export.json",
-    "manifest.json"
-  ]
+  "files": {
+    "critical_config": [
+      "sparkq.yml",
+      ".env",
+      "config_export.json",
+      "tools_export.json",
+      "task_classes_export.json"
+    ],
+    "setup_templates": [
+      "setup_templates/sparkq.yml.example",
+      "setup_templates/.env.example",
+      "setup_templates/requirements.txt.example"
+    ],
+    "database": [
+      "sparkq.db"
+    ],
+    "reference": [
+      "projects_export.json",
+      "agent_roles_export.json",
+      "prompts_export.json"
+    ]
+  },
+  "recovery_notes": {
+    "config": "sparkq.yml and .env are critical - restore these first",
+    "tools": "tools_export.json contains tool definitions with task class mappings",
+    "task_classes": "task_classes_export.json contains timeout configurations",
+    "prompts": "prompts are seeded from defaults on setup - customizations only matter",
+    "sessions_queues_tasks": "transient work data - not critical for recovery"
+  }
 }
 EOF
 
-# 6. Clean up old backups - keep only last N (default 7)
-# Handle both old-style .db files and new-style bundle directories
+# ============================================================
+# SECTION 7: CLEANUP OLD BACKUPS
+# ============================================================
+
 cleanup_old_backups() {
   local keep_count=$1
 
@@ -171,8 +251,15 @@ cleanup_old_backups() {
 
 cleanup_old_backups "$BACKUP_KEEP"
 
-# Summary output
+# ============================================================
+# SUMMARY OUTPUT
+# ============================================================
+
 echo -e "${GREEN}Backup created: ${BUNDLE_DIR}${NC}"
-echo -e "  Database: sparkq.db (${DB_SIZE})"
-echo -e "  Config exports: ${CONFIG_COUNT} entries, ${PROMPTS_COUNT} prompts, ${AGENT_ROLES_COUNT} roles"
-echo -e "  Retention: keeping last ${BACKUP_KEEP} backups"
+echo -e "${CYAN}Configuration (critical):${NC}"
+echo -e "  sparkq.yml: $([ "$HAS_CONFIG" = "true" ] && echo "yes" || echo "no")"
+echo -e "  .env: $([ "$HAS_ENV" = "true" ] && echo "yes" || echo "no")"
+echo -e "  config entries: ${CONFIG_COUNT} | tools: ${TOOLS_COUNT} | task_classes: ${TASK_CLASSES_COUNT}"
+echo -e "${CYAN}Setup templates:${NC} $([ "$HAS_YML_EXAMPLE" = "true" ] && echo "sparkq.yml.example" || echo "none") $([ "$HAS_ENV_EXAMPLE" = "true" ] && echo ".env.example" || echo "")"
+echo -e "${CYAN}Database:${NC} ${DB_SIZE}"
+echo -e "Retention: keeping last ${BACKUP_KEEP} backups (1 week)"

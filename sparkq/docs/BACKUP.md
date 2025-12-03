@@ -1,6 +1,6 @@
 # SparkQ Backup & Recovery Guide
 
-SparkQ automatically creates comprehensive backups of your database and configuration on every server start. This ensures you never lose critical settings like prompts, agent roles, or runtime configuration.
+SparkQ automatically creates comprehensive backups focused on **configuration preservation** on every server start. Configuration settings are critical and hard to recreate - prompts, sessions, and tasks are seeded defaults or transient work data.
 
 ## Quick Reference
 
@@ -11,40 +11,63 @@ SparkQ automatically creates comprehensive backups of your database and configur
 # View backup contents
 ./sparkq.sh backup-show 1
 
-# Full restore (database + config)
+# Full restore (database + all config)
 ./sparkq.sh backup-restore 1
 
 # Restore only database
 ./sparkq.sh backup-restore 1 --db-only
 
-# Restore only sparkq.yml
+# Restore only config files (sparkq.yml + .env)
 ./sparkq.sh backup-restore 1 --config-only
+
+# Export config for inspection
+./sparkq/scripts/restore_database.sh export-config 1
+./sparkq/scripts/restore_database.sh export-tools 1
 ```
 
 ---
 
 ## What Gets Backed Up
 
-Each backup is a **bundle** (directory) containing:
+Each backup is a **bundle** (directory) with files organized by priority:
 
-| File | Description | Recovery Use |
-|------|-------------|--------------|
-| `sparkq.db` | SQLite database (+ WAL files) | Full data restore |
-| `sparkq.yml` | Main configuration file | Server/tool settings |
-| `config_export.json` | Runtime config key/value pairs | Manual inspection |
-| `prompts_export.json` | Text expander templates | Recover prompts if DB corrupt |
-| `agent_roles_export.json` | Agent role definitions | Recover roles if DB corrupt |
-| `tools_export.json` | Tool definitions | Recover tool config |
-| `task_classes_export.json` | Timeout configurations | Recover timeouts |
-| `projects_export.json` | Project metadata | Reference |
-| `manifest.json` | Backup metadata & integrity | Verify backup health |
+### CRITICAL - Configuration (restore these first)
 
-### Why JSON Exports?
+| File | Description | Recovery Priority |
+|------|-------------|-------------------|
+| `sparkq.yml` | Main configuration file | **HIGH** - server/tool settings |
+| `.env` | Environment variables | **HIGH** - API keys, secrets |
+| `config_export.json` | Runtime config entries | **HIGH** - customizations |
+| `tools_export.json` | Tool definitions | **HIGH** - tool→task class mappings |
+| `task_classes_export.json` | Timeout configurations | **HIGH** - custom timeouts |
 
-The JSON files serve as a **human-readable safety net**. If the database becomes corrupted:
-- You can open `prompts_export.json` and manually recreate your prompts
-- You can inspect `config_export.json` to see your settings
-- No special tools needed - just a text editor
+### Setup Templates (for clean reinstall)
+
+| File | Description |
+|------|-------------|
+| `setup_templates/sparkq.yml.example` | Template for setup wizard |
+| `setup_templates/.env.example` | Template for environment |
+| `setup_templates/requirements.txt.example` | Dependencies template |
+
+### Database
+
+| File | Description |
+|------|-------------|
+| `sparkq.db` | SQLite database (+ WAL files) |
+
+### Reference (can be rebuilt from defaults)
+
+| File | Description | Notes |
+|------|-------------|-------|
+| `prompts_export.json` | Text expanders | Seeded from defaults on setup |
+| `agent_roles_export.json` | Agent roles | Seeded from code on setup |
+| `projects_export.json` | Project metadata | Single project, recreatable |
+
+### Why This Priority?
+
+- **Configuration** is hard to recreate - custom tools, timeouts, API settings
+- **Prompts** are seeded from 33 defaults on setup - only custom ones matter
+- **Sessions/queues/tasks** are transient work data - not backed up separately
 
 ---
 

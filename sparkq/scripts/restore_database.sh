@@ -26,31 +26,48 @@ Usage: $(basename "$0") [COMMAND] [OPTIONS]
 Commands:
   list                  List all available backups with details
   show <N|path>         Show backup manifest/contents without restoring
-  restore <N|path>      Restore database from backup
+  restore <N|path>      Restore database + config from backup
   restore-config <N>    Restore only sparkq.yml from backup (keeps current DB)
+  restore-env <N>       Restore only .env from backup
+  restore-templates <N> Restore setup template files
+  export-config <N>     Export config_export.json to stdout
+  export-tools <N>      Export tools_export.json to stdout
   export-prompts <N>    Export prompts from backup to stdout (for manual review)
 
 Options:
-  --db-only             Only restore database, skip sparkq.yml
-  --config-only         Only restore sparkq.yml, skip database
+  --db-only             Only restore database, skip config files
+  --config-only         Only restore sparkq.yml + .env, skip database
   --yes, -y             Skip confirmation prompt
 
 Examples:
   $(basename "$0") list                      # Show all backups with details
   $(basename "$0") show 1                    # Show manifest of most recent backup
-  $(basename "$0") restore 1                 # Restore from most recent backup
-  $(basename "$0") restore 2 --db-only       # Restore only DB from 2nd most recent
-  $(basename "$0") restore-config 1          # Restore only sparkq.yml
-  $(basename "$0") export-prompts 1          # View prompts in backup #1
+  $(basename "$0") restore 1                 # Full restore (DB + config)
+  $(basename "$0") restore 2 --db-only       # Restore only DB
+  $(basename "$0") restore 1 --config-only   # Restore only sparkq.yml + .env
+  $(basename "$0") restore-templates 1       # Restore setup example files
+  $(basename "$0") export-config 1           # View config entries in backup
+  $(basename "$0") export-tools 1            # View tool definitions in backup
 
 Backup bundles include:
-  - sparkq.db          The SQLite database
-  - sparkq.yml         Configuration file
-  - config_export.json Runtime config settings
-  - prompts_export.json Text expander templates
-  - agent_roles_export.json Agent role definitions
-  - tools_export.json  Tool definitions
-  - manifest.json      Backup metadata
+  CRITICAL (configuration):
+  - sparkq.yml           Main configuration file
+  - .env                 Environment variables (API keys, secrets)
+  - config_export.json   Runtime config settings
+  - tools_export.json    Tool definitions with task classes
+  - task_classes_export.json Timeout configurations
+
+  SETUP TEMPLATES:
+  - setup_templates/sparkq.yml.example
+  - setup_templates/.env.example
+  - setup_templates/requirements.txt.example
+
+  DATABASE:
+  - sparkq.db            The SQLite database
+
+  REFERENCE (can be rebuilt):
+  - prompts_export.json  Text expanders (seeded from defaults)
+  - agent_roles_export.json Role definitions
 
 EOF
 }
@@ -98,20 +115,24 @@ list_backups() {
       # New bundle format
       local manifest="$backup/manifest.json"
       if [[ -f "$manifest" ]]; then
-        local created_at integrity prompts_count config_count
+        local created_at integrity config_count tools_count task_classes_count
         created_at=$(grep -o '"created_at": *"[^"]*"' "$manifest" | cut -d'"' -f4 | head -1)
         integrity=$(grep -o '"integrity_check": *"[^"]*"' "$manifest" | cut -d'"' -f4 | head -1)
-        prompts_count=$(grep -o '"prompts": *[0-9]*' "$manifest" | grep -o '[0-9]*' | head -1)
         config_count=$(grep -o '"config_entries": *[0-9]*' "$manifest" | grep -o '[0-9]*' | head -1)
+        tools_count=$(grep -o '"tools": *[0-9]*' "$manifest" | grep -o '[0-9]*' | head -1)
+        task_classes_count=$(grep -o '"task_classes": *[0-9]*' "$manifest" | grep -o '[0-9]*' | head -1)
 
         local db_size="?"
         [[ -f "$backup/sparkq.db" ]] && db_size=$(du -h "$backup/sparkq.db" | cut -f1)
 
-        local has_config="no"
+        local has_config="no" has_env="no" has_templates="no"
         [[ -f "$backup/sparkq.yml" ]] && has_config="yes"
+        [[ -f "$backup/.env" ]] && has_env="yes"
+        [[ -d "$backup/setup_templates" ]] && has_templates="yes"
 
         echo -e "  ${GREEN}[$count]${NC} $name (bundle)"
-        echo -e "      DB: ${db_size} | Config: ${has_config} | Prompts: ${prompts_count:-0} | Settings: ${config_count:-0}"
+        echo -e "      Config: yml=${has_config} env=${has_env} templates=${has_templates}"
+        echo -e "      DB: ${db_size} | config:${config_count:-0} tools:${tools_count:-0} task_classes:${task_classes_count:-0}"
         echo -e "      Created: ${created_at:-unknown} | Integrity: ${integrity:-unknown}"
       else
         local size
@@ -242,11 +263,13 @@ restore_backup() {
   # Determine what we're restoring
   local db_source=""
   local config_source=""
+  local env_source=""
 
   if [[ -d "$backup_path" ]]; then
     # New bundle format
     [[ -f "$backup_path/sparkq.db" ]] && db_source="$backup_path/sparkq.db"
     [[ -f "$backup_path/sparkq.yml" ]] && config_source="$backup_path/sparkq.yml"
+    [[ -f "$backup_path/.env" ]] && env_source="$backup_path/.env"
   else
     # Legacy .db file
     db_source="$backup_path"
@@ -276,13 +299,16 @@ restore_backup() {
   echo ""
 
   if [[ "$config_only" == "true" ]]; then
-    echo "  Will restore: sparkq.yml only"
+    echo "  Will restore: configuration files only"
+    [[ -n "$config_source" ]] && echo "    - sparkq.yml"
+    [[ -n "$env_source" ]] && echo "    - .env"
   elif [[ "$db_only" == "true" ]]; then
     echo "  Will restore: sparkq.db only"
   else
     echo "  Will restore:"
     [[ -n "$db_source" ]] && echo "    - sparkq.db"
     [[ -n "$config_source" ]] && echo "    - sparkq.yml"
+    [[ -n "$env_source" ]] && echo "    - .env"
   fi
   echo ""
 
@@ -290,6 +316,7 @@ restore_backup() {
   echo "  Pre-restore backups will be created:"
   [[ -f "$DB_PATH" ]] && [[ "$config_only" != "true" ]] && echo "    - sparkq_preRestore_*.db"
   [[ -f "$CONFIG_PATH" ]] && [[ "$db_only" != "true" ]] && [[ -n "$config_source" ]] && echo "    - sparkq_preRestore_*.yml"
+  [[ -f "$PROJECT_ROOT/.env" ]] && [[ "$db_only" != "true" ]] && [[ -n "$env_source" ]] && echo "    - sparkq_preRestore_*.env"
   echo ""
 
   # Confirm
@@ -316,6 +343,12 @@ restore_backup() {
     echo -e "${GREEN}✓${NC} Current sparkq.yml backed up"
   fi
 
+  # Backup current .env before restore
+  if [[ -f "$PROJECT_ROOT/.env" ]] && [[ "$db_only" != "true" ]] && [[ -n "$env_source" ]]; then
+    cp "$PROJECT_ROOT/.env" "$BACKUP_DIR/sparkq_preRestore_${pre_restore_ts}.env"
+    echo -e "${GREEN}✓${NC} Current .env backed up"
+  fi
+
   # Restore database
   if [[ -n "$db_source" ]] && [[ "$config_only" != "true" ]]; then
     cp "$db_source" "$DB_PATH"
@@ -329,6 +362,12 @@ restore_backup() {
   if [[ -n "$config_source" ]] && [[ "$db_only" != "true" ]]; then
     cp "$config_source" "$CONFIG_PATH"
     echo -e "${GREEN}✓${NC} sparkq.yml restored"
+  fi
+
+  # Restore .env
+  if [[ -n "$env_source" ]] && [[ "$db_only" != "true" ]]; then
+    cp "$env_source" "$PROJECT_ROOT/.env"
+    echo -e "${GREEN}✓${NC} .env restored"
   fi
 
   echo ""
@@ -383,6 +422,66 @@ case "${1:-}" in
       exit 1
     fi
     export_prompts "$2"
+    ;;
+  export-config)
+    if [[ -z "${2:-}" ]]; then
+      echo "Error: export-config requires a backup number"
+      exit 1
+    fi
+    backup_path=$(resolve_backup "$2")
+    if [[ -d "$backup_path" && -f "$backup_path/config_export.json" ]]; then
+      cat "$backup_path/config_export.json"
+    else
+      echo -e "${RED}Error: config_export.json not found in backup${NC}"
+      exit 1
+    fi
+    ;;
+  export-tools)
+    if [[ -z "${2:-}" ]]; then
+      echo "Error: export-tools requires a backup number"
+      exit 1
+    fi
+    backup_path=$(resolve_backup "$2")
+    if [[ -d "$backup_path" && -f "$backup_path/tools_export.json" ]]; then
+      cat "$backup_path/tools_export.json"
+    else
+      echo -e "${RED}Error: tools_export.json not found in backup${NC}"
+      exit 1
+    fi
+    ;;
+  restore-env)
+    if [[ -z "${2:-}" ]]; then
+      echo "Error: restore-env requires a backup number"
+      exit 1
+    fi
+    backup_path=$(resolve_backup "$2")
+    if [[ -d "$backup_path" && -f "$backup_path/.env" ]]; then
+      if [[ -f "$PROJECT_ROOT/.env" ]]; then
+        cp "$PROJECT_ROOT/.env" "$BACKUP_DIR/sparkq_preRestore_$(date +%Y%m%d_%H%M%S).env"
+        echo -e "${GREEN}✓${NC} Current .env backed up"
+      fi
+      cp "$backup_path/.env" "$PROJECT_ROOT/.env"
+      echo -e "${GREEN}✓${NC} .env restored from backup"
+    else
+      echo -e "${RED}Error: .env not found in backup${NC}"
+      exit 1
+    fi
+    ;;
+  restore-templates)
+    if [[ -z "${2:-}" ]]; then
+      echo "Error: restore-templates requires a backup number"
+      exit 1
+    fi
+    backup_path=$(resolve_backup "$2")
+    SETUP_DIR="$PROJECT_ROOT/sparkq/scripts/setup"
+    if [[ -d "$backup_path/setup_templates" ]]; then
+      [[ -f "$backup_path/setup_templates/sparkq.yml.example" ]] && cp "$backup_path/setup_templates/sparkq.yml.example" "$SETUP_DIR/" && echo -e "${GREEN}✓${NC} sparkq.yml.example restored"
+      [[ -f "$backup_path/setup_templates/.env.example" ]] && cp "$backup_path/setup_templates/.env.example" "$SETUP_DIR/" && echo -e "${GREEN}✓${NC} .env.example restored"
+      [[ -f "$backup_path/setup_templates/requirements.txt.example" ]] && cp "$backup_path/setup_templates/requirements.txt.example" "$SETUP_DIR/" && echo -e "${GREEN}✓${NC} requirements.txt.example restored"
+    else
+      echo -e "${RED}Error: setup_templates not found in backup${NC}"
+      exit 1
+    fi
     ;;
   -h|--help)
     show_help
