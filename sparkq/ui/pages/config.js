@@ -14,7 +14,6 @@
     automation: loadAutomationTab,
     prompts: loadPromptsTab,
     scripts: loadScriptsTab,
-    enqueue: loadEnqueueTab,
     'agent-roles': loadAgentRolesTab,
     advanced: loadAdvancedTab,
   };
@@ -125,9 +124,6 @@
         </button>
         <button type="button" id="scripts-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="scripts" tabindex="-1">
           Scripts
-        </button>
-        <button type="button" id="enqueue-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="enqueue" tabindex="-1">
-          Enqueue
         </button>
         <button type="button" id="agent-roles-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="agent-roles" tabindex="-1">
           Agent Roles
@@ -1062,27 +1058,6 @@
     tabContent.innerHTML = `
       <div class="card">
         <p class="muted">Scripts module not available.</p>
-      </div>
-    `;
-  }
-
-  async function loadEnqueueTab(container) {
-    const tabContent = container.querySelector('#tab-content');
-    if (!tabContent) return;
-
-    if (Utils.injectEnqueueStyles) {
-      Utils.injectEnqueueStyles();
-    }
-
-    const enqueuePage = Pages.Enqueue;
-    if (enqueuePage && typeof enqueuePage.render === 'function') {
-      await enqueuePage.render(tabContent);
-      return;
-    }
-
-    tabContent.innerHTML = `
-      <div class="card">
-        <p class="muted">Enqueue module not available.</p>
       </div>
     `;
   }
