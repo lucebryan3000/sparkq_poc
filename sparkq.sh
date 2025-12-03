@@ -29,6 +29,8 @@ Server Commands:
   run [--foreground|--e2e|--env dev|prod|test]     Start server (--foreground for interactive, --e2e to run full pytest suite)
   stop                   Stop the server
   status                 Check server status
+  --service-on           Enable service monitoring (polls every 15 minutes, auto-restarts if down)
+  --service-off          Disable service monitoring
 
 Database & Config:
   setup                  Interactive setup (create sparkq.yml + database)
@@ -86,6 +88,53 @@ ensure_venv() {
   fi
 }
 
+# Service monitoring functions
+SERVICE_MONITOR_FILE="$PROJECT_ROOT/.sparkq_service_monitor"
+SERVICE_PID_FILE="$PROJECT_ROOT/.sparkq_monitor.pid"
+
+start_service_monitor() {
+  if [[ -f "$SERVICE_MONITOR_FILE" ]]; then
+    echo -e "${YELLOW}Service monitoring already enabled${NC}"
+    return
+  fi
+
+  touch "$SERVICE_MONITOR_FILE"
+
+  # Start monitoring in background
+  (
+    while [[ -f "$SERVICE_MONITOR_FILE" ]]; do
+      sleep 900  # 15 minutes
+
+      if ! ./sparkq.sh status &>/dev/null; then
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] SparkQ server down, restarting..." >> "$PROJECT_ROOT/sparkq.log"
+        ./sparkq.sh start
+      fi
+    done
+  ) &
+
+  echo $! > "$SERVICE_PID_FILE"
+  echo -e "${GREEN}Service monitoring enabled (PID $(cat $SERVICE_PID_FILE))${NC}"
+  echo -e "${BLUE}Monitor will check server health every 15 minutes and auto-restart if needed${NC}"
+}
+
+stop_service_monitor() {
+  if [[ ! -f "$SERVICE_MONITOR_FILE" ]]; then
+    echo -e "${YELLOW}Service monitoring not enabled${NC}"
+    return
+  fi
+
+  if [[ -f "$SERVICE_PID_FILE" ]]; then
+    MONITOR_PID=$(cat "$SERVICE_PID_FILE")
+    if kill "$MONITOR_PID" 2>/dev/null; then
+      echo -e "${GREEN}Service monitor stopped (PID $MONITOR_PID)${NC}"
+    fi
+    rm -f "$SERVICE_PID_FILE"
+  fi
+
+  rm -f "$SERVICE_MONITOR_FILE"
+  echo -e "${GREEN}Service monitoring disabled${NC}"
+}
+
 # Main dispatcher
 main() {
   ensure_venv
@@ -120,6 +169,17 @@ if [[ "${1:-}" == "restart" ]]; then
   set -- run --background
   main "$@"
   exit $?
+fi
+
+# Handle service monitoring
+if [[ "${1:-}" == "--service-on" ]]; then
+  start_service_monitor
+  exit 0
+fi
+
+if [[ "${1:-}" == "--service-off" ]]; then
+  stop_service_monitor
+  exit 0
 fi
 
 # Handle teardown separately (doesn't need venv)
