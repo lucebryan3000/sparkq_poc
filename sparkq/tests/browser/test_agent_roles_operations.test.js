@@ -165,11 +165,13 @@ describe('Agent Roles - Edit, Add, Delete Operations', () => {
     console.log('Clicking toggle button...');
     await firstToggleBtn.click();
 
-    // Wait for page to update
-    await page.waitForTimeout(1000);
+    // Wait for the role list to reload and new button to appear
+    // The toggle modifies the database and reloads the role list
+    await page.waitForTimeout(2000);
 
-    // Check the button text changed
-    const updatedText = await page.evaluate((btn) => btn.textContent, firstToggleBtn);
+    // Re-query for the first toggle button after reload
+    const reloadedFirstToggleBtn = await page.$('.role-toggle-btn');
+    const updatedText = await page.evaluate((btn) => btn.textContent, reloadedFirstToggleBtn);
     console.log(`Updated toggle button text: ${updatedText}`);
 
     // Should have changed between Active/Deactivate
