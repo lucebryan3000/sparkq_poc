@@ -300,49 +300,49 @@ class Storage:
 
             now = now_iso()
 
-            # Seed default prompts (Phase 14A)
+            # Seed default prompts (Phase 14A, extended in Phase 26)
             cursor.execute("SELECT COUNT(*) FROM prompts")
             prompt_count = cursor.fetchone()[0]
             if prompt_count == 0:
-                cursor.execute(
-                    """INSERT INTO prompts (id, command, label, template_text, description, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        gen_prompt_id(),
-                        "code-review",
-                        "Code Review",
-                        "Review the following code for best practices, potential bugs, and security issues. Provide specific recommendations for improvement.\n\n",
-                        "Review code for best practices and bugs",
-                        now,
-                        now,
-                    ),
-                )
-                cursor.execute(
-                    """INSERT INTO prompts (id, command, label, template_text, description, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        gen_prompt_id(),
-                        "write-tests",
-                        "Write Tests",
-                        "Generate comprehensive test cases for the following code. Include unit tests, edge cases, and integration test scenarios using pytest.\n\n",
-                        "Generate comprehensive test cases",
-                        now,
-                        now,
-                    ),
-                )
-                cursor.execute(
-                    """INSERT INTO prompts (id, command, label, template_text, description, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        gen_prompt_id(),
-                        "refactor",
-                        "Refactor Code",
-                        "Refactor the following code to improve performance, readability, and maintainability. Follow SOLID principles and current best practices.\n\n",
-                        "Refactor code for better quality",
-                        now,
-                        now,
-                    ),
-                )
+                default_prompts = [
+                    ("code-review", "Code Review", "Review the following code for best practices, potential bugs, and security issues. Provide specific recommendations for improvement.", "Review code for best practices and bugs"),
+                    ("refactor", "Refactor Code", "Refactor the following code to improve performance, readability, and maintainability. Follow SOLID principles and current best practices.", "Refactor code for better quality"),
+                    ("write-tests", "Write Tests", "Generate comprehensive pytest unit + integration tests covering all logic paths, error cases, edge conditions, and expected behavior. Use project conventions.", "Generate comprehensive test cases"),
+                    ("audit", "Full-Stack Audit", "Scan the entire codebase. Identify defects, inconsistencies, API/UI mismatches, missing endpoints, data-model drift, dead code, unused modules, and security issues. Provide fixes with patches.", "Scan entire codebase for issues and propose fixes"),
+                    ("api-audit", "API Endpoint Audit", "Extract all API calls from UI and actual Python backend routes. Compare, detect missing endpoints, wrong verbs, wrong paths. Generate and validate all patches.", "Ensure UI/API parity"),
+                    ("fix", "Fix My Code", "Analyze the given code for errors, bugs, missing imports, logic failures, missing variables, missing function definitions, and any structural issues. Repair it cleanly.", "Quick repair on broken code"),
+                    ("endpoint", "Generate Endpoint", "Generate a FastAPI endpoint, Pydantic request/response models, service logic, and storage layer changes for the provided specification.", "Quickly add a fully wired backend route"),
+                    ("ui-handler", "Write UI Handler", "Create a JS event handler and API call (fetch or local $api) for the described UI interaction. Include validation and error handling.", "Create a reliable JS → API interaction"),
+                    ("fix-ui", "Fix UI Interaction", "Find and fix UI bugs including broken click handlers, incorrect selectors, invisible elements, modal issues, missing event bindings, and fetch errors.", "Patch JS click handlers, modals, DOM"),
+                    ("css-fix", "Styling Repair", "Repair layout issues, alignment, z-index, spacing, and visual regressions. Provide a corrected CSS block.", "Debug CSS/layout issues"),
+                    ("component", "Add Component", "Build a new UI component using existing project patterns, including HTML, JS logic, and CSS if needed.", "Generate UI page/component"),
+                    ("storage", "Add Storage Operation", "Generate new storage-layer CRUD functions matching project conventions.", "Add DB CRUD logic"),
+                    ("model", "Add Pydantic Model", "Generate a Pydantic model with fields, validation, defaults, and examples.", "Create a schema quickly"),
+                    ("db-fix", "Repair Database Logic", "Identify and correct SQL or SQLite logic errors including foreign keys, constraints, transactions, and uniqueness.", "Fix queries, indexes, integrity errors"),
+                    ("test-fail", "Analyze Failing Test", "Analyze the failing test output. Identify root cause and provide the exact patch required.", "Diagnose and fix failing pytest"),
+                    ("cover", "Add Missing Tests for Feature", "Generate missing test coverage for the following feature, endpoints, or modules.", "Improve coverage for features"),
+                    ("e2e-audit", "E2E Audit & Fix", "Simulate E2E interaction flow; detect missing API endpoints, broken UI handlers, and mismatched routes. Generate patches.", "When UI says done but buttons don't work"),
+                    ("docs", "Add Docs", "Generate clean, concise documentation for the feature, including usage, examples, and expected requests/responses.", "API or feature documentation"),
+                    ("summary", "Summarize Codebase", "Provide a complete summary of the codebase structure, responsibilities, data flow, and module interactions.", "Get high-level view of project"),
+                    ("report", "Create Markdown Report", "Generate a formatted Markdown report summarizing problems, solutions, refactors, and recommendations.", "Create professional audit reports"),
+                    ("feature", "Implement Feature", "Implement this feature full-stack: API → models → storage → UI → tests.", "Turn requirements into code"),
+                    ("perf", "Improve Performance", "Analyze the code for performance issues—DB, Python loops, JS rendering—and propose optimized patches.", "Identify and fix bottlenecks"),
+                    ("deps", "Explore Dependencies", "Identify unused imports, unnecessary libraries, version issues, conflicts, and simplify the dependency tree.", "Audit imports & dependencies"),
+                    ("clean", "Clean Codebase", "Perform a codebase cleanup: remove dead files, unused functions, old styles, unused routes, deprecated references.", "Housekeeping and cleanup"),
+                    ("security", "Security Audit", "Audit code for insecure patterns: SQL injection, unsafe eval, weak validation, leaked secrets, insecure APIs.", "Scan for security vulnerabilities"),
+                    ("validate", "Schema & Validation Audit", "Verify all API endpoints have matching schemas, the UI sends valid data, and validation is correct.", "Verify Pydantic/SQL schemas"),
+                    ("debug", "Debug Error", "Troubleshoot the error. Identify root cause, propose fix, and show corrected code.", "When something is broken but unclear why"),
+                    ("ui-error", "Fix UI Error", "Analyze UI console errors, trace failing frontend behavior, identify broken API calls or missing handlers.", "Quick UI triage"),
+                    ("backend-error", "Fix Backend Crash", "Analyze the traceback, identify root cause, and provide corrected implementation.", "Debug Python exceptions"),
+                    ("build", "Run Full AI Build Cycle", "Run a full AI-assisted build cycle: generate code, run tests, fix failures, validate API/UI alignment, ensure everything passes.", "Multi-phase generate → test → fix loop"),
+                    ("robust", "Improve Code Robustness", "Harden logic against edge cases, unexpected inputs, concurrency issues, and race conditions.", "Strengthen edge-case handling"),
+                ]
+                for command, label, template, description in default_prompts:
+                    cursor.execute(
+                        """INSERT INTO prompts (id, command, label, template_text, description, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (gen_prompt_id(), command, label, template, description, now, now),
+                    )
 
             # Create default project for single-project mode (Phase 12)
             cursor.execute(
