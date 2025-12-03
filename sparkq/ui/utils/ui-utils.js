@@ -146,10 +146,6 @@
       }, 300);
     };
 
-    if (activeToasts.length >= MAX_TOASTS) {
-      removeToast(activeToasts.shift());
-    }
-
     document.body.appendChild(toast);
     activeToasts.push(toast);
 

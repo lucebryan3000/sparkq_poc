@@ -173,8 +173,8 @@
 
   async function handleArchiveQueue(container, queueId, queueName) {
     container = container || pageContainerRef;
-    const confirmed = await Utils.showPrompt('Archive Queue', `Are you sure you want to archive "${queueName}"? This keeps the history but marks it as archived.`, 'no');
-    if (confirmed !== 'yes') {
+    const confirmed = await Utils.showConfirm('Archive Queue', `Are you sure you want to archive "${queueName}"? This keeps the history but marks it as archived.`);
+    if (!confirmed) {
       return;
     }
 
@@ -190,8 +190,8 @@
 
   async function handleDeleteQueue(container, queueId, queueName) {
     container = container || pageContainerRef;
-    const confirmed = await Utils.showPrompt('Delete Queue', `Are you sure you want to permanently delete "${queueName}"? This will remove all history and cannot be undone.`, 'no');
-    if (confirmed !== 'yes') {
+    const confirmed = await Utils.showConfirm('Delete Queue', `Are you sure you want to permanently delete "${queueName}"? This will remove all history and cannot be undone.`);
+    if (!confirmed) {
       return;
     }
 
