@@ -22,14 +22,13 @@
       if (diffHours < 24) return `${diffHours}h ago`;
       if (diffDays < 7) return `${diffDays}d ago`;
 
-      // Absolute for older times
+      // Absolute for older times - uses browser's local timezone
       const options = {
         month: 'short',
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
-        hour12: true,
-        timeZone: 'America/Chicago'
+        hour12: true
       };
       return date.toLocaleString('en-US', options);
     } catch (e) {
