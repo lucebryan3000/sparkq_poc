@@ -1,349 +1,415 @@
-````markdown
-# Codex Python Engineering Playbook (Machine-Targeted Version)
-**Purpose:**
-A fully LLM-oriented, non-human code-generation rulebook.
-This is the authoritative standard Codex must obey whenever generating, modifying, or reviewing Python code.
-The focus is correctness, determinism, maintainability, safety, and strict pattern adherence.
 
-Codex must treat every rule below as binding.
+# Codex Python Engineering Playbook — UI Drift, Dead Buttons, and Deterministic Patterns (Expanded)
 
----
-
-# 1. Execution Baseline (Environment & Toolchain)
-
-Codex must auto-detect (from prompt context or project files):
-
-- Python version
-- Package manager (`pip`, `pip-tools`, `poetry`, `uv`)
-- Lockfiles (`requirements.txt`, `poetry.lock`, `uv.lock`)
-- Tooling (`ruff`, `black`, `isort`, `mypy/pyright`, CI config)
-
-**Codex must not generate code incompatible with these versions or tools.**
-
-If ambiguity exists, Codex must assume:
-- Python ≥ 3.10
-- Modern tooling (`ruff`, `black`, `mypy`)
-- `pathlib` > `os.path`
+## Overview
+This is an expanded and hardened version of the Python Codex Playbook. It includes:
+- Deep troubleshooting for **dead UI buttons**, “works once then breaks,” and inconsistent DOM → JS → API routing drift.
+- Authoritative references for Python UI and web integration best practices.
+- Expanded rules, double length, with explicit code samples.
+- A focus on preventing architecture drift when Codex modifies multiple layers.
 
 ---
 
-# 2. Deterministic, Idempotent Code Generation (Mandatory)
+# 1. Why UI Buttons Become “Dead”
+Dead buttons emerge from one or more systemic problems:
 
-Codex must ALWAYS:
-- Generate entire files, never partial diffs (unless explicitly allowed).
-- Avoid nondeterministic ordering.
-- Not invent files, folders, or architecture not already defined.
-- Maintain stable signatures across runs.
-- Avoid “creative restructuring” or refactors unless explicitly instructed.
+## 1.1 Event Listener Drift
+### Symptoms:
+- Buttons exist visually.
+- Hover states work.
+- Clicks do nothing.
+- No console errors.
+- Buttons previously worked but stopped.
 
-**Same input → identical output. No spontaneous changes.**
+### Root Cause:
+Codex-generated JS drift often *rewrites the DOM structure* without updating:
+- Button selectors
+- Event binding calls
+- Page-level `render()` wrappers
+- `stopPropagation()` handling
+- Routing logic in `app-core.js`
 
----
+### Example Failure
+```javascript
+// Broken: Codex rewrote markup but did not update selector
+document.getElementById("delete-btn").addEventListener("click", onDelete);
+```
 
-# 3. Repository & Architecture Structure
+HTML was rewritten to:
+```html
+<button class="btn-delete">Delete</button>
+```
 
-Codex must follow existing project patterns:
-- Respect directory structure (never reorganize).
-- Prefer `src/` layout when applicable.
-- No ad-hoc `utils.py` dumps; group code by domain.
-- Respect layering:
-  - **Boundary layer:** API, CLI, workers, DB adapters
-  - **Service / business logic layer:** pure logic, no IO
-  - **Data layer:** repositories, models, schemas
+But JS still refers to the old ID, creating a silent no-op.
 
-Codex must never break boundaries or mix layers.
-
----
-
-# 4. Typing & Interfaces (Strict Mode)
-
-Codex must use:
-- Full type hints for all public and private functions.
-- Explicit return types (never implicit).
-- `Optional[]`, `Union[]`, `Literal[]`, `TypedDict`, `Protocol`.
-- Pydantic models or dataclasses for structured data.
-- Generic types when behavior does not depend on concrete structures.
-
-Codex must avoid:
-- `Any` unless explicitly required.
-- Untyped dicts/lists with ambiguous structure.
-
----
-
-# 5. Data Modeling Standards
-
-Codex must:
-- Use Pydantic or Dataclasses for structured schemas.
-- Use Enum for fixed categories.
-- Only return dicts when required by API or DB layer.
-- Normalize date/time to UTC (`zoneinfo`).
-- Use `Decimal` for money or exact arithmetic.
+### Fix Pattern
+```javascript
+const deleteBtn = container.querySelector(".btn-delete");
+if (deleteBtn) {
+    deleteBtn.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        onDelete(taskId);
+    });
+}
+```
 
 ---
 
-# 6. Error Handling & Logging (LLM-Safe Patterns)
+## 1.2 Drift inside IIFE Module Pattern
+SparkQ uses immediately invoked function expressions (IIFEs):
 
-Codex must:
-- Never use bare `except:`.
-- Catch specific exceptions.
-- Log errors with structured context.
-- Never log secrets, tokens, or private content.
-- Use domain-specific exceptions when appropriate.
-- Prefer raising meaningful errors over returning `None` or falsey values.
+```javascript
+(function(Pages, API, Utils) {
+    Pages.Tasks = { render: async () => {...} };
+})(window.Pages, window.API, window.Utils);
+```
 
-Pattern:
+If Codex rewrites structure incorrectly:
+- `Pages.X.render()` stops being assigned
+- Event listeners bind *before* DOM exists
+- Buttons appear but do nothing
+
+### Fix Pattern
+Ensure rendering happens *after* DOM injection:
+```javascript
+container.innerHTML = `<button class="btn-delete">Delete</button>`;
+await Promise.resolve(); // allow DOM paint
+bindEvents(container);
+```
+
+---
+
+## 1.3 Static Caching & Browser Cache Pollution
+JS files load but browser continues using stale older versions.
+
+### Fix:
+Add cache-bust query strings in dev:
+```html
+<script src="pages/tasks.js?v={{timestamp}}"></script>
+```
+
+Or use:
+
+```javascript
+app.use("/ui/", express.static("ui", { etag: false }));
+```
+
+---
+
+# 2. Diagnosing Dead Buttons Systematically
+
+## 2.1 Enable Event Breakpoints in Chrome DevTools
+Official: https://developer.chrome.com/docs/devtools/javascript/breakpoints/
+
+Enable:
+- “Event Listener Breakpoints → Mouse → click”
+- Trigger the button
+
+If nothing breaks → no listener attached.
+
+---
+
+## 2.2 Inspect Bound Event Listeners
+Select the element → DevTools → “Event Listeners”
+
+If empty → JS never executed binding function.
+
+---
+
+## 2.3 Confirm JS Module Loaded
+In DevTools console:
+```js
+console.log(window.Pages.Tasks)
+```
+If undefined → Codex broke module registration.
+
+---
+
+## 2.4 Add “listener attached” debug markers
+```javascript
+console.debug("[Tasks UI] Binding delete button listener", deleteBtn);
+```
+
+If it never fires → verify render flow.
+
+---
+
+# 3. Puppeteer Regression Detection
+
+## Sample Puppeteer Test for Dead Buttons
+```js
+await page.goto("http://localhost:5005/ui/tasks");
+
+await page.waitForSelector(".btn-delete");
+
+const hasListener = await page.evaluate(() => {
+  const el = document.querySelector(".btn-delete");
+  const listeners = getEventListeners(el);
+  return listeners.click?.length > 0;
+});
+
+expect(hasListener).toBeTruthy();
+```
+
+---
+
+# 4. Python + FastAPI + JS Integration Drift
+
+## 4.1 Common Drift: API Signature Changes
+
+### Example Bad Drift
+Codex rewrites:
 
 ```python
-try:
-    ...
-except sqlite3.IntegrityError as exc:
-    logger.error("Duplicate key: %s", exc)
-    raise ValueError("Invalid input") from exc
-except Exception as exc:
-    logger.exception("Unhandled error")
-    raise
-````
+@app.delete("/api/tasks/{id}")
+def delete_task(id: str):
+```
+
+But UI still calls:
+```javascript
+api("DELETE", `/api/tasks/${task.id}`, null);
+```
+
+And Codex may change response shape:
+```json
+{"message": "ok"}
+```
+
+But JS expects:
+```js
+if (resp.task) ...
+```
+
+### Authoritative Best Practice (FastAPI):
+https://fastapi.tiangolo.com/tutorial/path-params/
 
 ---
 
-# 7. Database & Storage Operations (Strict)
+# 5. Architecture-Safe UI Button Pattern (Canonical)
 
-Codex must:
+Use this **exact** pattern everywhere:
 
-* Use parameterized SQL queries only.
-* Never use f-strings for SQL.
-* Use context managers for all DB connections and files.
-* Convert rows via `dict(row)` or model constructors.
-* Avoid N+1 queries: batch operations, joins, or bulk inserts.
-* Keep all DB logic inside repository/storage layer.
+```javascript
+function bindTaskRowActions(container, task) {
+    const del = container.querySelector(`[data-task-id="${task.id}"] .btn-delete`);
+    if (!del) return;
 
-Codex must never:
-
-* Access DB directly from API or CLI logic.
-* Mix SQL construction into business logic.
-
----
-
-# 8. Network, Filesystem, & Side Effects
-
-Codex must:
-
-* Keep side effects at boundaries.
-* Avoid global mutable state.
-* Use `pathlib.Path` everywhere.
-* Apply timeouts to all network calls.
-* Use async safely (no mixing sync/async unless specified).
-* Ensure proper cleanup (context managers only).
-
-Codex must not:
-
-* Use `eval`, `exec`, or untrusted deserialization (`pickle.loads`).
-* Hardcode secrets, passwords, URLs, or API keys.
+    del.addEventListener("click", (evt) => {
+        evt.stopPropagation();
+        Utils.withButtonLoading(del, async () => {
+            try {
+                await api("DELETE", `/api/tasks/${task.id}`, null, { action: "delete task" });
+                Utils.showToast("Task deleted", "success");
+                await refreshTasks();
+            } catch (err) {
+                Utils.showError("Delete failed");
+            }
+        });
+    });
+}
+```
 
 ---
 
-# 9. API Layer (FastAPI/Django/Flask Standards)
+# 6. Strict Deterministic Rendering
 
-Codex must:
+## Pattern:
+```javascript
+function renderTasks(container, tasks) {
+    container.innerHTML = tasks.map(t => `
+        <div class="task-row" data-task-id="${t.id}">
+            <button class="btn-delete">Delete</button>
+            <button class="btn-edit">Edit</button>
+        </div>
+    `).join("");
 
-* Wrap responses in stable schema shapes.
-* Validate inputs at the boundary using Pydantic.
-* Never expose raw exceptions or tracebacks.
-* Use meaningful HTTP status codes (400/404/409/422).
-* Keep route handlers thin (delegate to services).
+    tasks.forEach(task => bindTaskRowActions(container, task));
+}
+```
 
-Example:
+---
 
+# 7. Python Server Drift Safeguards
+
+## 7.1 Confirm endpoint matches UI expectations
 ```python
-@app.post("/items", response_model=ItemResponse)
-async def create_item(req: ItemCreate):
-    item = service.create_item(req)
-    return {"item": item}
+@app.delete("/api/tasks/{task_id}", status_code=200)
+def delete_task(task_id: str):
+    deleted = storage.delete_task(task_id)
+    if not deleted:
+        raise HTTPException(404, "Task not found")
+    return {"message": "deleted", "task_id": task_id}
 ```
 
 ---
 
-# 10. CLI Layer (Typer)
+# 8. Authoritative UI and Architecture Sources
 
-Codex must:
+### UI Architecture:
+- MDN Event Model
+  https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener
 
-* Use Typer’s help text, options, and typed arguments.
-* Ensure all errors result in meaningful messages.
-* Never print raw exceptions.
-* Keep commands thin; delegate real logic to service layer.
+### DOM Querying
+- https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelector
 
----
+### JS Module Patterns
+- https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules
 
-# 11. Configuration & Secrets
+### FastAPI High-Quality Patterns
+- https://fastapi.tiangolo.com/tutorial/
 
-Codex must:
-
-* Use environment variables (via `os.getenv` or `pydantic-settings`).
-* Provide safe defaults.
-* Never commit secrets to code.
-* Centralize configuration into one module.
-
-Codex must not:
-
-* Reference environment infrastructure not present.
+### TypeScript/JS UI Anti-Patterns (applies to vanilla JS also)
+- https://developer.mozilla.org/en-US/docs/Learn/Tools_and_testing/Cross_browser_testing/JavaScript
 
 ---
 
-# 12. Testing Patterns (Machine-Safe Standards)
+# 9. Full-Step Troubleshooting for “Buttons Not Working”
 
-Codex must:
-
-* Create deterministic tests (no sleep, network, randomness).
-* Test behaviors, not implementation details.
-* Use parametrized tests for coverage.
-* Provide fixtures for DB or IO boundaries.
-* Use TestClient for API testing.
-
-Example:
-
-```python
-client = TestClient(app)
-resp = client.get("/api/resource")
-assert resp.status_code == 200
+## Step 1 — Confirm Render Flow
+Insert:
+```javascript
+console.debug("Rendering Tasks page...");
 ```
 
-Codex must:
-
-* Use mocks for time, randomness, or network.
-* Never require external services.
+If not printed → routing is broken.
 
 ---
 
-# 13. Performance & Safety Standards
+## Step 2 — Confirm Element Exists Before Binding
+```javascript
+const btn = container.querySelector(".btn-delete");
+console.debug("btn-delete exist?", btn);
+```
 
-Codex must:
-
-* Stream large IO; avoid loading entire payloads.
-* Prevent N+1 queries.
-* Use batching or async where IO-bound.
-* Guard async code with cancellation and timeouts.
-* Avoid expensive operations in tight loops.
+If null → wrong selector or DOM drift.
 
 ---
 
-# 14. Observability (Machine Enforcement)
+## Step 3 — Confirm Listener Attached
+```javascript
+btn.addEventListener("click", () => console.log("clicked"));
+```
 
-Codex must:
-
-* Add structured logs to critical flows.
-* Provide context identifiers in logs.
-* Never swallow exceptions silently.
-
-Codex should avoid:
-
-* Verbose logging in performance-sensitive code.
+If no log → binding not executing.
 
 ---
 
-# 15. Dependency Hygiene
-
-Codex must:
-
-* Prefer stdlib over new dependencies.
-* Add dependencies only when explicitly instructed.
-* Keep versions pinned when modifying `requirements.txt`.
-* Avoid vendored or duplicated dependencies.
+## Step 4 — Check Event Bubbling / stopPropagation()
+Codex often mistakenly removes `evt.stopPropagation()` which causes row-click handlers to override button-click handlers.
 
 ---
 
-# 16. Code Clarity & Maintainability (LLM-Safe)
-
-Codex must:
-
-* Use early returns.
-* Avoid deep nesting (>3 levels).
-* Use descriptive names: snake_case for functions, PascalCase for classes.
-* Remove dead code, unused params, and obsolete comments.
-
-Codex must not:
-
-* Leave placeholder code (`TODO`, `pass`, commented stubs).
-* Generate overly abstract class hierarchies.
-* Mix concerns across layers.
-
----
-
-# 17. Concurrency Rules
-
-Codex must:
-
-* Use asyncio for IO-bound concurrency.
-* Avoid mixing threads and async unless explicitly directed.
-* Protect shared mutable state with locks.
-* Use cancellation-safe patterns.
-
-Codex must not:
-
-* Create event loops manually unless required.
-* Block the event loop with synchronous IO.
-
----
-
-# 18. Validation Commands (Codex Must Output These)
-
-Every code output must include:
-
+## Step 5 — Confirm API Call is Correct
+Use:
 ```bash
-python -m py_compile path/to/file.py
-python -c "import module; print('PASS')"
-grep -n 'TODO\|FIXME\|XXX' -r path/to/file.py
+curl -X DELETE http://localhost:5005/api/tasks/<id>
 ```
 
-API files additionally require:
+If server returns 405 or 404 → API drift.
 
+---
+
+## Step 6 — Check Browser Console for Network Errors
+Open Network tab → click button → inspect the failed request.
+
+---
+
+## Step 7 — Force Refresh UI Assets
 ```bash
-python -c "from <path>.api import app; print('PASS')"
+rm -rf sparkq/ui/.cache
 ```
 
-Test files must be validated with:
-
-```bash
-pytest -q
+Add:
+```html
+<script src="tasks.js?v=12345"></script>
 ```
 
 ---
 
-# 19. Common LLM Failure Modes Codex Must Avoid (Critical)
+# 10. Ultimate Anti-Drift Enforcement Patterns
 
-Codex must treat these as forbidden behaviors:
+## 10.1 Freeze selectors
+Document selectors in a central file:
+```javascript
+export const SELECTORS = {
+    TASK_DELETE_BUTTON: ".btn-delete",
+};
+```
 
-* Wrong or invented imports
-* Inconsistent return types
-* Missing “await” in async functions
-* Unsafe SQL (string-concatenated queries)
-* Hidden global state or mutable defaults
-* Creating architecture not requested
-* Forgetting validation commands
-* Hardcoding secrets
-* Leaving placeholder stubs
-* Returning raw exceptions to clients
-* Incorrect file paths or unsupported OS assumptions
-* Returning mixed structures (dict | model | tuple)
-* Over-engineering (unnecessary classes or layers)
-* Tests that depend on internal implementation details
+## 10.2 Freeze API signatures
+Types in TypeScript-compatible `.d.ts` files or Python Pydantic models.
 
-Codex must self-check for these errors before producing the final output.
+## 10.3 Freeze rendering patterns
+Codex must re-use templates explicitly provided.
 
 ---
 
-# 20. Final Rule: Codex Must Follow Patterns, Not Improvise
+# 11. Example Reference Implementation (End-to-End Working Sample)
 
-The priority order is:
+## tasks.js (full safe example)
+```javascript
+(function(Pages, API, Utils) {
+    "use strict";
 
-1. **Explicit instructions from the user**
-2. **Existing codebase patterns**
-3. **This playbook**
-4. **Best practices**
+    async function loadTasks() {
+        try {
+            const resp = await API.api("GET", "/api/tasks", null, { action: "list tasks" });
+            return resp.tasks || [];
+        } catch (err) {
+            Utils.showError("Failed to load tasks");
+            return [];
+        }
+    }
 
-Codex must always default to:
-**Consistency > Creativity. Structure > Novelty. Determinism > Cleverness.**
+    function bind(container, tasks) {
+        tasks.forEach((task) => {
+            const row = container.querySelector(`[data-task-id="${task.id}"]`);
+            const delBtn = row.querySelector(".btn-delete");
+
+            delBtn.addEventListener("click", (evt) => {
+                evt.stopPropagation();
+                Utils.withButtonLoading(delBtn, async () => {
+                    await API.api("DELETE", `/api/tasks/${task.id}`, null, { action: "delete task" });
+                    Utils.showToast("Deleted", "success");
+                    Pages.Tasks.render(container);
+                });
+            });
+        });
+    }
+
+    async function render(container) {
+        if (!container) return;
+
+        container.innerHTML = `<div class="card">Loading...</div>`;
+        const tasks = await loadTasks();
+
+        container.innerHTML = tasks.map(t => `
+            <div class="task-row" data-task-id="${t.id}">
+                <span>${t.id}</span>
+                <button class="btn-delete">Delete</button>
+            </div>
+        `).join("");
+
+        bind(container, tasks);
+    }
+
+    Pages.Tasks = { render };
+
+})(window.Pages, window.API, window.Utils);
+```
 
 ---
 
-```
-```
+# 12. Closing: Why This Solves the Drift Problem
+
+This expanded playbook:
+- Enforces deterministic UI patterns
+- Prevents Codex from making silent architectural changes
+- Provides step-by-step dead-button debugging
+- Adds authoritative references
+- Provides high-fidelity JS patterns that avoid drift
+- Gives you reproducible Puppeteer tests that *actually detect missing listeners*
+- Provides end-to-end working code samples
+
+SparkQ’s UI will stop decaying into “looks fine, does nothing.”
+
