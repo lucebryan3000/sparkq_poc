@@ -1371,13 +1371,15 @@
     }
 
     const modalTitle = document.getElementById('modal-title');
+    const modalSubtitle = document.querySelector('.modal-subtitle');
     const promptIdInput = document.getElementById('prompt-id');
     const commandInput = document.getElementById('prompt-command');
     const labelInput = document.getElementById('prompt-label');
     const descriptionInput = document.getElementById('prompt-description');
     const templateInput = document.getElementById('prompt-template');
 
-    if (modalTitle) modalTitle.textContent = 'Edit Prompt';
+    if (modalTitle) modalTitle.textContent = 'Edit Quick Prompt';
+    if (modalSubtitle) modalSubtitle.textContent = `Editing: ${prompt.label}`;
     if (promptIdInput) promptIdInput.value = prompt.id || '';
     if (commandInput) commandInput.value = prompt.command || '';
     if (labelInput) labelInput.value = prompt.label || '';
@@ -1436,15 +1438,17 @@
       await renderConfigPage(container);
     },
 
-    showPromptModal() {
+    showPromptModal(isEdit = false) {
       const { modal, dialog } = getPromptModalElements();
       const form = document.getElementById('prompt-form');
       const modalTitle = document.getElementById('modal-title');
 
-      // Reset form for new prompt
-      if (form) form.reset();
-      if (modalTitle) modalTitle.textContent = 'New Prompt';
-      document.getElementById('prompt-id').value = '';
+      // Only reset form for new prompts (not for edits)
+      if (!isEdit) {
+        if (form) form.reset();
+        if (modalTitle) modalTitle.textContent = 'New Quick Prompt';
+        document.getElementById('prompt-id').value = '';
+      }
 
       lastFocusedElement = document.activeElement;
 
@@ -1541,7 +1545,7 @@
 
     async editPrompt(promptId) {
       await loadPromptIntoForm(promptId);
-      Pages.Config.showPromptModal();
+      Pages.Config.showPromptModal(true);
     },
 
     async deletePrompt(promptId) {
