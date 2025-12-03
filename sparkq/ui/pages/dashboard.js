@@ -735,9 +735,16 @@ let toolNameCache = null;
         return;
       }
 
-      // Prompt user for a friendly queue name using the shared modal
+      // Prompt user for a friendly queue name using the shared in-app modal
       const defaultName = `Queue ${new Date().toISOString().substring(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-6)}`;
-      let baseName = await promptValue('New Queue', 'Enter a queue name:', defaultName);
+      const promptFn = Utils?.showPrompt;
+      let baseName = null;
+      if (typeof promptFn === 'function') {
+        baseName = await promptFn('New Queue', 'Enter a queue name:', defaultName);
+      } else {
+        // As a last resort, fall back to native prompt to avoid blocking creation
+        baseName = typeof window.prompt === 'function' ? window.prompt('Enter a queue name:', defaultName) : defaultName;
+      }
       if (!baseName || !baseName.trim()) {
         Utils.showToast('Queue creation cancelled', 'info');
         return;
