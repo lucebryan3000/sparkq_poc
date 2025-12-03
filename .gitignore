@@ -20,6 +20,7 @@ sparkq/logs/
 sparkq/tests/logs/
 sparkq.lock                        # Server lockfile (contains PID)
 sparkq.yml                         # Runtime config (generated from sparkq.yml.example)
+sparkq/data/backups/               # Auto-generated database backups
 
 # Node.js - track package-lock for reproducible installs (private repo)
 node_modules/
