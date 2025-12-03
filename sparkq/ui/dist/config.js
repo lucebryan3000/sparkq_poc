@@ -14,7 +14,6 @@
     automation: loadAutomationTab,
     prompts: loadPromptsTab,
     scripts: loadScriptsTab,
-    enqueue: loadEnqueueTab,
     'agent-roles': loadAgentRolesTab,
     advanced: loadAdvancedTab,
   };
@@ -125,9 +124,6 @@
         </button>
         <button type="button" id="scripts-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="scripts" tabindex="-1">
           Scripts
-        </button>
-        <button type="button" id="enqueue-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="enqueue" tabindex="-1">
-          Enqueue
         </button>
         <button type="button" id="agent-roles-tab" class="tab-btn config-tab" role="tab" aria-selected="false" aria-controls="tab-content" data-tab-target="agent-roles" tabindex="-1">
           Agent Roles
@@ -1066,27 +1062,6 @@
     `;
   }
 
-  async function loadEnqueueTab(container) {
-    const tabContent = container.querySelector('#tab-content');
-    if (!tabContent) return;
-
-    if (Utils.injectEnqueueStyles) {
-      Utils.injectEnqueueStyles();
-    }
-
-    const enqueuePage = Pages.Enqueue;
-    if (enqueuePage && typeof enqueuePage.render === 'function') {
-      await enqueuePage.render(tabContent);
-      return;
-    }
-
-    tabContent.innerHTML = `
-      <div class="card">
-        <p class="muted">Enqueue module not available.</p>
-      </div>
-    `;
-  }
-
   async function loadAgentRolesTab(container) {
     const tabContent = container.querySelector('#tab-content');
     if (!tabContent) return;
@@ -1339,6 +1314,13 @@
       ? `<p class="prompt-description muted">${formatValue(prompt.description, '')}</p>`
       : '';
 
+    const active = Boolean(prompt?.active !== 0);
+    const badgeLabel = active ? 'Active' : 'Inactive';
+    const toggleLabel = active ? 'Deactivate' : 'Activate';
+    const badgeStyle = active
+      ? 'background: rgba(46, 204, 113, 0.15); color: var(--success, #198754);'
+      : 'background: var(--muted); color: var(--subtle);';
+
     return `
       <div class="prompt-item">
         <div class="prompt-item-main">
@@ -1350,6 +1332,8 @@
           </div>
         </div>
         <div class="prompt-actions">
+          <span style="padding:4px 10px; border-radius:999px; font-size:12px; font-weight:700; ${badgeStyle}">${badgeLabel}</span>
+          <button type="button" class="button secondary prompt-toggle-btn" data-prompt-id="${prompt.id}" data-active="${active ? 'true' : 'false'}" style="padding:6px 12px;">${toggleLabel}</button>
           <button type="button" class="edit-prompt-btn button secondary" data-prompt-id="${prompt.id}">
             Edit
           </button>
@@ -1362,11 +1346,18 @@
   }
 
   async function loadPromptIntoForm(promptId) {
-    let prompt = null;
+    let response = null;
     try {
-      prompt = await api('GET', `/api/prompts/${promptId}`, null, { action: 'load prompt details' });
+      response = await api('GET', `/api/prompts/${promptId}`, null, { action: 'load prompt details' });
     } catch (err) {
       showError(`Failed to load prompt: ${err.message || err}`, err);
+      return;
+    }
+
+    // API returns {"prompt": {...}} wrapper
+    const prompt = response.prompt;
+    if (!prompt) {
+      showError('Invalid prompt data received from server');
       return;
     }
 
@@ -1567,9 +1558,19 @@
       }
     },
 
+    async updatePromptStatus(promptId, active) {
+      try {
+        await api('PUT', `/api/prompts/${promptId}`, { active }, { action: 'update prompt status' });
+      } catch (err) {
+        showError(`Failed to update prompt status: ${err.message || err}`, err);
+        throw err;
+      }
+    },
+
     attachPromptHandlers() {
       const editBtns = document.querySelectorAll('.edit-prompt-btn');
       const deleteBtns = document.querySelectorAll('.delete-prompt-btn');
+      const toggleBtns = document.querySelectorAll('.prompt-toggle-btn');
 
       editBtns.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1582,6 +1583,23 @@
         btn.addEventListener('click', () => {
           const promptId = btn.getAttribute('data-prompt-id');
           Pages.Config.deletePrompt(promptId);
+        });
+      });
+
+      toggleBtns.forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const promptId = btn.getAttribute('data-prompt-id');
+          const currentActive = btn.getAttribute('data-active') === 'true';
+          try {
+            await Pages.Config.updatePromptStatus(promptId, !currentActive);
+            Utils.showToast(!currentActive ? 'Prompt activated' : 'Prompt deactivated', 'success', 2500);
+            const container = getSettingsContainer();
+            if (container) {
+              await setActiveTab(container, 'prompts', { forceReload: true });
+            }
+          } catch (err) {
+            showError(`Failed to update prompt status: ${err.message || err}`, err);
+          }
         });
       });
     },

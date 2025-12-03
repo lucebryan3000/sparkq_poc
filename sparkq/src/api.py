@@ -860,6 +860,7 @@ class PromptUpdateRequest(BaseModel):
     label: Optional[str] = None
     template_text: Optional[str] = None
     description: Optional[str] = None
+    active: Optional[bool] = None
 
 
 class AgentRoleCreateRequest(BaseModel):
@@ -1975,6 +1976,7 @@ def update_prompt(prompt_id: str, request: PromptUpdateRequest):
         and request.label is None
         and request.template_text is None
         and request.description is None
+        and request.active is None
     ):
         raise HTTPException(status_code=400, detail="No fields provided to update prompt")
 
@@ -1999,6 +2001,7 @@ def update_prompt(prompt_id: str, request: PromptUpdateRequest):
             label=label,
             template_text=template_text,
             description=description,
+            active=request.active,
         )
     except SparkQError as exc:
         raise HTTPException(status_code=_status_code_for_error(exc), detail=str(exc)) from exc

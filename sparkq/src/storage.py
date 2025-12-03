@@ -265,6 +265,9 @@ class Storage:
                 """
             )
 
+            # Ensure active column exists on prompts table (for Active/Inactive status)
+            _ensure_column("prompts", "active", "INTEGER DEFAULT 1")
+
             # Create prompt index
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_prompts_command ON prompts(command)"
@@ -1848,6 +1851,7 @@ class Storage:
         label: str = None,
         template_text: str = None,
         description: str = None,
+        active: bool = None,
     ) -> dict:
         import re
 
@@ -1884,6 +1888,10 @@ class Storage:
             if description is not None:
                 updates.append("description = ?")
                 params.append(description)
+
+            if active is not None:
+                updates.append("active = ?")
+                params.append(1 if active else 0)
 
             now = now_iso()
             updates.append("updated_at = ?")
