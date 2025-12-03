@@ -36,6 +36,8 @@ Database & Config:
   setup                  Interactive setup (create sparkq.yml + database)
   teardown               Clean removal of all SparkQueue artifacts (database, config, logs)
   reload                 Reload configuration and script index
+  backup-list            List all database backups (last 3 versions kept automatically)
+  backup-restore <N>     Restore database from backup (N=1 is most recent)
 
 UI:
   sync-ui                Sync UI source files from components/pages/core/utils to dist/
@@ -138,9 +140,20 @@ stop_service_monitor() {
   echo -e "${GREEN}Service monitoring disabled${NC}"
 }
 
+# Database backup function
+backup_database() {
+  "$SCRIPT_DIR/sparkq/scripts/backup_database.sh"
+}
+
 # Main dispatcher
 main() {
   ensure_venv
+
+  # Backup database before running (but not for all commands)
+  # Only backup for server commands that might modify the database
+  if [[ "${1:-}" == "run" ]] || [[ "${1:-}" == "start" ]]; then
+    backup_database
+  fi
 
   # Source venv
   source "$VENV_DIR/bin/activate"
@@ -157,6 +170,7 @@ fi
 
 # Handle convenience aliases
 if [[ "${1:-}" == "start" ]]; then
+  backup_database
   shift
   set -- run --background "$@"
 fi
@@ -169,6 +183,7 @@ if [[ "${1:-}" == "restart" ]]; then
   echo "Waiting 5 seconds before restart..."
   sleep 5
   echo "Starting server..."
+  backup_database
   set -- run --background
   main "$@"
   exit $?
@@ -195,6 +210,17 @@ fi
 if [[ "${1:-}" == "sync-ui" ]]; then
   shift
   exec "$SCRIPT_DIR/sparkq/ui/scripts/sync-dist.sh" "$@"
+fi
+
+# Handle database backup commands (doesn't need venv)
+if [[ "${1:-}" == "backup-list" ]]; then
+  shift
+  exec "$SCRIPT_DIR/sparkq/scripts/restore_database.sh" list "$@"
+fi
+
+if [[ "${1:-}" == "backup-restore" ]]; then
+  shift
+  exec "$SCRIPT_DIR/sparkq/scripts/restore_database.sh" restore "$@"
 fi
 
 # Full test suite helper
