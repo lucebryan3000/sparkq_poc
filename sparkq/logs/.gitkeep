@@ -1,0 +1,3 @@
+# SparkQ log files directory
+# Log files are written here by the CLI and server
+# Contents are git-ignored except this .gitkeep

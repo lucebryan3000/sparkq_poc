@@ -226,7 +226,7 @@ def setup():
             "older_than_days": 3,
         },
         "sparkq_scripts_dir": sparkq_scripts_dir,
-        "project_script_dirs": project_script_dirs if project_script_dirs else ["scripts"],
+        "script_dirs": project_script_dirs if project_script_dirs else ["scripts"],
         "task_classes": {
             "FAST_SCRIPT": {"timeout": fast_timeout},
             "MEDIUM_SCRIPT": {"timeout": medium_timeout},
