@@ -27,20 +27,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "[1/6] Ensuring virtualenv..."
+echo "[1/9] Ensuring virtualenv..."
 if [[ ! -d "$ROOT/.venv" ]]; then
   python -m venv .venv
 fi
 source .venv/bin/activate
 
-echo "[2/6] Installing runtime dependencies..."
+echo "[2/9] Installing runtime dependencies..."
 pip install --upgrade pip
 pip install -r sparkq/requirements.txt
 
-echo "[3/6] Installing test dependencies (pytest)..."
+echo "[3/9] Installing test dependencies (pytest)..."
 pip install -r sparkq/requirements-test.txt
 
-echo "[4/6] Seeding config..."
+echo "[4/9] Seeding config..."
 EXAMPLE_PATH="$SCRIPT_DIR/sparkq.yml.example"
 if [[ "$UPDATE_EXAMPLES" == true ]]; then
   if [[ -f "$ROOT/sparkq.yml" ]]; then
@@ -58,7 +58,7 @@ else
   fi
 fi
 
-echo "[5/6] Seeding .env (optional)..."
+echo "[5/9] Seeding .env (optional)..."
 ENV_EXAMPLE="$SCRIPT_DIR/.env.example"
 if [[ "$UPDATE_EXAMPLES" == true ]]; then
   if [[ -f "$ROOT/.env" ]]; then
@@ -76,8 +76,62 @@ else
   fi
 fi
 
-echo "[6/6] Ensuring data/log directories..."
-mkdir -p sparkq/data sparkq/logs
+echo "[6/9] Seeding .gitignore..."
+GITIGNORE_EXAMPLE="$SCRIPT_DIR/.gitignore.example"
+if [[ "$UPDATE_EXAMPLES" == true ]]; then
+  if [[ -f "$ROOT/.gitignore" ]]; then
+    cp "$ROOT/.gitignore" "$GITIGNORE_EXAMPLE"
+    echo "  Updated .gitignore.example from current .gitignore"
+  else
+    echo "  No .gitignore to update example from; skipping"
+  fi
+else
+  if [[ -f "$GITIGNORE_EXAMPLE" && ! -f "$ROOT/.gitignore" ]]; then
+    cp "$GITIGNORE_EXAMPLE" "$ROOT/.gitignore"
+    echo "  Created .gitignore from template."
+  else
+    echo "  .gitignore already present or no template found; leaving as is."
+  fi
+fi
+
+echo "[7/9] Seeding .claudeignore..."
+CLAUDEIGNORE_EXAMPLE="$SCRIPT_DIR/.claudeignore.example"
+if [[ "$UPDATE_EXAMPLES" == true ]]; then
+  if [[ -f "$ROOT/.claudeignore" ]]; then
+    cp "$ROOT/.claudeignore" "$CLAUDEIGNORE_EXAMPLE"
+    echo "  Updated .claudeignore.example from current .claudeignore"
+  else
+    echo "  No .claudeignore to update example from; skipping"
+  fi
+else
+  if [[ -f "$CLAUDEIGNORE_EXAMPLE" && ! -f "$ROOT/.claudeignore" ]]; then
+    cp "$CLAUDEIGNORE_EXAMPLE" "$ROOT/.claudeignore"
+    echo "  Created .claudeignore from template."
+  else
+    echo "  .claudeignore already present or no template found; leaving as is."
+  fi
+fi
+
+echo "[8/9] Ensuring data/log/tools directories..."
+mkdir -p sparkq/data sparkq/logs sparkq/scripts/tools
+
+echo "[9/9] Seeding example tool scripts..."
+TOOLS_EXAMPLE_DIR="$SCRIPT_DIR/tools"
+TOOLS_TARGET_DIR="$ROOT/sparkq/scripts/tools"
+if [[ -d "$TOOLS_EXAMPLE_DIR" ]]; then
+  for example_file in "$TOOLS_EXAMPLE_DIR"/*.example; do
+    [[ -f "$example_file" ]] || continue
+    base_name="$(basename "$example_file" .example)"
+    target_file="$TOOLS_TARGET_DIR/$base_name"
+    if [[ ! -f "$target_file" ]]; then
+      cp "$example_file" "$target_file"
+      chmod +x "$target_file"
+      echo "  Created $base_name from template."
+    fi
+  done
+else
+  echo "  No example tools directory found; skipping."
+fi
 
 echo "[init] Ensuring requirements example..."
 REQ_EXAMPLE="$SCRIPT_DIR/requirements.txt.example"

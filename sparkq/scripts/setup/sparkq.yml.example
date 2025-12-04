@@ -1,6 +1,10 @@
+# SparkQ Configuration Template
+# Copy to sparkq.yml and customize for your project
+# Generated files are git-ignored; this example is tracked
+
 project:
-  name: sparkq-local
-  repo_path: .
+  name: sparkq-local           # Change to your project name
+  repo_path: .                 # Repository root path
 
 server:
   host: 0.0.0.0
@@ -18,10 +22,15 @@ database:
 purge:
   older_than_days: 3
 
+# Internal SparkQ scripts directory
 sparkq_scripts_dir: sparkq/scripts
-project_script_dirs:
-  - scripts
 
+# Project script directories to index (relative to repo root)
+# Add your own directories here; sparkq/scripts/tools is the default
+script_dirs:
+  - sparkq/scripts/tools
+
+# Task class timeout definitions (seconds)
 task_classes:
   FAST_SCRIPT:
     timeout: 120
@@ -32,6 +41,7 @@ task_classes:
   LLM_HEAVY:
     timeout: 1200
 
+# Available tools and their task classes
 tools:
   run-bash:
     description: Bash script
@@ -58,10 +68,11 @@ tools:
 queue_runner:
   poll_interval: 30
   auto_fail_interval_seconds: 30
-  base_url: null
+  base_url: http://localhost:5005  # API base URL
 
 features:
   flags: {}
 
 defaults:
   queue: {}
+  model: llm-sonnet             # Default model for queue tasks

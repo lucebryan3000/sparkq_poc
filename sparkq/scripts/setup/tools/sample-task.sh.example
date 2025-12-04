@@ -1,0 +1,23 @@
+#!/bin/bash
+# name: sample-task
+# description: Sample bash script demonstrating SparkQ metadata format
+# tags: sample, template
+# task_class: FAST_SCRIPT
+
+# SparkQ Script Template
+# ----------------------
+# Metadata fields (in comments at top of file):
+#   name:        Script identifier (required)
+#   description: What the script does (required)
+#   tags:        Comma-separated categories (optional)
+#   task_class:  Timeout tier - FAST_SCRIPT, MEDIUM_SCRIPT, LLM_LITE, LLM_HEAVY (optional)
+#   inputs:      Expected arguments (optional)
+#   outputs:     Key-value outputs printed to stdout (optional)
+#   timeout:     Custom timeout in seconds (optional, overrides task_class)
+
+echo "Sample task running..."
+
+# Output format for structured results:
+# Print key: value pairs for outputs that can be parsed
+echo "status: success"
+echo "message: Sample task completed"

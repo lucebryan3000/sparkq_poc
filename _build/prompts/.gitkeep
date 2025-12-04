@@ -1,0 +1,2 @@
+# This directory holds Markdown prompt files for the build-prompts API endpoint.
+# Add .md files here to make them available via GET /api/build-prompts

@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+# name: run-tests
+# description: Example Python script demonstrating SparkQ metadata format.
+#              Runs project tests with optional coverage reporting.
+# inputs: test_pattern (optional), min_coverage (optional)
+# outputs: coverage_percent, failed_tests, report_path
+# tags: test, ci, quality
+# timeout: 300
+# task_class: MEDIUM_SCRIPT
+
+"""
+SparkQ Python Script Template
+-----------------------------
+Metadata fields (in comments at top of file):
+  name:        Script identifier (required)
+  description: What the script does (required, can be multi-line)
+  tags:        Comma-separated categories (optional)
+  task_class:  Timeout tier - FAST_SCRIPT, MEDIUM_SCRIPT, LLM_LITE, LLM_HEAVY
+  inputs:      Expected command-line arguments (optional)
+  outputs:     Key-value outputs printed to stdout (optional)
+  timeout:     Custom timeout in seconds (optional, overrides task_class)
+"""
+
+import sys
+import subprocess
+
+
+def main():
+    # Parse optional arguments
+    test_pattern = sys.argv[1] if len(sys.argv) > 1 else "test_*.py"
+    min_coverage = int(sys.argv[2]) if len(sys.argv) > 2 else 80
+
+    print(f"Running tests matching: {test_pattern}")
+    print(f"Minimum coverage: {min_coverage}%")
+
+    # Your test execution logic here...
+    # Example: subprocess.run(["pytest", "-v", test_pattern])
+
+    # Output format for structured results:
+    # Print key: value pairs that can be parsed by SparkQ
+    print("coverage_percent: 85")
+    print("failed_tests: 0")
+    print("report_path: htmlcov/index.html")
+
+
+if __name__ == "__main__":
+    main()

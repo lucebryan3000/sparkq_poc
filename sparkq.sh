@@ -1,6 +1,6 @@
 #!/bin/bash
 # SparkQ Runner - Python CLI wrapper
-# Note: python-bootstrap (./python-bootstrap/bootstrap.sh) is the recommended setup method
+# Run ./sparkq.sh setup to initialize the environment
 # This script provides convenient direct access to SparkQ CLI after venv is set up
 
 set -euo pipefail
@@ -86,9 +86,9 @@ EOF
 ensure_venv() {
   if [[ ! -d "$VENV_DIR" ]]; then
     echo -e "${RED}Error: Virtual environment not found at $VENV_DIR${NC}"
-    echo -e "${YELLOW}Setup required. Run bootstrap first:${NC}"
-    echo "  ./python-bootstrap/bootstrap.sh"
-    echo -e "${YELLOW}For details, see: python-bootstrap/README.md${NC}"
+    echo -e "${YELLOW}Setup required. Run:${NC}"
+    echo "  ./sparkq.sh setup"
+    echo -e "${YELLOW}Or directly: ./sparkq/scripts/setup/setup.sh${NC}"
     exit 1
   fi
 }
@@ -198,6 +198,12 @@ fi
 if [[ "${1:-}" == "--service-off" ]]; then
   stop_service_monitor
   exit 0
+fi
+
+# Handle setup separately (creates venv, so doesn't need it first)
+if [[ "${1:-}" == "setup" ]]; then
+  shift
+  exec "$SCRIPT_DIR/sparkq/scripts/setup/setup.sh" "$@"
 fi
 
 # Handle teardown separately (doesn't need venv)
