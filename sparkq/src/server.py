@@ -152,9 +152,6 @@ def start_auto_fail(storage, check_interval=30):
         storage: Storage instance
         check_interval: Seconds between checks (default 30)
     """
-    import threading
-    import time
-
     def auto_fail_loop():
         while True:
             try:

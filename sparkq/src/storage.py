@@ -637,7 +637,6 @@ class Storage:
 
     def get_llm_sessions(self, queue_id: str) -> Optional[dict]:
         """Retrieve LLM sessions metadata for a queue"""
-        import json
         with self.connection() as conn:
             cursor = conn.execute(
                 "SELECT llm_sessions FROM queues WHERE id = ?",
@@ -650,7 +649,6 @@ class Storage:
 
     def update_llm_session(self, queue_id: str, llm_name: str, session_data: dict) -> None:
         """Update session metadata for a specific LLM in a queue"""
-        import json
         sessions = self.get_llm_sessions(queue_id) or {}
         sessions[llm_name] = {
             **session_data,
