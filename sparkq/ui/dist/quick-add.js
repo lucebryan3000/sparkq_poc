@@ -229,7 +229,7 @@
       const agentRoleSelect = `
         <label for="agent-role-select" class="muted" style="display:block; margin-bottom:6px;">
           Agent Role
-          <a href="http://192.168.1.150:5005/settings?tab=agent-roles"
+          <a href="/settings?tab=agent-roles"
              title="Manage agent roles"
              style="display: inline; margin-left: 4px; text-decoration: none; color: inherit; opacity: 0.6; cursor: pointer; font-size: 14px;">
             ⓘ

@@ -21,6 +21,7 @@ sparkq/logs/
 sparkq/tests/logs/
 sparkq.lock                        # Server lockfile (contains PID)
 sparkq.yml                         # Runtime config (generated from sparkq.yml.example)
+sparkq/data/backups/               # Auto-generated database backups
 
 # Database backups (runtime artifacts)
 sparkq/data/backups/
