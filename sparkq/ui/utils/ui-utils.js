@@ -380,18 +380,18 @@
         }, 60);
       });
 
-      overlay.addEventListener("click", (e) => {
+      overlay.addEventListener('click', (e) => {
         if (e.target === overlay && allowOverlayClose) {
           finish(null);
         }
       });
 
-      document.addEventListener("keydown", handleKeydown);
+      document.addEventListener('keydown', handleKeydown);
     });
   }
 
   function showPrompt(title, message, defaultValue = '', options = {}) {
-    return new Promise((resolve) => {
+    const buildInlinePrompt = () => new Promise((resolve) => {
       const contentEl = document.createElement('div');
 
       const messageEl = document.createElement('p');
@@ -400,66 +400,50 @@
       messageEl.style.margin = '0 0 12px';
       contentEl.appendChild(messageEl);
 
-      const input = document.createElement('input');
-      input.type = options.type || 'text';
+      const input = document.createElement(options.textarea ? 'textarea' : 'input');
+      if (!options.textarea) {
+        input.type = options.type || 'text';
+      }
       input.value = defaultValue;
       input.placeholder = options.placeholder || '';
       input.classList.add('form-control');
       input.style.width = '100%';
       input.style.boxSizing = 'border-box';
       if (options.textarea) {
-        const textarea = document.createElement('textarea');
-        textarea.value = defaultValue;
-        textarea.placeholder = options.placeholder || '';
-        textarea.rows = options.rows || 4;
-        textarea.classList.add('form-control');
-        textarea.style.width = '100%';
-        textarea.style.boxSizing = 'border-box';
-        textarea.style.minHeight = '100px';
-        textarea.style.fontFamily = 'ui-monospace, monospace';
-        textarea.style.lineHeight = '1.5';
-        contentEl.appendChild(textarea);
-      } else {
-        contentEl.appendChild(input);
+        input.rows = options.rows || 4;
+        input.style.minHeight = '100px';
+        input.style.fontFamily = 'ui-monospace, monospace';
+        input.style.lineHeight = '1.5';
       }
+      contentEl.appendChild(input);
 
-      const getValue = () => {
-        if (options.textarea) {
-          const textareaEl = contentEl.querySelector('textarea');
-          return textareaEl ? textareaEl.value : '';
-        }
-        return input.value;
-      };
+      const getValue = () => input.value;
 
       const buttons = [
-        {
-          label: 'Cancel',
-          value: null,
-        },
-        {
-          label: 'OK',
-          primary: true,
-          value: getValue,
-        }
+        { label: 'Cancel', value: null },
+        { label: 'OK', primary: true, value: getValue },
       ];
 
-      showModal(title, contentEl, buttons).then((result) => {
-        resolve(result ?? null);
-      });
+      showModal(title, contentEl, buttons).then((result) => resolve(result ?? null));
 
-      // Focus input
       setTimeout(() => {
-        const inputEl = options.textarea ? contentEl.querySelector('textarea') : input;
-        inputEl.focus();
+        input.focus();
         if (!options.textarea) {
-          inputEl.select();
+          input.select();
         }
-      }, 100);
+      }, 60);
     });
+
+    try {
+      return buildInlinePrompt();
+    } catch (err) {
+      console.error('[Utils] showPrompt failed, using inline fallback', err);
+      return Promise.resolve(defaultValue ?? null);
+    }
   }
 
   function showConfirm(title, message, options = {}) {
-    return new Promise((resolve) => {
+    const buildConfirm = () => new Promise((resolve) => {
       const buttons = [
         {
           label: options.cancelLabel || 'Cancel',
@@ -475,6 +459,25 @@
       showModal(title, message, buttons).then((result) => {
         resolve(Boolean(result));
       });
+    });
+
+    try {
+      return buildConfirm();
+    } catch (err) {
+      console.error('[Utils] showConfirm failed, defaulting to false', err);
+      return Promise.resolve(false);
+    }
+  }
+
+  function showInstructionsDialog(queueName = '', currentValue = '', options = {}) {
+    const title = options.title || (queueName ? `Queue Instructions for ${queueName}` : 'Queue Instructions');
+    const message = options.message || 'Enter instructions for this queue (context, guardrails, scope):';
+    const placeholder = options.placeholder || 'e.g., Project context, coding standards, scope boundaries, guardrails...';
+    const rows = options.rows || 10;
+    return showPrompt(title, message, currentValue || '', {
+      textarea: true,
+      rows,
+      placeholder,
     });
   }
 
@@ -569,6 +572,7 @@
   window.Utils.showModal = showModal;
   window.Utils.showPrompt = showPrompt;
   window.Utils.showConfirm = showConfirm;
+  window.Utils.showInstructionsDialog = showInstructionsDialog;
   window.Utils.AutoRefresh = AutoRefresh;
 
 })(window);

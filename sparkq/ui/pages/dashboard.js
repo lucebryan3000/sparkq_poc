@@ -123,124 +123,6 @@
     return clean.length > 80 ? `${clean.slice(0, 80)}…` : clean;
   }
 
-  // Use the shared modal utilities with a native fallback
-  async function promptValue(title, message, defaultValue = '', options = {}) {
-    if (typeof Utils?.showPrompt === 'function' && !Utils.showPrompt.__fallback) {
-      try {
-        return await Utils.showPrompt(title, message, defaultValue, options);
-      } catch (err) {
-        console.warn('[Dashboard] showPrompt failed, falling back to inline modal', err);
-      }
-    }
-    // Inline minimal modal prompt
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.className = 'modal modal-overlay';
-      overlay.style.opacity = '0';
-
-      const modal = document.createElement('div');
-      modal.className = 'modal-content';
-      modal.setAttribute('role', 'dialog');
-      modal.setAttribute('aria-modal', 'true');
-      modal.style.transform = 'scale(0.95)';
-      modal.tabIndex = -1;
-
-      const header = document.createElement('div');
-      header.className = 'modal-header';
-      const titleEl = document.createElement('h2');
-      titleEl.className = 'modal-title';
-      titleEl.textContent = title || 'Input';
-      const closeBtn = document.createElement('button');
-      closeBtn.type = 'button';
-      closeBtn.className = 'modal-close-button';
-      closeBtn.setAttribute('aria-label', 'Close dialog');
-      closeBtn.innerHTML = '&times;';
-      header.append(titleEl, closeBtn);
-
-      const body = document.createElement('div');
-      body.className = 'modal-body';
-      const msg = document.createElement('p');
-      msg.className = 'muted';
-      msg.style.margin = '0 0 12px';
-      msg.textContent = message || '';
-      const input = document.createElement(options.textarea ? 'textarea' : 'input');
-      if (!options.textarea) {
-        input.type = options.type || 'text';
-      }
-      input.className = 'form-control';
-      input.value = defaultValue || '';
-      input.placeholder = options.placeholder || '';
-      input.style.width = '100%';
-      input.style.boxSizing = 'border-box';
-      body.append(msg, input);
-
-      const footer = document.createElement('div');
-      footer.className = 'modal-footer';
-      const actions = document.createElement('div');
-      actions.className = 'modal-actions';
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'button secondary';
-      cancelBtn.textContent = 'Cancel';
-      const okBtn = document.createElement('button');
-      okBtn.className = 'button primary';
-      okBtn.textContent = 'OK';
-      actions.append(cancelBtn, okBtn);
-      footer.appendChild(actions);
-
-      modal.append(header, body, footer);
-      overlay.appendChild(modal);
-      document.body.appendChild(overlay);
-
-      let allowOverlayClose = false;
-      const cleanup = (val) => {
-        overlay.classList.remove('visible');
-        modal.style.transform = 'scale(0.95)';
-        setTimeout(() => overlay.remove(), 200);
-        resolve(val);
-      };
-
-      closeBtn.addEventListener('click', () => cleanup(null));
-      cancelBtn.addEventListener('click', () => cleanup(null));
-      okBtn.addEventListener('click', () => cleanup(input.value));
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay && allowOverlayClose) {
-          cleanup(null);
-        }
-      });
-      modal.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          cleanup(null);
-        }
-        if (e.key === 'Enter' && e.target !== input && !options.textarea) {
-          e.preventDefault();
-          cleanup(input.value);
-        }
-      });
-
-      requestAnimationFrame(() => {
-        overlay.classList.add('visible');
-        modal.style.transform = 'scale(1)';
-        input.focus();
-        input.select();
-        setTimeout(() => {
-          allowOverlayClose = true;
-        }, 60);
-      });
-    });
-  }
-
-  async function confirmValue(title, message, options = {}) {
-    if (typeof Utils?.showConfirm === 'function') {
-      try {
-        return await Utils.showConfirm(title, message, options);
-      } catch (err) {
-        console.warn('[Dashboard] showConfirm failed, falling back to window.confirm', err);
-      }
-    }
-    return typeof window.confirm === 'function' ? window.confirm(message || '') : false;
-  }
-
 let toolNameCache = null;
 
   function prettifyToolName(name) {
@@ -622,12 +504,12 @@ let toolNameCache = null;
       if (!resolvedId) return;
       const queue = this.getQueueFromCache(resolvedId);
       const queueName = queue?.name || queue?.id || 'Queue';
-      const newName = await promptValue('Edit Queue', 'Queue name:', queueName);
+      const newName = await Utils.showPrompt('Edit Queue', 'Queue name:', queueName);
       if (!newName || !newName.trim()) {
         return;
       }
 
-      const instructions = await promptValue('Queue Instructions', 'Enter queue instructions (optional):', '', { textarea: true });
+      const instructions = await Utils.showPrompt('Queue Instructions', 'Enter queue instructions (optional):', '', { textarea: true });
 
       try {
         const payload = {};
@@ -654,7 +536,7 @@ let toolNameCache = null;
       if (!resolvedId) return;
       const queue = this.getQueueFromCache(resolvedId);
       const queueName = queue?.name || queue?.id || 'Queue';
-      const confirmed = await confirmValue('Archive Queue', `Archive "${queueName}"?`);
+      const confirmed = await Utils.showConfirm('Archive Queue', `Archive "${queueName}"?`);
       if (!confirmed) return;
 
       try {
@@ -672,7 +554,7 @@ let toolNameCache = null;
       if (!resolvedId) return;
       const queue = this.getQueueFromCache(resolvedId);
       const queueName = queue?.name || queue?.id || 'Queue';
-      const confirmed = await confirmValue('Delete Queue', `Are you sure you want to delete "${queueName}"? This cannot be undone.`);
+      const confirmed = await Utils.showConfirm('Delete Queue', `Are you sure you want to delete "${queueName}"? This cannot be undone.`);
       if (!confirmed) return;
 
       try {
@@ -716,7 +598,7 @@ let toolNameCache = null;
       const currentSession = (this.sessionsCache || []).find((s) => s.id === sessionId);
       if (!currentSession) return;
 
-      const newName = await promptValue('Rename Session', 'Enter new session name:', currentSession.name || '');
+      const newName = await Utils.showPrompt('Rename Session', 'Enter new session name:', currentSession.name || '');
       if (!newName || !newName.trim()) return;
 
       try {
@@ -736,7 +618,7 @@ let toolNameCache = null;
       const currentSession = (this.sessionsCache || []).find((s) => s.id === sessionId);
       if (!currentSession) return;
 
-      const confirmed = await confirmValue('Delete Session', `Are you sure you want to delete "${currentSession.name || currentSession.id}"? This cannot be undone.`);
+      const confirmed = await Utils.showConfirm('Delete Session', `Are you sure you want to delete "${currentSession.name || currentSession.id}"? This cannot be undone.`);
       if (!confirmed) return;
 
       try {
@@ -833,12 +715,14 @@ let toolNameCache = null;
       // Prompt user for a friendly queue name using the shared in-app modal
       const defaultName = `Queue ${new Date().toISOString().substring(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-6)}`;
       const promptFn = Utils?.showPrompt;
-      let baseName = null;
-      if (typeof promptFn === 'function') {
-        baseName = await promptFn('New Queue', 'Enter a queue name:', defaultName);
-      } else {
-        // As a last resort, fall back to native prompt to avoid blocking creation
-        baseName = typeof window.prompt === 'function' ? window.prompt('Enter a queue name:', defaultName) : defaultName;
+      let baseName = defaultName;
+      try {
+        baseName = typeof promptFn === 'function'
+          ? await promptFn('New Queue', 'Enter a queue name:', defaultName)
+          : defaultName;
+      } catch (err) {
+        console.error('[Dashboard] showPrompt failed for queue name, using default', err);
+        baseName = defaultName;
       }
       if (!baseName || !baseName.trim()) {
         Utils.showToast('Queue creation cancelled', 'info');
@@ -863,7 +747,7 @@ let toolNameCache = null;
           const message = (err?.message || '').toLowerCase();
           if (message.includes('unique') || message.includes('exists')) {
             const suggestion = `${baseName}-${Date.now().toString().slice(-6)}`;
-            const retryName = await promptValue('Queue name exists', 'Enter a different queue name:', suggestion);
+            const retryName = await Utils.showPrompt('Queue name exists', 'Enter a different queue name:', suggestion);
             if (!retryName || !retryName.trim()) {
               Utils.showToast('Queue creation cancelled', 'info');
               return;
@@ -1253,7 +1137,7 @@ let toolNameCache = null;
       if (!taskId) return;
       const task = this.findTaskById(taskId) || { id: taskId, queue_id: queueId };
       const friendly = task?.friendlyLabel || taskId;
-      const confirmed = await confirmValue('Delete Task', `Are you sure you want to delete task ${friendly}? This cannot be undone.`);
+      const confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${friendly}? This cannot be undone.`);
       if (!confirmed) return;
 
       const tasksContainer = document.getElementById('dashboard-tasks');
@@ -1586,7 +1470,7 @@ let toolNameCache = null;
       if (payload.delete) {
         const friendly = task?.friendlyLabel;
         const label = (task?.friendly_id || task.id) + (friendly ? ` (${friendly})` : '');
-        const confirmed = await confirmValue('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
+        const confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
         if (!confirmed) return;
         try {
           await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });

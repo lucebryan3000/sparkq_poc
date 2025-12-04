@@ -450,11 +450,10 @@
         const currentInstructions = queueResponse?.queue?.instructions || '';
 
         // Show modal with textarea
-        const newInstructions = await Utils.showPrompt(
-          `Queue Instructions for ${this.queueName}`,
-          'Enter instructions for this queue (context, guardrails, scope):',
+        const newInstructions = await Utils.showInstructionsDialog(
+          this.queueName,
           currentInstructions,
-          { textarea: true, rows: 10, placeholder: 'e.g., Project context, coding standards, scope boundaries, guardrails...' }
+          { rows: 10 }
         );
 
         // Only update if user didn't cancel and value changed

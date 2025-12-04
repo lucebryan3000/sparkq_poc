@@ -19,6 +19,13 @@
   const queueDetailsCache = {};
   let pageContainerRef = null;
 
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
   async function renderQueuesPage(container) {
     if (!container) {
       return;
@@ -403,15 +410,10 @@
 
     const payload = result;
 
-    if (payload.delete) {
-      const friendly = task?.friendly_id || task.id;
-      const label = friendly;
-      let confirmed = false;
-      try {
-        confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
-      } catch (err) {
-        confirmed = window.confirm(`Are you sure you want to delete task ${label}? This cannot be undone.`);
-      }
+      if (payload.delete) {
+        const friendly = task?.friendly_id || task.id;
+        const label = friendly;
+        const confirmed = await Utils.showConfirm('Delete Task', `Are you sure you want to delete task ${label}? This cannot be undone.`);
       if (!confirmed) return;
       try {
         await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
@@ -439,6 +441,7 @@
     const instructions = queueDetails?.instructions;
 
     if (instructions && instructions.trim()) {
+      const safeInstructions = escapeHtml(instructions).replace(/\n/g, '<br>');
       return `
         <div class="instructions-section">
           <div class="instructions-header">
@@ -446,7 +449,7 @@
             ${!isArchived ? `<button class="button-link" type="button" data-action="queues-edit-instructions">Edit</button>` : ''}
           </div>
           <div class="instructions-content">
-${instructions}</div>
+${safeInstructions}</div>
         </div>
       `;
     } else if (!isArchived) {
@@ -532,12 +535,7 @@ ${instructions}</div>
     try {
       const queueResponse = await api('GET', `/api/queues/${queueId}`, null, { action: 'load queue' });
       const currentInstructions = queueResponse?.queue?.instructions || '';
-      const newInstructions = await Utils.showPrompt(
-        `Queue Instructions for ${queueName}`,
-        'Enter instructions for this queue (context, guardrails, scope):',
-        currentInstructions,
-        { textarea: true, rows: 10, placeholder: 'e.g., Project context, coding standards, scope boundaries, guardrails...' }
-      );
+      const newInstructions = await Utils.showInstructionsDialog(queueName, currentInstructions, { rows: 10 });
 
       if (newInstructions !== null && newInstructions !== currentInstructions) {
         const trimmed = newInstructions.trim();
@@ -801,12 +799,7 @@ ${instructions}</div>
       const tasks = tasksCache[queueId] || [];
       const task = tasks.find((t) => String(t.id) === String(taskId));
       const label = task?.friendly_id || task?.id || taskId;
-      let confirmed = false;
-      try {
-        confirmed = await Utils.showConfirm('Delete Task', `Delete task ${label}? This cannot be undone.`);
-      } catch (_) {
-        confirmed = window.confirm(`Delete task ${label}? This cannot be undone.`);
-      }
+      const confirmed = await Utils.showConfirm('Delete Task', `Delete task ${label}? This cannot be undone.`);
       if (!confirmed) return;
       try {
         await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });

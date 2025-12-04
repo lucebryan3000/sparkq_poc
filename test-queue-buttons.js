@@ -268,13 +268,20 @@ async function runTests() {
     try {
       const modalResult = await page.evaluate(() => {
         return new Promise((resolve) => {
-          window.Utils.showPrompt('Test Prompt', 'Does this work?', 'test')
-            .then((result) => {
-              resolve({ success: true, result, error: null });
-            })
-            .catch((err) => {
-              resolve({ success: false, result: null, error: err.message });
-            });
+          const promptPromise = window.Utils.showPrompt('Test Prompt', 'Does this work?', 'test');
+          setTimeout(() => {
+            const input = document.querySelector('.modal input, .modal textarea');
+            if (input) {
+              input.value = 'automated_modal_value';
+            }
+            const okBtn = document.querySelector('.modal .button.primary');
+            if (okBtn) {
+              okBtn.click();
+            }
+          }, 150);
+          promptPromise
+            .then((result) => resolve({ success: true, result, error: null }))
+            .catch((err) => resolve({ success: false, result: null, error: err.message }));
         });
       });
 
@@ -287,6 +294,36 @@ async function runTests() {
       }
     } catch (err) {
       error(`Modal system test error: ${err.message}`);
+    }
+
+    info('Testing Utils.showInstructionsDialog() helper...');
+    try {
+      const instructionsResult = await page.evaluate(() => {
+        return new Promise((resolve) => {
+          const dialogPromise = window.Utils.showInstructionsDialog('Test Queue', 'Existing instructions');
+          setTimeout(() => {
+            const textarea = document.querySelector('.modal textarea');
+            if (textarea) {
+              textarea.value = 'Updated instructions from test';
+            }
+            const okBtn = document.querySelector('.modal .button.primary');
+            if (okBtn) {
+              okBtn.click();
+            }
+          }, 150);
+          dialogPromise
+            .then((result) => resolve({ success: true, result, error: null }))
+            .catch((err) => resolve({ success: false, result: null, error: err.message }));
+        });
+      });
+
+      if (instructionsResult.success) {
+        success('Instructions dialog returned value successfully');
+      } else {
+        error(`Instructions dialog failed: ${instructionsResult.error}`);
+      }
+    } catch (err) {
+      error(`Instructions dialog test error: ${err.message}`);
     }
 
     // === TEST 4: API TEST ===

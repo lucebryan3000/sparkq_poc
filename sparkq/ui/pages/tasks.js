@@ -268,12 +268,7 @@
     };
 
     const handleDelete = async () => {
-      let confirmed = false;
-      try {
-        confirmed = await Utils.showConfirm('Delete Task', `Delete task ${friendlyLabel}? This cannot be undone.`);
-      } catch (_) {
-        confirmed = window.confirm(`Delete task ${friendlyLabel}? This cannot be undone.`);
-      }
+      const confirmed = await Utils.showConfirm('Delete Task', `Delete task ${friendlyLabel}? This cannot be undone.`);
       if (!confirmed) return;
       try {
         await api('DELETE', `/api/tasks/${encodeURIComponent(task.id)}`, null, { action: 'delete task' });
@@ -656,12 +651,7 @@
         const taskId = btn.dataset.taskId;
         const task = tasks.find((t) => String(t.id) === String(taskId));
         const label = task?.friendly_id || task?.id || taskId;
-        let confirmed = false;
-        try {
-          confirmed = await Utils.showConfirm('Delete Task', `Delete task ${label}? This cannot be undone.`);
-        } catch (_) {
-          confirmed = window.confirm(`Delete task ${label}? This cannot be undone.`);
-        }
+        const confirmed = await Utils.showConfirm('Delete Task', `Delete task ${label}? This cannot be undone.`);
         if (!confirmed) return;
         try {
           await api('DELETE', `/api/tasks/${encodeURIComponent(taskId)}`, null, { action: 'delete task' });

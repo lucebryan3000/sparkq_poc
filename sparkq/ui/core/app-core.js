@@ -841,15 +841,6 @@ function setupKeyboardShortcuts() {
       return;
     }
 
-    // Escape: Close modals (safety net)
-    if (e.key === 'Escape') {
-      document.querySelectorAll('.modal').forEach((modal) => {
-        if (modal && modal.parentNode) {
-          modal.remove();
-        }
-      });
-    }
-
     // Ctrl/Cmd+K: Search/focus (Phase 10)
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
       e.preventDefault();
